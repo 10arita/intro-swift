@@ -179,6 +179,28 @@ struct SoloGame {
         launchSolo(songs: source, playlist: shared ? "共有音源" : "オリジナルデモ")
     }
 
+    func startItunesSolo() {
+        let songs = itunesSongs.filter { $0.playablePreview && !TitleRules.characters($0.title).isEmpty }
+        guard !songs.isEmpty else { alert = "先に試聴曲を検索してください"; return }
+        launchSolo(songs: songs, playlist: "サビトロ · 試聴曲")
+    }
+
+    func startSabitroSolo() async {
+        guard !spotifySongs.isEmpty else { alert = "先にプレイリストを選んでください"; return }
+        guard !busy else { return }
+        busy = true; defer { busy = false }
+        rooms.baseURL = serverURL
+        do {
+            var matches: [Song] = []
+            for song in spotifySongs.shuffled().prefix(10) {
+                if let match = try await rooms.matchItunes(song), match.playablePreview,
+                   !TitleRules.characters(match.title).isEmpty { matches.append(match) }
+            }
+            guard !matches.isEmpty else { alert = "iTunes に一致する試聴曲がありません"; return }
+            launchSolo(songs: matches, playlist: "サビトロ · " + (spotifyPlaylists.first { $0.id == selectedPlaylistID }?.name ?? "Spotify"))
+        } catch { alert = error.localizedDescription }
+    }
+
     func startSpotifySolo() async {
         guard spotifyPremium else { alert = "ひとりで Spotify の音源を再生するには Premium が必要です"; return }
         guard !spotifySongs.isEmpty else { alert = "先にプレイリストを選んでください"; return }

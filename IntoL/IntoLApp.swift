@@ -45,7 +45,7 @@ struct IntoLApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(model)
-                .preferredColorScheme(.dark)
+                .preferredColorScheme(.light)
         }
     }
 }

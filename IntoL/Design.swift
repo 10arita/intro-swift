@@ -1,16 +1,14 @@
-// Hallmark · native app · studio-dark · acid-lime accent
-// Pre-emit critique: philosophy 5, hierarchy 5, execution 4, specificity 5, restraint 4, variety 4.
 import SwiftUI
 enum Studio {
-    static let background = Color(red: 0.055, green: 0.065, blue: 0.075)
-    static let surface = Color(red: 0.105, green: 0.118, blue: 0.130)
-    static let raised = Color(red: 0.155, green: 0.170, blue: 0.180)
-    static let line = Color.white.opacity(0.12)
-    static let primary = Color(red: 0.94, green: 0.95, blue: 0.91)
-    static let secondary = Color(red: 0.59, green: 0.62, blue: 0.62)
-    static let accent = Color(red: 0.84, green: 0.96, blue: 0.45)
-    static let warning = Color(red: 0.98, green: 0.55, blue: 0.42)
-    static let radius: CGFloat = 24
+    static let background = Color(red: 0.99, green: 0.98, blue: 0.98)
+    static let surface = Color.white
+    static let raised = Color(red: 0.97, green: 0.94, blue: 0.94)
+    static let line = Color(red: 0.90, green: 0.85, blue: 0.85)
+    static let primary = Color(red: 0.16, green: 0.12, blue: 0.12)
+    static let secondary = Color(red: 0.39, green: 0.34, blue: 0.34)
+    static let accent = Color(red: 0.73, green: 0.08, blue: 0.13)
+    static let warning = Color(red: 0.62, green: 0.08, blue: 0.12)
+    static let radius: CGFloat = 20
     static let spring = Animation.spring(response: 0.38, dampingFraction: 0.88)
 }
 
@@ -35,16 +33,17 @@ struct PrimaryButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
-                Text(title).font(.system(size: 17, weight: .bold, design: .rounded))
+                Text(title).font(.system(.headline, design: .rounded, weight: .bold))
                 Spacer()
                 Image(systemName: symbol).font(.system(size: 17, weight: .semibold))
             }
-            .foregroundStyle(Studio.background)
+            .foregroundStyle(disabled ? Studio.secondary : .white)
             .padding(.horizontal, 22)
-            .frame(height: 60)
-            .background(disabled ? Studio.secondary : Studio.accent, in: RoundedRectangle(cornerRadius: 19))
+            .frame(minHeight: 60)
+            .background(disabled ? Studio.raised : Studio.accent, in: RoundedRectangle(cornerRadius: 16))
         }
         .disabled(disabled)
+        .buttonStyle(.plain)
         .accessibilityAddTraits(.isButton)
     }
 }
