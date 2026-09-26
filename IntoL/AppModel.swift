@@ -432,7 +432,15 @@ struct SoloGame {
                 await pause?.value
                 guard !Task.isCancelled else { return }
                 do { try await self.spotify.play(song, offsetMS: offsetMS) }
-                catch { if !Task.isCancelled { self.alert = error.localizedDescription } }
+                catch {
+                    guard !Task.isCancelled else { return }
+                    if var game = self.game, game.current.id == song.id {
+                        game.warning = error.localizedDescription
+                        self.game = game
+                    } else {
+                        self.alert = error.localizedDescription
+                    }
+                }
             }
         } else if let url = song.previewURL {
             player.play(url, offset: Double(offsetMS) / 1000)
@@ -486,12 +494,8 @@ struct SoloGame {
                     guard !songs.isEmpty else { throw AppError.message("iTunes に一致する試聴曲がありません") }
                 } else {
                     songs = Array(spotifySongs.shuffled().prefix(roomSettings.questionCount))
-                    for index in songs.indices {
-                        if let match = try? await rooms.matchItunes(songs[index]) { songs[index].genre = match.genre }
-                    }
                 }
                 corpus = spotifySongs.map(\.title)
-                corpus += (try? await rooms.topSongs()) ?? []
             }
             let state = try await rooms.create(name: nickname, settings: roomSettings, mode: roomMode,
                                                songs: songs, corpus: corpus, badge: stats.selectedBadge)

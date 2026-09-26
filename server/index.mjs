@@ -407,16 +407,21 @@ export const server = createServer(async (request, response) => {
       const { secret, ...safe } = profile;
       send(response, 200, { ...safe, token: secret }); return;
     }
-    if (request.method === 'POST' && url.pathname === '/rooms' && Array.isArray(body.songs) && body.songs.length) {
-      const artists = [...new Set(body.songs.map(song => song.artist).filter(Boolean))].slice(0, 3);
-      const additions = await Promise.allSettled([topSongs(), ...artists.map(artist => searchItunes(artist, 25))]);
-      body.corpus = [...(Array.isArray(body.corpus) ? body.corpus : []),
-        ...additions.flatMap(item => item.status === 'fulfilled' ?
-          item.value.map(song => typeof song === 'string' ? song : song.title) : [])].slice(0, 500);
-    }
     const origin = process.env.PUBLIC_BASE_URL || `${request.headers['x-forwarded-proto'] || 'http'}://${request.headers.host}`;
     const result = handle(request.method, url.pathname, body, url.searchParams, request.headers.authorization, origin);
     send(response, result.status, result.body);
+    if (result.status === 201 && request.method === 'POST' && url.pathname === '/rooms' && result.body.mode === 'spotify') {
+      const room = rooms.get(result.body.id);
+      void (async () => {
+        for (const song of room.songs) {
+          if (rooms.get(room.id) !== room) return;
+          try {
+            const match = await matchItunes(song);
+            if (rooms.get(room.id) === room && match?.genre) { song.genre = match.genre; persist(); }
+          } catch { /* Genre enrichment must not block room creation. */ }
+        }
+      })();
+    }
     if (result.status === 200 && request.method === 'POST' && /\/rooms\/[A-Z]{6}\/(start|next)$/.test(url.pathname)) {
       const room = rooms.get(url.pathname.split('/')[2]);
       const song = room && currentSong(room);

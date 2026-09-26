@@ -223,8 +223,29 @@ enum Secrets {
         let selected = devices.first { $0.id == deviceID } ?? devices.first { $0.is_active } ?? devices.first
         guard let selected else { throw AppError.message("Spotify アプリで曲を再生し、設定から再生先を選んでください") }
         deviceID = selected.id
+        if !selected.is_active {
+            _ = try await api("me/player", method: "PUT", body: ["device_ids": [selected.id], "play": false])
+            try await Task.sleep(for: .milliseconds(800))
+        }
         _ = try await api("me/player/play?device_id=\(selected.id)", method: "PUT",
                           body: ["uris": ["spotify:track:\(song.id.dropFirst(8))"], "position_ms": max(0, offsetMS)])
+        struct PlaybackState: Decodable {
+            struct Item: Decodable { let id: String? }
+            struct Device: Decodable { let id: String }
+            let is_playing: Bool
+            let item: Item?
+            let device: Device?
+        }
+        let trackID = String(song.id.dropFirst(8))
+        for _ in 0..<3 {
+            try await Task.sleep(for: .milliseconds(500))
+            if let data = try? await api("me/player"),
+               let state = try? JSONDecoder().decode(PlaybackState.self, from: data),
+               state.is_playing, state.item?.id == trackID, state.device?.id == selected.id {
+                return
+            }
+        }
+        throw AppError.message("選択した再生先で曲の開始を確認できません。Spotifyでその再生先を有効にし、再生先を更新してください")
     }
 
     func pause() async throws {

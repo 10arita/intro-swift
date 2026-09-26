@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { handle, normalize, choices } from './index.mjs';
+import { Readable } from 'node:stream';
+import { handle, normalize, choices, server } from './index.mjs';
 
 test('title normalization and distractors preserve the character class', () => {
   assert.equal(normalize('新時代 (ウタ from ONE PIECE) feat. A'), '新時代');
@@ -18,6 +19,33 @@ test('catalog exposes only configured original audio', () => {
   assert.equal(response.status, 200);
   assert.equal(response.body.songs.length, 6);
   assert.ok(response.body.songs.every(song => song.previewURL.startsWith('https://quiz.example.com/media/')));
+});
+
+test('Spotify room creation does not wait for external metadata services', async () => {
+  const originalFetch = globalThis.fetch;
+  let externalCalls = 0;
+  globalThis.fetch = () => {
+    externalCalls++;
+    return new Promise(() => {});
+  };
+  try {
+    const body = { playerId: 'spotify-room-test', name: 'Host', mode: 'spotify',
+      songs: [{ id: 'spotify:AAAAAAAAAAAAAAAAAAAAAA', title: 'Test Song', artist: 'Test Artist' }] };
+    const request = Readable.from([Buffer.from(JSON.stringify(body))]);
+    request.method = 'POST'; request.url = '/rooms'; request.headers = { host: 'localhost' };
+    const result = await new Promise(resolve => {
+      const response = {
+        writeHead(status) { this.status = status; },
+        end(data) { resolve({ status: this.status, body: JSON.parse(data) }); }
+      };
+      server.emit('request', request, response);
+    });
+    assert.equal(result.status, 201, JSON.stringify(result.body));
+    assert.equal(result.body.mode, 'spotify');
+    assert.equal(externalCalls, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test('room API arbitrates PUSH, validates answers, scores, and protects sessions', async () => {

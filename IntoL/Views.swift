@@ -1022,7 +1022,10 @@ struct AccountView: View {
                                 if !model.spotifyDevices.isEmpty {
                                     Picker("Spotify 再生先", selection: Binding(
                                         get: { model.spotify.deviceID ?? "" },
-                                        set: { model.spotify.deviceID = $0 })) {
+                                        set: {
+                                            model.objectWillChange.send()
+                                            model.spotify.deviceID = $0.isEmpty ? nil : $0
+                                        })) {
                                         Text("自動選択").tag("")
                                         ForEach(model.spotifyDevices) { device in
                                             Text("\(device.name) · \(device.type)").tag(device.id)
