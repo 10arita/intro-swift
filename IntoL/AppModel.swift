@@ -35,9 +35,8 @@ struct SoloGame {
     @Published var stats = PlayerStats()
     @Published var busy = false
     @Published var alert: String?
-    @Published var serverURL = UserDefaults.standard.string(forKey: "serverURL") ?? "" {
-        didSet { UserDefaults.standard.set(serverURL, forKey: "serverURL") }
-    }
+    let serverURL = AppConfiguration.serverURL
+    var serverConfigured: Bool { !serverURL.isEmpty }
     @Published var nickname = UserDefaults.standard.string(forKey: "nickname") ?? "プレイヤー" {
         didSet { UserDefaults.standard.set(nickname, forKey: "nickname") }
     }
@@ -48,9 +47,8 @@ struct SoloGame {
     @Published var roomOptions: [String] = []
     @Published var roomSecondsLeft = 30.0
     @Published var roomError: String?
-    @Published var spotifyClientID = UserDefaults.standard.string(forKey: "spotifyClientID") ?? "" {
-        didSet { spotify.clientID = spotifyClientID }
-    }
+    let spotifyClientID = AppConfiguration.spotifyClientID
+    var spotifyConfigured: Bool { serverConfigured && !spotifyClientID.isEmpty }
     @Published var spotifyConnected = false
     @Published var spotifyPremium = false
     @Published var spotifyAccountName = ""
@@ -92,7 +90,7 @@ struct SoloGame {
         rooms.baseURL = serverURL
         spotify.serverURL = serverURL
         spotify.clientID = spotifyClientID
-        spotifyConnected = spotify.isConnected
+        spotifyConnected = spotifyConfigured && spotify.isConnected
         if let url = Bundle.main.url(forResource: "push", withExtension: "wav", subdirectory: "Audio") {
             pushCue = try? AVAudioPlayer(contentsOf: url)
             pushCue?.prepareToPlay()
@@ -497,7 +495,7 @@ struct SoloGame {
     }
 
     func restoreRoom() async {
-        guard let roomID, room == nil else { return }
+        guard serverConfigured, let roomID, room == nil else { return }
         rooms.baseURL = serverURL
         for _ in 0..<100 {
             guard self.roomID == roomID, room == nil else { return }

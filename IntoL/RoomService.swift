@@ -98,7 +98,7 @@ struct SavedProfile: Decodable {
     private func endpoint(_ path: String) throws -> URL {
         guard let base = URL(string: baseURL.trimmingCharacters(in: .whitespacesAndNewlines)),
               base.scheme == "https" || (base.scheme == "http" && ["localhost", "127.0.0.1"].contains(base.host ?? "")) else {
-            throw AppError.message("設定で HTTPS のサーバー URL を入力してください")
+            throw AppError.message("対戦サーバーは現在利用できません")
         }
         return base.appending(path: path)
     }

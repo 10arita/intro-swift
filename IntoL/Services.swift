@@ -1,6 +1,20 @@
 import Foundation
 import AVFoundation
 
+enum AppConfiguration {
+    private static let values: [String: String] = {
+        guard let url = Bundle.main.url(forResource: "AppConfig", withExtension: "plist"),
+              let data = try? Data(contentsOf: url),
+              let values = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: String] else {
+            return [:]
+        }
+        return values
+    }()
+
+    static var serverURL: String { values["APP_SERVER_URL"] ?? "" }
+    static var spotifyClientID: String { values["SPOTIFY_CLIENT_ID"] ?? "" }
+}
+
 enum AppError: LocalizedError {
     case message(String)
     var errorDescription: String? {

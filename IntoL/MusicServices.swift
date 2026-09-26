@@ -50,9 +50,7 @@ enum Secrets {
 }
 
 @MainActor final class SpotifyService: NSObject, ASWebAuthenticationPresentationContextProviding {
-    var clientID = UserDefaults.standard.string(forKey: "spotifyClientID") ?? "" {
-        didSet { UserDefaults.standard.set(clientID.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "spotifyClientID") }
-    }
+    var clientID = AppConfiguration.spotifyClientID
     var serverURL = ""
     var deviceID: String? { didSet { UserDefaults.standard.set(deviceID, forKey: "spotifyDeviceID") } }
     private var accessToken: String?
@@ -76,7 +74,7 @@ enum Secrets {
     func connect(forceDialog: Bool = false) async throws {
         let client = clientID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !client.isEmpty, URL(string: redirectURI)?.scheme == "https" else {
-            throw AppError.message("Spotify Client ID と HTTPS のルームサーバー URL を設定してください")
+            throw AppError.message("Spotify 連携は現在利用できません")
         }
         let verifier = Data((0..<64).map { _ in UInt8.random(in: 0...255) }).base64URLEncoded()
         let challenge = Data(SHA256.hash(data: Data(verifier.utf8))).base64URLEncoded()

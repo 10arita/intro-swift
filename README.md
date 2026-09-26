@@ -25,26 +25,28 @@ Spotify 認証の HTTPS コールバックと複数端末の対戦にはサー�
 2. Coolify の **New Resource → Dockerfile** でビルド基準ディレクトリを `server`、Dockerfile をその中の `Dockerfile` にします。公開ポートは `3000`、レプリカは **1** にします。
 3. HTTPS ドメインを設定し、環境変数 `PUBLIC_BASE_URL=https://あなたのドメイン` と `DATA_DIR=/app/data` を設定します。`PUBLIC_BASE_URL` の末尾に `/` を付けません。
 4. **永続ボリュームをコンテナ内 `/app/data` にマウント**します。マウント先を変えた場合は `DATA_DIR` も合わせます。永続ボリュームがないと再デプロイ時に履歴と進行中ルームを失います。
-5. デプロイ後、`https://あなたのドメイン/health` が `{"ok":true}` を返すことを確認します。アプリの「アカウント」→「ルームサーバー URL」に同じ HTTPS URL を入力します。
+5. デプロイ後、`https://あなたのドメイン/health` が `{"ok":true}` を返すことを確認します。アプリをビルドする Mac のルート `.env` に同じ HTTPS URL を `APP_SERVER_URL` として指定します。
 
-サーバーの `server/.env.example` を参照してください。環境変数に Spotify Client Secret は不要です。アプリの認証は PKCE を使用し、更新トークンは iPhone の Keychain に保存します。
+サーバーの設定例は `server/.env.example`、アプリの設定例はルートの `.env.example` を参照してください。アプリのビルドでは `.env` から `APP_SERVER_URL` と `SPOTIFY_CLIENT_ID` だけを取り込みます。Spotify Client Secret はアプリに入れません。認証は PKCE を使用し、更新トークンは iPhone の Keychain に保存します。
 
 ## Spotify の設定
 
 1. [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) でアプリを作成します。Redirect URI に **`https://あなたのドメイン/spotify/callback`** を完全一致で登録します。`intol://callback` は Spotify 側の登録先ではありません。サーバーが HTTPS コールバックを受け取り、アプリに戻します。
 2. Development Mode ではアプリ所有者に Premium が必要です。使用する Spotify アカウントを Dashboard の **Users Management** に追加してください。現在の上限は5ユーザーです。Spotify の [Development Mode の説明](https://developer.spotify.com/documentation/web-api/concepts/quota-modes)を参照してください。
-3. 各 iPhone の IntoL「アカウント」で同じサーバー URL と **Client ID** を入力し、「Spotify に接続」を押します。Client Secret は入力しません。「再連携」から改めて認証できます。
+3. ビルド前にルートの `.env` へ `SPOTIFY_CLIENT_ID` を指定します。各 iPhone では IntoL「アカウント」の「Spotify に接続」を押します。「再連携」から改めて認証できます。
 4. Spotify アプリで一度曲を再生して再生先を有効にし、IntoL の「再生先を更新」でその端末を選択します。Spotify 音源の PUSH 中の一時停止とサビ出しは Connect API を使います。
 5. 「プレイ」でプレイリストを選択します。2026年の Spotify API では、プレイリストの曲一覧取得は原則として自分が所有または共同編集するプレイリストに限られます。選択時に403が出る場合は自分のプレイリストを使ってください。
 
 ## Xcode で起動・確認する
 
-1. [IntoL.xcodeproj](IntoL.xcodeproj) を Xcode で開きます。
-2. **Targets → IntoL → Signing & Capabilities** で自分の Team を選び、`com.example.IntoL` を自分の Bundle Identifier に変えます。
-3. iPhone 実機を選んで **Run**（⌘R）します。必要に応じて iPhone のデベロッパモードを有効化し、Mac を信頼します。シミュレータでもデモの画面と一部音源は確認できますが、Spotify Connect は実機と Spotify アプリで確認してください。
-4. まず設定なしで「オリジナル音源で試す」→ PUSH → 4択 → 結果 → 復習を確認します。
-5. サーバーを設定したら2台の iPhone で共有音源ルーム、Spotify ルーム、サビトロを順に確認します。サビトロでは iTunes に一致しない曲を除外します。終了後は「アカウント」で記録の同期状態を確認します。
-6. Wi-Fi を一時的に切って5分以内に戻し、同じルーム・得点・ライフに復帰することを確認します。ホストの退出と待機室の「ホストを譲る」も試せます。
+1. `cp .env.example .env` を実行し、サーバーと Spotify を使う場合は `APP_SERVER_URL` と `SPOTIFY_CLIENT_ID` を記入します。値が空欄でもデモは動きます。`.env` は Git の管理対象外です。値を変えたらアプリを再ビルドしてください。
+2. [IntoL.xcodeproj](IntoL.xcodeproj) を Xcode で開きます。
+3. **Targets → IntoL → Signing & Capabilities** で自分の Team を選び、`com.example.IntoL` を自分の Bundle Identifier に変えます。
+4. iPhone 実機を選んで **Run**（⌘R）します。必要に応じて iPhone のデベロッパモードを有効化し、Mac を信頼します。シミュレータでもデモの画面と一部音源は確認できますが、Spotify Connect は実機と Spotify アプリで確認してください。
+5. まず設定なしで「オリジナル音源で試す」→ PUSH → 4択 → 結果 → 復習を確認します。
+   「ショートカット」アプリから「ひとりで練習」を実行すると、同じオリジナル音源のソロ練習を直接始められます。
+6. サーバーを設定したら2台の iPhone で共有音源ルーム、Spotify ルーム、サビトロを順に確認します。サビトロでは iTunes に一致しない曲を除外します。終了後は「アカウント」で記録の同期状態を確認します。
+7. Wi-Fi を一時的に切って5分以内に戻し、同じルーム・得点・ライフに復帰することを確認します。ホストの退出と待機室の「ホストを譲る」も試せます。
 
 署名なしの iPhone 向けビルド:
 
@@ -63,7 +65,7 @@ npm test
 
 ローカル起動は Node.js 22 以降で `cd server && node index.mjs` です。iPhone からアクセスする場合は HTTPS の Coolify 環境を使います。
 
-この開発環境では iPhone 向けビルドとサーバーテストが成功しています。CoreSimulator のバージョンが Xcode より古いため、シミュレータの実行と実機での Spotify/iTunes 動作確認は未実施です。Apple・Spotify・Songle のライブ API もこの環境のネットワーク制限で未検証です。
+この開発環境では iPhone 向けビルドとサーバーテストが成功しています。XcodeBuildMCP では iPhone 16 Pro (iOS 18.6) シミュレータでのビルド・起動と、デモの PUSH から正解発表まで確認できました。App Intent のビルドとショートカットのメタデータ生成も確認済みです。ただし、このシミュレータの「ショートカット」アプリでは追加したアクションを検索できず、ショートカットからの実行は未確認です。コマンドラインの `simctl` は CoreSimulator と Xcode のバージョン差により利用できません。実機での Spotify/iTunes 動作と Apple・Spotify・Songle のライブ API も未検証です。
 
 ## 自作音源と Songle URL
 
