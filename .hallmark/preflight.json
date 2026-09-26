@@ -1,0 +1,8 @@
+{
+  "date": "2026-09-26",
+  "project": "empty Swift iOS repository",
+  "font_stack": "SF system fonts for native iOS",
+  "palette": "new semantic SwiftUI tokens in IntoL/Design.swift",
+  "motion": "native spring for state changes; reduced-motion fallback",
+  "framework": "SwiftUI"
+}

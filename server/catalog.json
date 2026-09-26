@@ -1,0 +1,9 @@
+[
+  { "id": "demo:yoake", "title": "夜明けの線", "artist": "IntoL Sessions", "audioFile": "yoake.wav", "durationMS": 30000, "genre": "オリジナル" },
+  { "id": "demo:kaze", "title": "風の手紙", "artist": "IntoL Sessions", "audioFile": "kaze.wav", "durationMS": 30000, "genre": "オリジナル" },
+  { "id": "demo:aoi", "title": "青い航路", "artist": "IntoL Sessions", "audioFile": "aoi.wav", "durationMS": 30000, "genre": "オリジナル" },
+  { "id": "demo:haru", "title": "春の輪郭", "artist": "IntoL Sessions", "audioFile": "haru.wav", "durationMS": 30000, "genre": "オリジナル" },
+  { "id": "demo:tsuki", "title": "月と街", "artist": "IntoL Sessions", "audioFile": "tsuki.wav", "durationMS": 30000, "genre": "オリジナル" },
+  { "id": "demo:hikari", "title": "光の庭", "artist": "IntoL Sessions", "audioFile": "hikari.wav", "durationMS": 30000, "genre": "オリジナル" }
+]
+
