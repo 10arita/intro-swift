@@ -5,7 +5,7 @@ import struct
 import zlib
 from pathlib import Path
 
-OUT = Path(__file__).resolve().parents[1] / "IntoL"
+OUT = Path(__file__).resolve().parents[1] / "IntoL" / "Assets.xcassets" / "AppIcon.appiconset"
 BACKGROUND = (14, 17, 20)
 ACCENT = (214, 245, 115)
 
@@ -52,4 +52,3 @@ for size, filename in [(1024, "AppIcon.png"), (120, "AppIcon-60@2x.png"), (180, 
     path = OUT / filename
     path.write_bytes(render(size))
     print(path, path.stat().st_size)
-
