@@ -88,7 +88,7 @@ struct SoloGame {
     private var ticker: Task<Void, Never>?
     private var soloRoundTask: Task<Void, Never>?
     private var soloRoundToken = 0
-    private var roomPoller: Task<Void, Never>?
+    private var roomSyncTask: Task<Void, Never>?
     private var roomTicker: Task<Void, Never>?
     private var scheduledRoomAudio: Task<Void, Never>?
     private var lastRoomRound: Int?
@@ -806,7 +806,7 @@ struct SoloGame {
         roomError = nil
         preloadedRoomID = nil
         roomPreloadTask?.cancel()
-        roomPoller?.cancel()
+        roomSyncTask?.cancel()
         roomTicker?.cancel()
         roomTicker = Task { [weak self] in
             while !Task.isCancelled {
@@ -816,17 +816,43 @@ struct SoloGame {
                 try? await Task.sleep(for: .milliseconds(60))
             }
         }
-        roomPoller = Task { [weak self] in
+        roomSyncTask = Task { [weak self] in
+            var streamSupported = true
+            var retrySeconds = 1
             while !Task.isCancelled {
                 guard let self, let id = self.roomID else { break }
+                if streamSupported {
+                    do {
+                        try await self.rooms.watch(id) { [weak self] state in
+                            guard let self, self.roomID == id else { return }
+                            self.receiveNetworkRoom(state)
+                            if self.roomError == "接続を確認しています…" { self.roomError = nil }
+                        }
+                    } catch RoomStreamError.unsupported {
+                        streamSupported = false
+                    } catch { /* A state request below checks whether the room is reachable. */ }
+                }
+                if Task.isCancelled || self.roomID != id { break }
                 do {
                     let state = try await self.rooms.state(id)
-                    self.receiveRoom(state)
+                    self.receiveNetworkRoom(state)
                     if self.roomError == "接続を確認しています…" { self.roomError = nil }
                 } catch { self.roomError = "接続を確認しています…" }
-                try? await Task.sleep(for: .milliseconds(500))
+                if Task.isCancelled { break }
+                try? await Task.sleep(for: .seconds(streamSupported ? retrySeconds : 2))
+                if streamSupported { retrySeconds = min(retrySeconds * 2, 8) }
             }
         }
+    }
+
+    private func receiveNetworkRoom(_ state: RoomState) {
+        if let current = room, current.id == state.id {
+            if state.serverNow < current.serverNow { return }
+            if state.serverNow == current.serverNow,
+               let sequence = state.sequence, let currentSequence = current.sequence,
+               sequence <= currentSequence { return }
+        }
+        receiveRoom(state)
     }
 
     private func receiveRoom(_ state: RoomState) {
@@ -853,7 +879,7 @@ struct SoloGame {
                         if let first = assets.first { try await self.appleMusic.prepare(first.id) }
                     }
                     guard !Task.isCancelled, self.room?.id == state.id, self.room?.phase == "lobby" else { return }
-                    self.receiveRoom(try await self.rooms.action("assets-ready", id: state.id))
+                    self.receiveNetworkRoom(try await self.rooms.action("assets-ready", id: state.id))
                     self.roomPreparationStatus = "準備完了"
                     self.roomError = nil
                 } catch {
@@ -914,7 +940,7 @@ struct SoloGame {
                         try await self.player.prepare(url)
                     }
                     guard self.room?.round == state.round, self.room?.phase == "preparing" else { return }
-                    self.receiveRoom(try await self.rooms.action("ready", id: state.id))
+                    self.receiveNetworkRoom(try await self.rooms.action("ready", id: state.id))
                 } catch {
                     if self.room?.round == state.round { self.roomError = error.localizedDescription }
                 }
@@ -1028,7 +1054,7 @@ struct SoloGame {
     func roomAction(_ action: String, payload: [String: Any] = [:]) async {
         guard let roomID else { return }
         if action == "push" { playPushCue(); UIImpactFeedbackGenerator(style: .medium).impactOccurred() }
-        do { receiveRoom(try await rooms.action(action, id: roomID, payload: payload)) }
+        do { receiveNetworkRoom(try await rooms.action(action, id: roomID, payload: payload)) }
         catch { alert = error.localizedDescription }
     }
 
@@ -1063,7 +1089,7 @@ struct SoloGame {
     func leaveRoom() async {
         roomPreloadTask?.cancel(); roomPreloadTask = nil
         preloadedRoomID = nil; roomPreparationStatus = nil
-        roomPoller?.cancel(); roomPoller = nil
+        roomSyncTask?.cancel(); roomSyncTask = nil
         roomTicker?.cancel(); roomTicker = nil
         scheduledRoomAudio?.cancel()
         if let roomID { _ = try? await rooms.action("leave", id: roomID) }

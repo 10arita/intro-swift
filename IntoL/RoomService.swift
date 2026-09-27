@@ -55,6 +55,7 @@ struct RoomActiveAnswer: Decodable, Identifiable {
 
 struct RoomState: Decodable, Identifiable {
     let id: String
+    let sequence: Int?
     let mode: String
     let hostId: String
     let phase: String
@@ -97,6 +98,7 @@ private struct RoomCatalog: Decodable { let songs: [Song] }
 private struct ItunesMatch: Decodable { let song: Song? }
 private struct CorpusResponse: Decodable { let titles: [String] }
 private struct ChorusResponse: Decodable { let positionMS: Int }
+enum RoomStreamError: Error { case unsupported }
 struct SavedProfile: Decodable {
     let reviews: [ReviewSong]
     let history: [SoloResult]
@@ -133,6 +135,15 @@ struct SavedProfile: Decodable {
         return base.appending(path: path)
     }
 
+    private func sampleClock(_ state: RoomState, sentAt: Double, receivedAt: Double) {
+        let roundTrip = receivedAt - sentAt
+        if roundTrip < bestClockRTTMS || Date.now.timeIntervalSince(clockSampleAt) > 30 {
+            serverClockOffsetMS = state.serverNow - (sentAt + receivedAt) / 2
+            bestClockRTTMS = roundTrip
+            clockSampleAt = .now
+        }
+    }
+
     private func request(_ path: String, method: String = "GET", payload: [String: Any] = [:]) async throws -> RoomState {
         var url = try endpoint(path)
         if method == "GET" { url.append(queryItems: [URLQueryItem(name: "playerId", value: playerId)]) }
@@ -155,12 +166,7 @@ struct SavedProfile: Decodable {
             throw AppError.message(message)
         }
         let state = try JSONDecoder().decode(RoomState.self, from: data)
-        let roundTrip = receivedAt - sentAt
-        if roundTrip < bestClockRTTMS || Date.now.timeIntervalSince(clockSampleAt) > 30 {
-            serverClockOffsetMS = state.serverNow - (sentAt + receivedAt) / 2
-            bestClockRTTMS = roundTrip
-            clockSampleAt = .now
-        }
+        sampleClock(state, sentAt: sentAt, receivedAt: receivedAt)
         if let sessionToken = state.sessionToken {
             token = sessionToken
             Secrets.set(sessionToken, for: "roomSessionToken")
@@ -189,6 +195,34 @@ struct SavedProfile: Decodable {
     }
 
     func state(_ id: String) async throws -> RoomState { try await request("rooms/\(id)") }
+
+    func watch(_ id: String, onState: (RoomState) -> Void) async throws {
+        var url = try endpoint("rooms/\(id)/events")
+        url.append(queryItems: [URLQueryItem(name: "playerId", value: playerId)])
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 60
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        let sentAt = Date.now.timeIntervalSince1970 * 1000
+        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        if status == 404 { throw RoomStreamError.unsupported }
+        guard status == 200 else { throw AppError.message("ルームに接続できません (\(status))") }
+        var firstState = true
+        for try await line in bytes.lines {
+            try Task.checkCancellation()
+            guard line.hasPrefix("data: ") else { continue }
+            let data = Data(line.dropFirst(6).utf8)
+            let state = try JSONDecoder().decode(RoomState.self, from: data)
+            if firstState {
+                sampleClock(state, sentAt: sentAt, receivedAt: Date.now.timeIntervalSince1970 * 1000)
+                firstState = false
+            }
+            onState(state)
+        }
+        throw URLError(.networkConnectionLost)
+    }
+
     func catalog() async throws -> [Song] {
         let (data, response) = try await URLSession.shared.data(from: endpoint("catalog"))
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw AppError.message("音源カタログを読み込めません") }

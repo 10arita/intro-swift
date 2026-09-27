@@ -50,6 +50,10 @@ const seedTitles = ['famousSongs.json', 'famousSongsJapaneseExpansion.json', 'fa
 const PORT = Number(process.env.PORT ?? 3000);
 const MAX_BODY = 256_000;
 const GRACE = 5 * 60_000;
+const STREAM_HEARTBEAT_MS = 15_000;
+const MAX_STREAMS = 2_000; // 500 rooms x 4 players; one stream per player.
+const streams = new Map();
+const roomTimers = new Map();
 const forbidden = new Set([...'っゃゅょぁぃぅぇぉゎッャュョァィゥェォヮー']);
 const pools = [
   [...'あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをん'],
@@ -253,6 +257,7 @@ function refresh(room) {
 }
 function snapshot(room, playerId) {
   refresh(room);
+  room.snapshotSequence = (room.snapshotSequence || 0) + 1;
   const song = room.round >= 0 ? currentSong(room) : null;
   const disclosed = room.phase === 'reveal' || room.phase === 'finished';
   const ownAttempt = room.answers.find(answer => answer.playerId === playerId);
@@ -261,6 +266,7 @@ function snapshot(room, playerId) {
     room.pushed.has(playerId) || room.players.find(player => player.id === playerId)?.disqualified;
   return {
     id: room.id, mode: room.mode, hostId: room.hostId, phase: room.phase, round: room.round,
+    sequence: room.snapshotSequence,
     totalRounds: room.songs.length,
     settings: room.settings, players: room.players.map(p => publicPlayer(p, room)),
     serverNow: Date.now(), startAt: room.startAt, roundDeadline: room.roundDeadline,
@@ -451,6 +457,82 @@ function send(response, status, body) {
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
   response.end(JSON.stringify(body));
 }
+
+function roomSignature(room) {
+  return JSON.stringify({
+    phase: room.phase, round: room.round, hostId: room.hostId,
+    players: room.players.map(({ id, score, lives, disqualified, correctCount, wrongCount }) =>
+      [id, score, lives, disqualified, correctCount, wrongCount]),
+    ready: [...room.readyIds], assetsReady: [...room.assetsReadyIds],
+    pushed: [...room.pushed], skipped: [...room.skipped],
+    answers: room.answers.map(({ playerId, progress, deadline, options, status }) =>
+      [playerId, progress, deadline, options, status]),
+    correct: room.correctPlayerIDs, startAt: room.startAt, roundDeadline: room.roundDeadline,
+    pausedAt: room.pausedAt, pausedPositionMS: room.pausedPositionMS,
+    pushClosed: room.pushClosed, audioStoppedAt: room.audioStoppedAt
+  });
+}
+
+function waitForDrain(response) {
+  response.backpressureAt = Date.now();
+  response.once('drain', () => {
+    response.backpressureAt = null;
+    const pending = response.pendingState;
+    response.pendingState = null;
+    if (pending) writeEvent(response, pending);
+  });
+}
+
+function writeEvent(response, state) {
+  if (response.destroyed || response.writableEnded) return;
+  if (response.writableNeedDrain) {
+    response.pendingState = state; // Keep only the newest state for a slow connection.
+    if (response.writableLength > 256_000) response.end();
+    return;
+  }
+  if (!response.write(`data: ${JSON.stringify(state)}\n\n`)) waitForDrain(response);
+}
+
+function publishRoom(room, exceptPlayerId = null) {
+  refresh(room);
+  for (const [playerId, response] of streams.get(room.id) || []) {
+    if (!room.players.some(player => player.id === playerId)) { response.end(); continue; }
+    if (playerId === exceptPlayerId) continue;
+    writeEvent(response, snapshot(room, playerId));
+  }
+}
+
+function scheduleRoom(room) {
+  clearTimeout(roomTimers.get(room.id));
+  roomTimers.delete(room.id);
+  if (rooms.get(room.id) !== room) return;
+  const deadlines = [];
+  if (room.phase === 'countdown') deadlines.push(room.startAt);
+  if (['listening', 'answering'].includes(room.phase)) {
+    if (!room.settings.endless || room.pausedAt == null) deadlines.push(room.roundDeadline);
+    deadlines.push(...room.answers.filter(answer => answer.status === 'active').map(answer => answer.deadline));
+  }
+  const next = deadlines.filter(value => Number.isFinite(value) && value > Date.now()).sort((a, b) => a - b)[0];
+  if (next == null) return;
+  const timer = setTimeout(() => {
+    roomTimers.delete(room.id);
+    if (rooms.get(room.id) !== room) return;
+    const before = roomSignature(room);
+    refresh(room);
+    if (roomSignature(room) !== before) { publishRoom(room); persist(); }
+    scheduleRoom(room);
+  }, Math.max(1, next - Date.now()));
+  timer.unref();
+  roomTimers.set(room.id, timer);
+}
+
+function closeRoomStreams(id) {
+  clearTimeout(roomTimers.get(id));
+  roomTimers.delete(id);
+  for (const response of streams.get(id)?.values() || []) response.end();
+  streams.delete(id);
+}
+
 export const server = createServer(async (request, response) => {
   const url = new URL(request.url, 'http://localhost');
   if (request.method === 'GET' && url.pathname === '/spotify/callback') {
@@ -459,6 +541,36 @@ export const server = createServer(async (request, response) => {
     response.writeHead(302, { Location: deepLink.toString(), 'Cache-Control': 'no-store' }); response.end(); return;
   }
   if (!['GET', 'POST', 'PUT'].includes(request.method)) { send(response, 405, { error: 'Method not allowed' }); return; }
+  const eventRoom = request.method === 'GET' && /^\/rooms\/([A-Z]{6})\/events$/.exec(url.pathname);
+  if (eventRoom) {
+    const id = eventRoom[1];
+    const result = handle('GET', `/rooms/${id}`, {}, url.searchParams, request.headers.authorization);
+    if (result.status !== 200) { send(response, result.status, result.body); return; }
+    const room = rooms.get(id);
+    const playerId = url.searchParams.get('playerId');
+    let clients = streams.get(id);
+    if (!clients) { clients = new Map(); streams.set(id, clients); }
+    const previous = clients.get(playerId);
+    if (!previous && [...streams.values()].reduce((count, group) => count + group.size, 0) >= MAX_STREAMS) {
+      send(response, 503, { error: '接続数の上限に達しました' }); return;
+    }
+    response.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      'X-Accel-Buffering': 'no', 'Connection': 'keep-alive'
+    });
+    response.flushHeaders();
+    clients.set(playerId, response);
+    previous?.end();
+    response.on('close', () => {
+      if (clients.get(playerId) === response) clients.delete(playerId);
+      if (!clients.size) streams.delete(id);
+    });
+    writeEvent(response, result.body);
+    publishRoom(room, playerId);
+    scheduleRoom(room);
+    return;
+  }
   const media = url.pathname.match(/^\/media\/([A-Za-z0-9_-]+\.wav)$/);
   if (request.method === 'GET' && media && catalog.some(song => song.audioFile === media[1])) {
     const path = new URL(`./public/audio/${media[1]}`, import.meta.url);
@@ -522,8 +634,18 @@ export const server = createServer(async (request, response) => {
       send(response, 200, { ...safe, token: secret }); return;
     }
     const origin = process.env.PUBLIC_BASE_URL || `${request.headers['x-forwarded-proto'] || 'http'}://${request.headers.host}`;
+    const roomId = /^\/rooms\/([A-Z]{6})(?:\/|$)/.exec(url.pathname)?.[1];
+    const before = roomId && rooms.has(roomId) ? roomSignature(rooms.get(roomId)) : null;
     const result = handle(request.method, url.pathname, body, url.searchParams, request.headers.authorization, origin);
     send(response, result.status, result.body);
+    if (roomId) {
+      const room = rooms.get(roomId);
+      if (!room) closeRoomStreams(roomId);
+      else {
+        if (roomSignature(room) !== before) publishRoom(room);
+        scheduleRoom(room);
+      }
+    }
     if (result.status === 201 && request.method === 'POST' && url.pathname === '/rooms' && result.body.mode === 'spotify') {
       const room = rooms.get(result.body.id);
       void (async () => {
@@ -558,8 +680,31 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).
 
 setInterval(() => {
   const now = Date.now();
+  for (const [id, clients] of streams) {
+    const room = rooms.get(id);
+    if (!room) { closeRoomStreams(id); continue; }
+    const before = roomSignature(room);
+    for (const [playerId, response] of clients) {
+      const player = room.players.find(item => item.id === playerId);
+      if (!player || response.destroyed || response.writableEnded ||
+          response.backpressureAt && now - response.backpressureAt > 30_000) {
+        response.end(); continue;
+      }
+      player.lastSeen = now;
+      if (!response.writableNeedDrain && !response.write(': keepalive\n\n')) waitForDrain(response);
+    }
+    refresh(room);
+    if (roomSignature(room) !== before) { publishRoom(room); scheduleRoom(room); persist(); }
+  }
+}, STREAM_HEARTBEAT_MS).unref();
+
+setInterval(() => {
+  const now = Date.now();
   for (const [id, room] of rooms) {
-    if (room.players.every(player => now - player.lastSeen >= GRACE)) rooms.delete(id);
+    if (room.players.every(player => now - player.lastSeen >= GRACE)) {
+      rooms.delete(id);
+      closeRoomStreams(id);
+    }
   }
   persist();
 }, 60_000).unref();
