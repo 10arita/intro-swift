@@ -864,7 +864,7 @@ struct SoloGame {
             }
         }
         let key = "\(state.id):\(state.round)"
-        if state.round >= 0 && state.answeringPlayerID == rooms.playerId && !recordedRoomAttempts.contains(key) {
+        if state.round >= 0 && state.pushedIds.contains(rooms.playerId) && !recordedRoomAttempts.contains(key) {
             recordedRoomAttempts.insert(key)
             stats.attempts += 1
             stats.totalPushSeconds += max(0, min(30, (state.serverNow - (state.startAt ?? state.serverNow)) / 1000))
@@ -937,23 +937,32 @@ struct SoloGame {
                     catch { return }
                     guard let self, !Task.isCancelled, !self.roomAudioStarted,
                           self.room?.round == state.round,
-                          ["countdown", "listening", "answering"].contains(self.room?.phase ?? "") else { return }
+                          ["countdown", "listening", "answering"].contains(self.room?.phase ?? ""),
+                          self.room?.pausedAt == nil else { return }
                     await self.startRoomAudio(state)
-                    if self.room?.answeringPlayerID == self.rooms.playerId && !state.settings.endless {
-                        self.pauseAudio()
-                    }
+                    if self.room?.isAnswering(self.rooms.playerId) == true { self.pauseAudio() }
                 }
             }
         }
-        if state.phase == "listening" && !roomAudioStarted && scheduledRoomAudio == nil {
+        if ["listening", "answering"].contains(state.phase) && state.pausedAt == nil &&
+           !state.isAnswering(rooms.playerId) && !roomAudioStarted && scheduledRoomAudio == nil {
             scheduledRoomAudio = Task { [weak self] in
                 await self?.startRoomAudio(state)
             }
         }
-        if state.phase == "answering" && state.answeringPlayerID == rooms.playerId && old?.answeringPlayerID != rooms.playerId && !state.settings.endless {
+        if state.pausedAt != nil && old?.pausedAt == nil {
+            if !roomAudioStarting {
+                scheduledRoomAudio?.cancel()
+                scheduledRoomAudio = nil
+            }
             pauseAudio()
         }
-        if state.phase == "listening" && old?.phase == "answering" && old?.answeringPlayerID == rooms.playerId && !state.settings.endless {
+        if !state.settings.endless && state.isAnswering(rooms.playerId) && old?.isAnswering(rooms.playerId) != true {
+            pauseAudio()
+        }
+        let resumedFromRelay = old?.pausedAt != nil && state.pausedAt == nil
+        let finishedOwnAnswer = !state.settings.endless && old?.isAnswering(rooms.playerId) == true && !state.isAnswering(rooms.playerId)
+        if (resumedFromRelay || finishedOwnAnswer) && ["listening", "answering"].contains(state.phase) {
             Task { [weak self] in await self?.startRoomAudio(state) }
         }
         if state.phase == "reveal" && lastRoomPhase != "reveal" {
@@ -970,13 +979,20 @@ struct SoloGame {
     }
 
     private func startRoomAudio(_ state: RoomState) async {
-        guard let current = state.current else { return }
-        guard !roomAudioStarting else { return }
+        while roomAudioStarting {
+            guard !Task.isCancelled else { return }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        guard let playbackState = room, playbackState.round == state.round,
+              ["countdown", "listening", "answering"].contains(playbackState.phase),
+              playbackState.pausedAt == nil,
+              !playbackState.isAnswering(rooms.playerId),
+              let current = playbackState.current else { return }
         roomAudioStarting = true
         defer { roomAudioStarting = false }
         do {
-            let elapsed = max(0, rooms.serverNowMS - (state.startAt ?? rooms.serverNowMS))
-            if state.mode == "spotify" || state.mode == "applemusic" {
+            let elapsed = max(0, rooms.serverNowMS - (playbackState.startAt ?? rooms.serverNowMS))
+            if playbackState.mode == "spotify" || playbackState.mode == "applemusic" {
                 try await startPreparedRoundAudio(Song(id: current.id, title: "", artist: "", artworkURL: nil,
                     previewURL: nil, trackURL: nil, durationMS: 180_000, genre: "その他"), offsetMS: Int(elapsed))
             } else if let preview = current.previewURL {
@@ -989,6 +1005,8 @@ struct SoloGame {
             guard room?.round == state.round else { return }
             roomAudioStarted = true
             roomError = nil
+            if room?.pausedAt != nil || room?.isAnswering(rooms.playerId) == true { pauseAudio() }
+            if room?.phase == "reveal" || room?.phase == "finished" { stopAudio() }
         } catch {
             guard room?.round == state.round, !Task.isCancelled else { return }
             roomError = error.localizedDescription
@@ -996,8 +1014,11 @@ struct SoloGame {
     }
 
     func remainingTime(_ state: RoomState) -> Double {
-        let target = state.phase == "answering" && state.answeringPlayerID == rooms.playerId ? state.answerDeadline : state.roundDeadline
-        return max(0, ((target ?? rooms.serverNowMS) - rooms.serverNowMS) / 1000)
+        if state.isAnswering(rooms.playerId), let deadline = state.answerDeadline {
+            return max(0, (deadline - rooms.serverNowMS) / 1000)
+        }
+        let clock = state.pausedAt ?? rooms.serverNowMS
+        return max(0, ((state.roundDeadline ?? clock) - clock) / 1000)
     }
 
     func roomAction(_ action: String, payload: [String: Any] = [:]) async {
@@ -1022,7 +1043,8 @@ struct SoloGame {
     }
 
     func retryRoomAudio() {
-        guard let room, ["countdown", "listening"].contains(room.phase) else { return }
+        guard let room, ["countdown", "listening", "answering"].contains(room.phase),
+              room.pausedAt == nil, !room.isAnswering(rooms.playerId) else { return }
         scheduledRoomAudio?.cancel()
         scheduledRoomAudio = nil
         roomError = nil

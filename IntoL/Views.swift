@@ -493,7 +493,8 @@ struct PlayView: View {
                     if source == .spotify || source == .spotifyPreview { playlistInput }
                     if source == .appleMusic { appleMusicPlaylistInput }
                     Stepper("問題数 \(model.roomSettings.questionCount)", value: $model.roomSettings.questionCount, in: 1...50)
-                    Stepper("解答権 \(model.roomSettings.answerSlots)人", value: $model.roomSettings.answerSlots, in: 1...4)
+                    Stepper("解答権人数 \(model.roomSettings.answerSlots)人", value: $model.roomSettings.answerSlots, in: 1...4)
+                        .disabled(model.roomSettings.endless)
                     DisclosureGroup("ルール詳細") {
                         VStack(spacing: 12) {
                             Stepper("勝利目標 \(model.roomSettings.targetScore)点", value: $model.roomSettings.targetScore, in: 0...500)
@@ -502,7 +503,9 @@ struct PlayView: View {
                             Stepper("誤答 −\(model.roomSettings.wrongPenalty)点", value: $model.roomSettings.wrongPenalty, in: 0...50)
                             Stepper("1st誤答 −\(model.roomSettings.firstWrongPenalty)点", value: $model.roomSettings.firstWrongPenalty, in: 0...50)
                             Stepper("ライフ \(model.roomSettings.lives)", value: $model.roomSettings.lives, in: 0...10)
-                            Toggle("エンドレス", isOn: $model.roomSettings.endless)
+                            Toggle("エンドレスモード", isOn: $model.roomSettings.endless)
+                            Text("エンドレスモードでは解答権人数に関係なく、全員で曲を止めて1人ずつ解答します。")
+                                .font(.caption).foregroundStyle(Studio.secondary)
                             Text("0点は勝利目標なし、ライフ0は無制限です。")
                                 .font(.caption).foregroundStyle(Studio.secondary)
                         }
@@ -1249,36 +1252,9 @@ struct RoomGameView: View {
                                     .buttonStyle(SecondaryButtonStyle())
                             }
                             players(room)
-                        } else if room.phase == "listening" {
+                        } else if ["listening", "answering"].contains(room.phase) {
                             roundTitle(room)
-                            if !model.roomAudioStarted {
-                                ProgressView().tint(Studio.accent).scaleEffect(1.5)
-                                Text("音源を読み込み中")
-                                    .font(.title2.bold()).foregroundStyle(Studio.primary)
-                                if model.roomError != nil {
-                                    Button("再生を再試行") { model.retryRoomAudio() }
-                                        .buttonStyle(SecondaryButtonStyle())
-                                }
-                            } else {
-                                WaveMark()
-                                Text("この曲は？")
-                                    .font(.system(size: 32, weight: .bold, design: .rounded))
-                                    .foregroundStyle(Studio.primary)
-                                CountdownBar(remaining: model.roomSecondsLeft, total: 30)
-                                let me = room.player(model.rooms.playerId)
-                                if me?.disqualified == true {
-                                    Text("今回は観戦中です").foregroundStyle(Studio.secondary)
-                                } else if room.pushedIds.contains(model.rooms.playerId) {
-                                    Text("この曲の解答権は使用済みです").foregroundStyle(Studio.secondary)
-                                } else {
-                                    PushButton { Task { await model.roomAction("push") } }
-                                }
-                                skipButton(room)
-                            }
-                            players(room)
-                        } else if room.phase == "answering" {
-                            roundTitle(room)
-                            if room.answeringPlayerID == model.rooms.playerId {
+                            if room.isAnswering(model.rooms.playerId) {
                                 SectionCaption(title: "YOUR TURN")
                                 Text(model.roomAnswer.isEmpty ? "文字を選んでください" : model.roomAnswer)
                                     .font(.system(size: 36, weight: .bold, design: .rounded))
@@ -1287,14 +1263,11 @@ struct RoomGameView: View {
                                 ChoiceGrid(choices: model.roomOptions) { choice in
                                     Task { await model.roomAction("choose", payload: ["choice": choice]) }
                                 }
+                            } else if room.phase == "answering" &&
+                                        (room.settings.endless || room.pushedIds.count >= room.settings.answerSlots) {
+                                watchingStage(room)
                             } else {
-                                Spacer(minLength: 50)
-                                WaveMark()
-                                Text("\(room.player(room.answeringPlayerID ?? "")?.name ?? "プレイヤー")が解答中")
-                                    .font(.title2.bold())
-                                    .foregroundStyle(Studio.primary)
-                                Text("音を聴きながら待とう")
-                                    .foregroundStyle(Studio.secondary)
+                                listeningStage(room)
                             }
                             skipButton(room)
                             players(room)
@@ -1341,6 +1314,65 @@ struct RoomGameView: View {
 
     private func roundTitle(_ room: RoomState) -> some View {
         SectionCaption(title: "ROUND \(room.round + 1) / \(room.totalRounds)")
+    }
+
+    private func listeningStage(_ room: RoomState) -> some View {
+        VStack(spacing: 20) {
+            if !model.roomAudioStarted {
+                ProgressView().tint(Studio.accent).scaleEffect(1.5)
+                Text("音源を読み込み中")
+                    .font(.title2.bold()).foregroundStyle(Studio.primary)
+                if model.roomError != nil {
+                    Button("再生を再試行") { model.retryRoomAudio() }
+                        .buttonStyle(SecondaryButtonStyle())
+                }
+            } else {
+                WaveMark()
+                Text("この曲は？")
+                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                    .foregroundStyle(Studio.primary)
+                CountdownBar(remaining: model.roomSecondsLeft, total: 30)
+                if room.settings.endless {
+                    Text("エンドレスモード・誤答: \(room.pushedIds.count) / \(room.players.count)人")
+                        .foregroundStyle(Studio.secondary)
+                } else {
+                    Text("解答受付: \(room.pushedIds.count) / \(room.settings.answerSlots)人（残り\(max(0, room.settings.answerSlots - room.pushedIds.count))人）")
+                        .foregroundStyle(Studio.secondary)
+                }
+                if room.player(model.rooms.playerId)?.disqualified == true {
+                    Text("今回は観戦中です").foregroundStyle(Studio.secondary)
+                } else if room.pushedIds.contains(model.rooms.playerId) {
+                    Text("この曲は解答済みです（再PUSH不可）").foregroundStyle(Studio.secondary)
+                } else if room.canPush(model.rooms.playerId) {
+                    PushButton { Task { await model.roomAction("push") } }
+                }
+            }
+        }
+    }
+
+    private func watchingStage(_ room: RoomState) -> some View {
+        VStack(spacing: 20) {
+            Spacer(minLength: 30)
+            WaveMark()
+            Text("\(room.activeAnswers.count)人が解答中...")
+                .font(.title2.bold()).foregroundStyle(Studio.primary)
+            if room.settings.endless {
+                Text("曲と出題タイマーは停止中")
+                    .foregroundStyle(Studio.secondary)
+                CountdownBar(remaining: model.roomSecondsLeft, total: 30)
+            }
+            ForEach(room.activeAnswers) { answer in
+                StudioCard {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(room.player(answer.playerId)?.name ?? "プレイヤー")
+                            .font(.headline).foregroundStyle(Studio.primary)
+                        Text(answer.progress.isEmpty ? "入力待ち" : answer.progress)
+                            .font(.title2.bold()).foregroundStyle(Studio.accent)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
     }
 
     private func lobby(_ room: RoomState) -> some View {

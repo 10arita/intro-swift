@@ -117,14 +117,14 @@ test('room API arbitrates PUSH, validates answers, scores, and protects sessions
     const answer = normalize(songs.find(song => song.id === state.current.id).title);
     const pushed = await call(`/rooms/${id}/push`, { playerId: 'p1' }, hostToken);
     assert.equal(pushed.value.phase, 'answering');
-    assert.equal((await call(`/rooms/${id}/push`, { playerId: 'p2' }, guestToken)).status, 409);
+    assert.equal((await call(`/rooms/${id}/push`, { playerId: 'p2' }, guestToken)).status, 200);
     for (const char of answer) {
       const step = await call(`/rooms/${id}/choose`, { playerId: 'p1', choice: char }, hostToken);
       assert.equal(step.status, 200);
     }
     const revealed = (await call(`/rooms/${id}?playerId=p1`, null, hostToken, 'GET')).value;
     assert.equal(revealed.phase, 'reveal');
-    assert.equal(revealed.players.find(p => p.id === 'p1').score, 20);
+    assert.equal(revealed.players.find(p => p.id === 'p1').score, 10);
     assert.equal(revealed.current.title, songs.find(song => song.id === state.current.id).title);
     const next = (await call(`/rooms/${id}/next`, { playerId: 'p1' }, hostToken)).value;
     assert.equal(next.phase, 'preparing');
@@ -147,6 +147,131 @@ test('room API arbitrates PUSH, validates answers, scores, and protects sessions
   } finally {
     Date.now = realNow;
   }
+});
+
+function startedThreePlayerRoom(endless, settings = {}) {
+  const song = { id: 'spotify:ABCDEFGHIJKLMNOPQRSTUV', title: '花火', artist: 'Artist' };
+  const host = handle('POST', '/rooms', { playerId: 'relayA', name: 'A', mode: 'spotify', songs: [song],
+    settings: { questionCount: 1, answerSlots: 2, endless, targetScore: 0, ...settings } }, new URLSearchParams()).body;
+  const guests = ['relayB', 'relayC'].map((id, index) => handle('POST', `/rooms/${host.id}/join`,
+    { playerId: id, name: index ? 'C' : 'B' }, new URLSearchParams()).body);
+  const tokens = Object.fromEntries([['relayA', host], ['relayB', guests[0]], ['relayC', guests[1]]]
+    .map(([id, state]) => [id, state.sessionToken]));
+  const action = (name, id, extra = {}) => handle('POST', `/rooms/${host.id}/${name}`,
+    { playerId: id, ...extra }, new URLSearchParams(), `Bearer ${tokens[id]}`);
+  const state = id => handle('GET', `/rooms/${host.id}`, {}, new URLSearchParams({ playerId: id }), `Bearer ${tokens[id]}`).body;
+  for (const id of Object.keys(tokens)) action('assets-ready', id);
+  action('start', 'relayA');
+  for (const id of Object.keys(tokens)) action('ready', id);
+  return { action, state };
+}
+
+test('normal mode admits two parallel answers and reveals progress only after slots fill', () => {
+  const realNow = Date.now;
+  let now = realNow();
+  Date.now = () => now;
+  try {
+    const { action, state } = startedThreePlayerRoom(false);
+    now += 6000;
+    assert.equal(action('push', 'relayA').body.phase, 'answering');
+    assert.equal(state('relayB').activeAnswers[0].progress, '');
+    action('choose', 'relayA', { choice: '花' });
+    assert.equal(state('relayB').activeAnswers[0].progress, '');
+    assert.equal(action('push', 'relayB').status, 200);
+    assert.equal(action('push', 'relayC').status, 409);
+    assert.deepEqual(state('relayC').activeAnswers.map(a => a.progress), ['花', '']);
+    action('choose', 'relayA', { choice: 'X' });
+    assert.equal(state('relayC').phase, 'answering');
+    assert.equal(action('push', 'relayA').status, 409);
+    action('choose', 'relayB', { choice: '花' });
+    action('choose', 'relayB', { choice: '火' });
+    assert.equal(state('relayC').phase, 'reveal');
+    assert.equal(state('relayC').correctPlayerID, 'relayB');
+  } finally { Date.now = realNow; }
+});
+
+test('normal mode leaves unused slots open after a wrong answer and ends at 30 seconds', () => {
+  const realNow = Date.now;
+  let now = realNow();
+  Date.now = () => now;
+  try {
+    const { action, state } = startedThreePlayerRoom(false);
+    now += 6000;
+    action('push', 'relayA');
+    action('choose', 'relayA', { choice: 'X' });
+    assert.equal(state('relayC').phase, 'listening');
+    assert.equal(state('relayC').pushedIds.length, 1);
+    assert.equal(action('push', 'relayA').status, 409);
+    assert.equal(action('push', 'relayB').status, 200);
+    now += 30_000;
+    assert.equal(state('relayC').phase, 'reveal');
+  } finally { Date.now = realNow; }
+});
+
+test('endless mode freezes the round clock and resumes from each paused position', () => {
+  const realNow = Date.now;
+  let now = realNow();
+  Date.now = () => now;
+  try {
+    const { action, state } = startedThreePlayerRoom(true);
+    now += 6000;
+    const first = action('push', 'relayA').body;
+    assert.equal(first.pausedPositionMS, 1000);
+    assert.equal(action('push', 'relayB').status, 409);
+    action('choose', 'relayA', { choice: '花' });
+    assert.equal(state('relayC').activeAnswers[0].progress, '花');
+    now += 4000;
+    action('choose', 'relayA', { choice: 'X' });
+    const resumed = state('relayC');
+    assert.equal(resumed.phase, 'listening');
+    assert.equal(resumed.pausedAt, null);
+    assert.equal(resumed.startAt, first.startAt + 4000);
+    assert.equal(resumed.roundDeadline, first.roundDeadline + 4000);
+    now += 2000;
+    const second = action('push', 'relayB').body;
+    assert.equal(second.pausedPositionMS, 3000);
+    assert.equal(state('relayA').activeAnswers[0].progress, '');
+    now += 5000;
+    assert.equal(state('relayA').phase, 'listening');
+    assert.equal(state('relayA').roundDeadline, second.roundDeadline + 5000);
+    assert.equal(action('push', 'relayB').status, 409);
+    assert.equal(action('push', 'relayC').status, 200);
+    action('choose', 'relayC', { choice: 'X' });
+    assert.equal(state('relayA').phase, 'reveal');
+  } finally { Date.now = realNow; }
+});
+
+test('endless relay resumes when the answering player leaves', () => {
+  const realNow = Date.now;
+  let now = realNow();
+  Date.now = () => now;
+  try {
+    const { action, state } = startedThreePlayerRoom(true);
+    now += 6000;
+    action('push', 'relayA');
+    action('leave', 'relayA');
+    assert.equal(state('relayB').phase, 'listening');
+    assert.equal(state('relayB').pausedAt, null);
+    assert.equal(action('push', 'relayB').status, 200);
+    action('choose', 'relayB', { choice: 'X' });
+    assert.equal(action('push', 'relayC').status, 200);
+  } finally { Date.now = realNow; }
+});
+
+test('all wrong answers reveal the song even when every player loses their last life', () => {
+  const realNow = Date.now;
+  let now = realNow();
+  Date.now = () => now;
+  try {
+    const { action, state } = startedThreePlayerRoom(true, { lives: 1 });
+    now += 6000;
+    for (const id of ['relayA', 'relayB', 'relayC']) {
+      action('push', id);
+      action('choose', id, { choice: 'X' });
+    }
+    assert.equal(state('relayA').phase, 'reveal');
+    assert.equal(state('relayA').current.title, '花火');
+  } finally { Date.now = realNow; }
 });
 
 test('unanimous skip reveals and host role transfers on leave', () => {

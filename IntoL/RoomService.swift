@@ -44,6 +44,12 @@ struct RoomCurrent: Decodable {
     }
 }
 
+struct RoomActiveAnswer: Decodable, Identifiable {
+    let playerId: String
+    let progress: String
+    var id: String { playerId }
+}
+
 struct RoomState: Decodable, Identifiable {
     let id: String
     let mode: String
@@ -56,10 +62,12 @@ struct RoomState: Decodable, Identifiable {
     let serverNow: Double
     let startAt: Double?
     let roundDeadline: Double?
+    let pausedAt: Double?
+    let pausedPositionMS: Double?
     let answerDeadline: Double?
-    let answeringPlayerID: String?
     let answerProgress: String
     let options: [String]
+    let activeAnswers: [RoomActiveAnswer]
     let pushedIds: [String]
     let skippedIds: [String]
     let readyIds: [String]
@@ -70,6 +78,12 @@ struct RoomState: Decodable, Identifiable {
     let sessionToken: String?
 
     func player(_ id: String) -> RoomPlayer? { players.first { $0.id == id } }
+    func isAnswering(_ id: String) -> Bool { activeAnswers.contains { $0.playerId == id } }
+    func canPush(_ id: String) -> Bool {
+        guard ["listening", "answering"].contains(phase), player(id)?.disqualified == false,
+              !pushedIds.contains(id) else { return false }
+        return settings.endless ? activeAnswers.isEmpty : pushedIds.count < settings.answerSlots
+    }
 }
 
 private struct RoomCatalog: Decodable { let songs: [Song] }
