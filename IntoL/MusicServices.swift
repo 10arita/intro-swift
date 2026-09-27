@@ -381,7 +381,13 @@ struct AppleMusicPlaylist: Identifiable, Hashable {
         guard isAuthorized, try await MusicSubscription.current.canPlayCatalogContent else {
             throw AppError.message("Apple Music のアクセス許可とサブスクリプションが必要です")
         }
-        let item = try await catalogSong(for: songID)
+        // Solo games use songs returned by the user's library playlist. Their IDs
+        // are library IDs, so querying the catalog with one can fail even though
+        // the original Song is playable. Room songs use catalog IDs and are fetched
+        // here when they are not already cached.
+        let item: MusicKit.Song
+        if let cached = songsByID[songID] { item = cached }
+        else { item = try await catalogSong(for: songID) }
         guard initialRequest == playRequest, !Task.isCancelled else { throw CancellationError() }
         playRequest += 1
         let currentRequest = playRequest

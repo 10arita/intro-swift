@@ -8,6 +8,8 @@ import SpotifyiOS
     private var waiters: [CheckedContinuation<Void, Error>] = []
     private var timeout: Task<Void, Never>?
     private var authorizing = false
+    private var webAccessToken: String?
+    private var retriedWithWebToken = false
 
     private var remote: SPTAppRemote {
         if let appRemote { return appRemote }
@@ -29,6 +31,8 @@ import SpotifyiOS
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             waiters.append(continuation)
             guard waiters.count == 1 else { return }
+            webAccessToken = accessToken
+            retriedWithWebToken = false
             remote.connectionParameters.accessToken = accessToken
             timeout = Task { [weak self] in
                 do { try await Task.sleep(for: .seconds(30)) }
@@ -41,6 +45,7 @@ import SpotifyiOS
 
     func handleCallback(_ url: URL) -> Bool {
         guard url.scheme == "intol", url.host == "spotify-remote" else { return false }
+        guard !waiters.isEmpty else { return true }
         guard let parameters = remote.authorizationParameters(from: url) else {
             finish(AppError.message("Spotify アプリからの認証結果を読み取れません"))
             return true
@@ -49,7 +54,26 @@ import SpotifyiOS
             remote.connectionParameters.accessToken = token
             remote.connect()
         } else {
-            finish(AppError.message(parameters[SPTAppRemoteErrorDescriptionKey] ?? "Spotify アプリへの接続が許可されませんでした"))
+            let description = parameters[SPTAppRemoteErrorDescriptionKey]
+            let errorCode = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "error" })?.value
+            if errorCode == "unknown_error" || description == "An unknown error has occured" {
+                // A duplicate callback can arrive while the direct connection is in flight.
+                // Its delegate result or timeout decides whether that attempt succeeded.
+                guard !retriedWithWebToken else { return true }
+                guard let webAccessToken else {
+                    finish(AppError.message("Spotify アプリに接続できません。アカウントから Spotify を再連携してください"))
+                    return true
+                }
+                // Some Spotify app versions return unknown_error from App Remote's
+                // authorization handoff even though the app is now running. The
+                // already authorized PKCE token includes app-remote-control.
+                retriedWithWebToken = true
+                remote.connectionParameters.accessToken = webAccessToken
+                remote.connect()
+            } else {
+                finish(AppError.message(description ?? "Spotify アプリへの接続が許可されませんでした"))
+            }
         }
         return true
     }
@@ -57,6 +81,7 @@ import SpotifyiOS
     func disconnect() {
         appRemote?.disconnect()
         appRemote = nil
+        webAccessToken = nil
         finish(AppError.message("Spotify アプリとの接続を解除しました"))
     }
 
@@ -121,7 +146,10 @@ import SpotifyiOS
     func appRemote(_ appRemote: SPTAppRemote, didFailConnectionAttemptWithError error: Error?) {
         guard !waiters.isEmpty else { return }
         guard !authorizing else {
-            finish(error ?? AppError.message("Spotify アプリに接続できません"))
+            let message = retriedWithWebToken
+                ? "Spotify アプリに接続できません。Spotify アプリのログインと連携アカウントを確認してください"
+                : "Spotify アプリに接続できません。アカウントから Spotify を再連携してください"
+            finish(AppError.message(message))
             return
         }
         authorizing = true
@@ -144,6 +172,8 @@ import SpotifyiOS
         timeout?.cancel()
         timeout = nil
         authorizing = false
+        webAccessToken = nil
+        retriedWithWebToken = false
         let pending = waiters
         waiters.removeAll()
         for waiter in pending {
