@@ -330,11 +330,12 @@ struct SoloGame {
         }
     }
 
-    private func beginRound() {
+    private func beginRound(advancingTo nextIndex: Int? = nil) {
         guard var game else { return }
         soloRoundTask?.cancel()
         soloRoundToken += 1
         let token = soloRoundToken
+        if let nextIndex { game.index = nextIndex }
         let song = game.current
         game.stage = .preparing
         game.secondsLeft = 30
@@ -493,9 +494,7 @@ struct SoloGame {
     func nextRound() {
         guard var game, game.stage == .reveal else { return }
         if game.index + 1 < game.songs.count {
-            game.index += 1
-            self.game = game
-            withAnimation(Studio.spring) { beginRound() }
+            withAnimation(Studio.spring) { beginRound(advancingTo: game.index + 1) }
         } else {
             let result = SoloResult.make(playlist: game.playlist, total: game.songs.count, pushTimes: game.correctPushTimes)
             game.stage = .finished
@@ -704,12 +703,20 @@ struct SoloGame {
                     throw AppError.message("Apple Music 対戦にはアクセス許可とサブスクリプションが必要です")
                 }
                 guard !appleMusicSongs.isEmpty else { throw AppError.message("先に Apple Music のプレイリストを選んでください") }
+                guard appleMusicSongs.count >= roomSettings.questionCount else {
+                    throw AppError.message("プレイリストの曲数が問題数より少なくなっています")
+                }
+                preparationStatus = "Apple Music の曲を照合中 0 / \(roomSettings.questionCount)"
+                var catalogIDs = Set<String>()
                 for candidate in appleMusicSongs.shuffled() {
-                    songs += await appleMusic.catalogSongs(for: [candidate])
+                    for song in await appleMusic.catalogSongs(for: [candidate]) where catalogIDs.insert(song.id).inserted {
+                        songs.append(song)
+                    }
+                    preparationStatus = "Apple Music の曲を照合中 \(songs.count) / \(roomSettings.questionCount)"
                     if songs.count == roomSettings.questionCount { break }
                 }
                 guard songs.count == roomSettings.questionCount else {
-                    throw AppError.message("指定された問題数分の Apple Music の曲を用意できません")
+                    throw AppError.message("指定された問題数分の Apple Music の曲を用意できません（照合可能: \(songs.count) / \(roomSettings.questionCount) 曲）")
                 }
                 corpus = appleMusicSongs.map(\.title)
             } else if roomMode != "shared" {

@@ -271,6 +271,29 @@ struct AppleMusicPlaylist: Identifiable, Hashable {
     let name: String
 }
 
+private struct AppleMusicLibrarySongResponse: Decodable {
+    struct Item: Decodable {
+        struct Attributes: Decodable {
+            struct PlayParams: Decodable { let catalogId: String? }
+            let playParams: PlayParams?
+        }
+        struct Relationships: Decodable {
+            struct Catalog: Decodable {
+                struct Item: Decodable { let id: String }
+                let data: [Item]?
+            }
+            let catalog: Catalog?
+        }
+        let attributes: Attributes?
+        let relationships: Relationships?
+    }
+    let data: [Item]
+
+    var catalogID: String? {
+        data.first?.attributes?.playParams?.catalogId ?? data.first?.relationships?.catalog?.data?.first?.id
+    }
+}
+
 @MainActor final class AppleMusicService {
     private let player = ApplicationMusicPlayer.shared
     private var playlistsByID: [String: MusicKit.Playlist] = [:]
@@ -330,22 +353,56 @@ struct AppleMusicPlaylist: Identifiable, Hashable {
     func catalogSongs(for source: [Song]) async -> [Song] {
         var result: [Song] = []
         for song in source {
-            guard let librarySong = songsByID[song.id], let isrc = librarySong.isrc else { continue }
-            do {
-                let request = MusicCatalogResourceRequest<MusicKit.Song>(matching: \.isrc, equalTo: Optional(isrc))
-                guard let catalogSong = try await request.response().items.first,
-                      catalogSong.playParameters != nil else { continue }
-                let id = "applemusic:\(catalogSong.id)"
-                guard id.range(of: #"^applemusic:[0-9]+$"#, options: .regularExpression) != nil else { continue }
-                songsByID[id] = catalogSong
-                result.append(Song(id: id, title: catalogSong.title, artist: catalogSong.artistName,
-                                   artworkURL: catalogSong.artwork?.url(width: 300, height: 300),
-                                   previewURL: nil, trackURL: catalogSong.url,
-                                   durationMS: Int((catalogSong.duration ?? 180) * 1000),
-                                   genre: catalogSong.genreNames.first ?? song.genre))
-            } catch { continue }
+            guard let librarySong = songsByID[song.id],
+                  let catalogSong = await catalogMatch(for: librarySong) else { continue }
+            let id = "applemusic:\(catalogSong.id)"
+            songsByID[id] = catalogSong
+            result.append(Song(id: id, title: catalogSong.title, artist: catalogSong.artistName,
+                               artworkURL: catalogSong.artwork?.url(width: 300, height: 300),
+                               previewURL: nil, trackURL: catalogSong.url,
+                               durationMS: Int((catalogSong.duration ?? 180) * 1000),
+                               genre: catalogSong.genreNames.first ?? song.genre))
         }
         return result
+    }
+
+    private func catalogMatch(for librarySong: MusicKit.Song) async -> MusicKit.Song? {
+        let libraryID = String(describing: librarySong.id)
+        if isCatalogID(libraryID), let song = try? await catalogSong(for: "applemusic:\(libraryID)") {
+            return song
+        }
+        if let catalogID = await associatedCatalogID(for: libraryID), isCatalogID(catalogID),
+           let song = try? await catalogSong(for: "applemusic:\(catalogID)") {
+            return song
+        }
+        if let isrc = librarySong.isrc {
+            let request = MusicCatalogResourceRequest<MusicKit.Song>(matching: \.isrc, equalTo: Optional(isrc))
+            if let song = try? await request.response().items.first(where: {
+                isCatalogID(String(describing: $0.id)) && $0.playParameters != nil
+            }) { return song }
+        }
+        var request = MusicCatalogSearchRequest(term: "\(librarySong.title) \(librarySong.artistName)", types: [MusicKit.Song.self])
+        request.limit = 25
+        guard let matches = try? await request.response().songs else { return nil }
+        return matches.first { match in
+            isCatalogID(String(describing: match.id)) && match.playParameters != nil &&
+            TitleRules.normalized(match.title) == TitleRules.normalized(librarySong.title) &&
+            TitleRules.normalized(match.artistName) == TitleRules.normalized(librarySong.artistName) &&
+            (librarySong.duration == nil || match.duration == nil ||
+             abs((match.duration ?? 0) - (librarySong.duration ?? 0)) <= 10)
+        }
+    }
+
+    private func associatedCatalogID(for libraryID: String) async -> String? {
+        var url = URL(string: "https://api.music.apple.com/v1/me/library/songs/")!.appending(path: libraryID)
+        url.append(queryItems: [URLQueryItem(name: "include", value: "catalog")])
+        guard let response = try? await MusicDataRequest(urlRequest: URLRequest(url: url)).response(),
+              let song = try? JSONDecoder().decode(AppleMusicLibrarySongResponse.self, from: response.data) else { return nil }
+        return song.catalogID
+    }
+
+    private func isCatalogID(_ id: String) -> Bool {
+        !id.isEmpty && id.utf8.allSatisfy { (48...57).contains($0) }
     }
 
     func withArtistTopTitles(_ songs: [Song]) async -> [Song] {

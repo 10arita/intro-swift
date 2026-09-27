@@ -46,7 +46,7 @@ MusicKit for Swift を使います。Apple Music API の秘密鍵や手動の De
 1. [Apple Developer の Certificates, Identifiers & Profiles](https://developer.apple.com/account/resources/identifiers/list) で、このアプリ用の **Explicit App ID** を作成するか既存の App ID を開き、**App Services → MusicKit** を有効にします。
 2. Xcode の **Targets → IntoL → Signing & Capabilities** で自分の Team を選び、Bundle Identifier をその App ID と完全に一致させます。リポジトリ内の `com.example.IntoL` は仮の値です。署名プロファイルを更新して実機にインストールします。
 3. Apple Music を利用できる Apple Account で iPhone にサインインし、Apple Music の有効なサブスクリプションを用意します。IntoL の「アカウント」で **Apple Music** を選び、「Apple Music に接続」を押してライブラリへのアクセスを許可します。許可を拒否した場合は iPhone の設定から IntoL のメディアライブラリアクセスを変更します。
-4. 「プレイ」→「ひとりで」→「イントロ」→「Apple Music」からプレイリストを選びます。対戦する場合は全員がApple Musicに接続し、ホストは「みんなで」→「イントロ」→「Apple Musicで作る」を選びます。対戦では各曲を ISRC で Apple Music カタログに対応付けるため、一部の曲は除外されます。参加者の地域で再生できない曲があると、そのラウンドの準備が完了しません。
+4. 「プレイ」→「ひとりで」→「イントロ」→「Apple Music」からプレイリストを選びます。対戦する場合は全員がApple Musicに接続し、ホストは「みんなで」→「イントロ」→「Apple Musicで作る」を選びます。対戦ではライブラリ曲を Apple Music カタログに対応付けます。対応するカタログ曲が見つからない場合、一部の曲は除外されます。参加者の地域で再生できない曲があると、そのラウンドの準備が完了しません。
 
 Apple Music のプレイリストはイントロクイズで利用できます。サビトロでは従来どおり iTunes 試聴音源または Spotify プレイリストとの照合を使います。Apple Music の正解発表では曲の長さから推定した位置から再生します。
 
