@@ -136,7 +136,10 @@ function artistTopTitles(value) {
   return Array.isArray(value) ? value.filter(t => typeof t === 'string' && normalize(t)).slice(0, 7).map(t => t.slice(0, 150)) : [];
 }
 function publicPlayer(player, room) {
+  const attempt = room.answers.find(answer => answer.playerId === player.id);
   return { id: player.id, name: player.name, score: player.score, lives: player.lives,
+    correctCount: player.correctCount ?? 0, wrongCount: player.wrongCount ?? 0,
+    pushTimeMS: attempt?.pushTimeMS ?? null,
     disqualified: player.disqualified, connected: Date.now() - player.lastSeen < GRACE,
     isHost: player.id === room.hostId, joinedAt: player.joinedAt, badge: player.badge || null };
 }
@@ -148,7 +151,10 @@ function reveal(room) {
   room.correctPlayerID = room.correctPlayerIDs[0] ?? null;
   room.correctPlayerIDs.forEach((id, index) => {
     const player = room.players.find(item => item.id === id);
-    if (player) player.score += room.settings.correctPoints + (index === 0 ? room.settings.firstBonus : 0);
+    if (player) {
+      player.score += room.settings.correctPoints + (index === 0 ? room.settings.firstBonus : 0);
+      player.correctCount = (player.correctCount ?? 0) + 1;
+    }
   });
   room.pushClosed = true;
   room.phase = 'reveal'; room.pausedAt = null; room.pausedPositionMS = null;
@@ -189,6 +195,7 @@ function beginRound(room) {
 function wrong(room, player, answer) {
   const s = room.settings;
   player.score = Math.max(0, player.score - s.wrongPenalty - (room.firstWrongDone ? 0 : s.firstWrongPenalty));
+  player.wrongCount = (player.wrongCount ?? 0) + 1;
   room.firstWrongDone = true;
   if (s.lives > 0) {
     player.lives = Math.max(0, player.lives - 1);
@@ -332,7 +339,8 @@ export function handle(method, path, body, query, authorization, origin = 'https
     if (songs.length < s.questionCount) return fail(400, `問題数分の曲がありません（利用可能: ${songs.length}曲）`);
     const room = { id, mode, settings: s, songs: shuffled(songs).slice(0, s.questionCount), corpus: [...new Set([...songs.map(song => song.title), ...seedTitles, ...(Array.isArray(body.corpus) ? body.corpus.filter(s => typeof s === 'string').slice(0, 500) : [])])], phase: 'lobby', round: -1,
       hostId: String(body.playerId), players: [{ id: String(body.playerId), secret: randomUUID(), name: String(body.name).trim().slice(0, 24),
-        badge: String(body.badge || '').slice(0, 24), score: 0, lives: s.lives, disqualified: false, joinedAt: Date.now(), lastSeen: Date.now() }],
+        badge: String(body.badge || '').slice(0, 24), score: 0, correctCount: 0, wrongCount: 0,
+        lives: s.lives, disqualified: false, joinedAt: Date.now(), lastSeen: Date.now() }],
       pushed: new Set(), skipped: new Set(), readyIds: new Set(), assetsReadyIds: new Set(), startAt: null, roundDeadline: null,
       pausedAt: null, pausedPositionMS: null, pushClosed: false, audioStoppedAt: null,
       answers: [], correctPlayerID: null, correctPlayerIDs: [], firstWrongDone: false };
@@ -353,7 +361,7 @@ export function handle(method, path, body, query, authorization, origin = 'https
       if (room.players.length >= 4) return fail(409, '満員です');
       if (!/^[A-Za-z0-9-]{1,64}$/.test(playerId)) return fail(400, 'プレイヤー情報が無効です');
       player = { id: playerId, secret: randomUUID(), name: String(body.name || 'プレイヤー').trim().slice(0, 24),
-        badge: String(body.badge || '').slice(0, 24), score: 0,
+        badge: String(body.badge || '').slice(0, 24), score: 0, correctCount: 0, wrongCount: 0,
         lives: room.settings.lives, disqualified: false, joinedAt: Date.now(), lastSeen: Date.now() };
       room.players.push(player);
       newlyJoined = true;
@@ -384,8 +392,10 @@ export function handle(method, path, body, query, authorization, origin = 'https
     if (!['listening', 'answering'].includes(room.phase) || player.disqualified || room.pushed.has(playerId) ||
         room.settings.endless && room.phase === 'answering' ||
         !room.settings.endless && room.pushClosed) return fail(409, '解答権を取得できません');
+    const pushedAt = Date.now();
     room.pushed.add(playerId); room.skipped.delete(playerId);
-    room.answers.push({ playerId, progress: '', letterIndex: 0, deadline: Date.now() + 5000,
+    room.answers.push({ playerId, progress: '', letterIndex: 0, deadline: pushedAt + 5000,
+      pushTimeMS: Math.max(0, Math.min(30_000, pushedAt - room.startAt)),
       options: choices([...normalize(currentSong(room).title)][0], '', room.corpus || room.songs.map(s => s.title), currentSong(room).artistTopTitles || []),
       status: 'active' });
     if (room.settings.endless) {

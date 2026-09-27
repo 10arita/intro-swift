@@ -16,6 +16,9 @@ struct RoomPlayer: Decodable, Identifiable {
     let id: String
     let name: String
     let score: Int
+    let correctCount: Int?
+    let wrongCount: Int?
+    let pushTimeMS: Double?
     let lives: Int
     let disqualified: Bool
     let connected: Bool

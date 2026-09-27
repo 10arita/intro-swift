@@ -715,11 +715,12 @@ private struct WaveMark: View {
 private struct CountdownBar: View {
     let remaining: Double
     let total: Double
+    var compact = false
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: compact ? 4 : 12) {
             HStack(alignment: .firstTextBaseline) {
                 Text(String(format: "%.1f", remaining))
-                    .font(.system(size: 56, weight: .light, design: .rounded))
+                    .font(.system(size: compact ? 34 : 56, weight: .light, design: .rounded))
                     .monospacedDigit()
                     .contentTransition(.numericText())
                     .foregroundStyle(remaining < 5 ? Studio.warning : Studio.primary)
@@ -742,15 +743,16 @@ private struct CountdownBar: View {
 
 private struct PushButton: View {
     let action: () -> Void
+    var size: CGFloat = 256
     var body: some View {
         Button(action: action) {
             ZStack {
-                Circle().strokeBorder(Studio.line, lineWidth: 1).frame(width: 256, height: 256)
-                Circle().strokeBorder(Studio.accent.opacity(0.35), lineWidth: 1).frame(width: 224, height: 224)
-                Circle().fill(Studio.accent).frame(width: 190, height: 190)
+                Circle().strokeBorder(Studio.line, lineWidth: 1).frame(width: size, height: size)
+                Circle().strokeBorder(Studio.accent.opacity(0.35), lineWidth: 1).frame(width: size * 0.875, height: size * 0.875)
+                Circle().fill(Studio.accent).frame(width: size * 0.742, height: size * 0.742)
                 VStack(spacing: 1) {
-                    Image(systemName: "hand.tap.fill").font(.system(size: 27))
-                    Text("PUSH").font(.system(size: 39, weight: .black, design: .rounded)).tracking(-2)
+                    Image(systemName: "hand.tap.fill").font(.system(size: size * 0.105))
+                    Text("PUSH").font(.system(size: size * 0.152, weight: .black, design: .rounded)).tracking(-2)
                 }
                 .foregroundStyle(.white)
             }
@@ -773,6 +775,7 @@ private struct ScaleButtonStyle: ButtonStyle {
 private struct ChoiceGrid: View {
     let choices: [String]
     let action: (String) -> Void
+    var compact = false
     var body: some View {
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
             ForEach(Array(choices.enumerated()), id: \.offset) { index, choice in
@@ -783,12 +786,12 @@ private struct ChoiceGrid: View {
                             .foregroundStyle(Studio.secondary)
                         Spacer()
                         Text(choice)
-                            .font(.system(size: 38, weight: .bold, design: .rounded))
+                            .font(.system(size: compact ? 30 : 38, weight: .bold, design: .rounded))
                             .foregroundStyle(Studio.primary)
                         Spacer()
                     }
                     .padding(.horizontal, 18)
-                    .frame(height: 94)
+                    .frame(height: compact ? 68 : 94)
                     .background(Studio.surface, in: RoundedRectangle(cornerRadius: 22))
                     .overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(Studio.line))
                 }
@@ -1205,13 +1208,15 @@ struct RoomGameView: View {
         ZStack {
             Studio.background.ignoresSafeArea()
             if let room = model.room {
-                ScrollView {
-                    VStack(spacing: 24) {
+                GeometryReader { geometry in
+                    let compact = geometry.size.height < 700
+                    VStack(spacing: 0) {
                         HStack {
                             Button { Task { await model.leaveRoom() } } label: {
                                 Image(systemName: "xmark").font(.headline).foregroundStyle(Studio.primary)
                                     .frame(width: 44, height: 44).background(Studio.surface, in: Circle())
                             }
+                            .accessibilityLabel("ルームを退出")
                             Spacer()
                             Text(room.id)
                                 .font(.system(size: 17, weight: .bold, design: .monospaced))
@@ -1219,101 +1224,92 @@ struct RoomGameView: View {
                                 .foregroundStyle(Studio.accent)
                                 .textSelection(.enabled)
                         }
-                        if room.phase == "lobby" {
-                            lobby(room)
-                        } else if room.phase == "preparing" {
-                            Spacer(minLength: 70)
-                            roundTitle(room)
-                            ProgressView().tint(Studio.accent).scaleEffect(1.5)
-                            Text("音源を準備中")
-                                .font(.system(size: 30, weight: .bold, design: .rounded))
-                                .foregroundStyle(Studio.primary)
-                            Text("\(room.readyIds.count) / \(room.players.count) 人の準備が完了")
-                                .foregroundStyle(Studio.secondary)
-                            if model.roomError != nil {
-                                Button("準備を再試行") { model.retryRoomRound() }
-                                    .buttonStyle(SecondaryButtonStyle())
-                            }
-                            players(room)
-                        } else if room.phase == "countdown" {
-                            Spacer(minLength: 70)
-                            roundTitle(room)
-                            WaveMark()
-                            Text("第\(room.round + 1)曲目")
-                                .font(.system(size: 32, weight: .bold, design: .rounded))
-                                .foregroundStyle(Studio.primary)
-                            Text("\(max(1, Int(ceil(model.roomSecondsLeft - 30))))")
-                                .font(.system(size: 42, weight: .bold, design: .rounded))
-                                .foregroundStyle(Studio.accent)
-                            Text("端末の音量を確認してください")
-                                .foregroundStyle(Studio.secondary)
-                            if model.roomError != nil {
-                                Button("再生を再試行") { model.retryRoomAudio() }
-                                    .buttonStyle(SecondaryButtonStyle())
-                            }
-                            players(room)
-                        } else if ["listening", "answering"].contains(room.phase) {
-                            roundTitle(room)
-                            if room.isAnswering(model.rooms.playerId) {
-                                SectionCaption(title: "YOUR TURN")
-                                Text(model.roomAnswer.isEmpty ? "文字を選んでください" : model.roomAnswer)
+                        .padding(.horizontal, 24)
+                        .padding(.top, 12)
+                        compactPlayers(room)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 8)
+                            .padding(.bottom, 12)
+                        VStack(spacing: compact ? 8 : 12) {
+                            if room.phase == "lobby" {
+                                lobby(room)
+                            } else if room.phase == "preparing" {
+                                roundTitle(room)
+                                ProgressView().tint(Studio.accent).scaleEffect(1.5)
+                                Text("音源を準備中")
+                                    .font(.system(size: 30, weight: .bold, design: .rounded))
+                                    .foregroundStyle(Studio.primary)
+                                Text("\(room.readyIds.count) / \(room.players.count) 人の準備が完了")
+                                    .foregroundStyle(Studio.secondary)
+                                if model.roomError != nil {
+                                    Button("準備を再試行") { model.retryRoomRound() }
+                                        .buttonStyle(SecondaryButtonStyle())
+                                }
+                            } else if room.phase == "countdown" {
+                                roundTitle(room)
+                                WaveMark()
+                                Text("第\(room.round + 1)曲目")
+                                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                                    .foregroundStyle(Studio.primary)
+                                Text("\(max(1, Int(ceil(model.roomSecondsLeft - 30))))")
+                                    .font(.system(size: 42, weight: .bold, design: .rounded))
+                                    .foregroundStyle(Studio.accent)
+                                Text("端末の音量を確認してください")
+                                    .foregroundStyle(Studio.secondary)
+                                if model.roomError != nil {
+                                    Button("再生を再試行") { model.retryRoomAudio() }
+                                        .buttonStyle(SecondaryButtonStyle())
+                                }
+                            } else if ["listening", "answering"].contains(room.phase) {
+                                roundTitle(room)
+                                if room.isAnswering(model.rooms.playerId) {
+                                    SectionCaption(title: "YOUR TURN")
+                                    Text(model.roomAnswer.isEmpty ? "文字を選んでください" : model.roomAnswer)
+                                        .font(.system(size: 36, weight: .bold, design: .rounded))
+                                        .foregroundStyle(Studio.primary)
+                                        .lineLimit(2)
+                                        .minimumScaleFactor(0.65)
+                                        .multilineTextAlignment(.center)
+                                    CountdownBar(remaining: model.roomSecondsLeft, total: 5, compact: true)
+                                    ChoiceGrid(choices: model.roomOptions, action: { choice in
+                                        Task { await model.roomAction("choose", payload: ["choice": choice]) }
+                                    }, compact: true)
+                                } else if room.phase == "answering" &&
+                                            (room.settings.endless || room.pushClosed) {
+                                    watchingStage(room, compact: compact)
+                                } else {
+                                    listeningStage(room, compact: compact)
+                                }
+                                skipButton(room)
+                            } else if room.phase == "reveal" {
+                                roomReveal(room)
+                                if room.hostId == model.rooms.playerId {
+                                    PrimaryButton(title: "次の曲へ", symbol: "arrow.right") {
+                                        Task { await model.roomAction("next") }
+                                    }
+                                } else {
+                                    Text("ホストが次の曲に進めます")
+                                        .font(.subheadline).foregroundStyle(Studio.secondary)
+                                }
+                            } else if room.phase == "finished" {
+                                SectionCaption(title: "FINAL RESULTS")
+                                Text("ゲームセット")
                                     .font(.system(size: 36, weight: .bold, design: .rounded))
                                     .foregroundStyle(Studio.primary)
-                                CountdownBar(remaining: model.roomSecondsLeft, total: 5)
-                                ChoiceGrid(choices: model.roomOptions) { choice in
-                                    Task { await model.roomAction("choose", payload: ["choice": choice]) }
-                                }
-                            } else if room.phase == "answering" &&
-                                        (room.settings.endless || room.pushClosed) {
-                                watchingStage(room)
-                            } else {
-                                listeningStage(room)
-                            }
-                            skipButton(room)
-                            players(room)
-                        } else if room.phase == "reveal" {
-                            if let song = room.current?.song {
-                                RevealCard(song: song, correct: room.correctPlayerIDs.contains(model.rooms.playerId),
-                                           saved: model.reviews.contains { $0.id == song.id }) { model.saveReview(song) }
-                            }
-                            if room.correctPlayerIDs.isEmpty {
-                                Text("正解者なし")
-                                    .font(.headline).foregroundStyle(Studio.secondary)
-                            } else {
-                                ForEach(room.correctPlayerIDs.indices, id: \.self) { index in
-                                    if let player = room.player(room.correctPlayerIDs[index]) {
-                                        Text("\(index + 1)位 \(player.name) が正解")
-                                            .font(.headline).foregroundStyle(Studio.accent)
-                                    }
+                                PrimaryButton(title: "ホームへ戻る", symbol: "house") {
+                                    Task { await model.leaveRoom() }
                                 }
                             }
-                            players(room)
-                            if room.hostId == model.rooms.playerId {
-                                PrimaryButton(title: "次の曲へ", symbol: "arrow.right") {
-                                    Task { await model.roomAction("next") }
-                                }
-                            } else {
-                                Text("ホストが次の曲に進めます")
-                                    .font(.subheadline).foregroundStyle(Studio.secondary)
-                            }
-                        } else if room.phase == "finished" {
-                            SectionCaption(title: "FINAL RESULTS")
-                            Text("ゲームセット")
-                                .font(.system(size: 36, weight: .bold, design: .rounded))
-                                .foregroundStyle(Studio.primary)
-                            players(room, ranked: true)
-                            PrimaryButton(title: "ホームへ戻る", symbol: "house") {
-                                Task { await model.leaveRoom() }
+                            if let error = model.roomError {
+                                Text(error).font(.caption).foregroundStyle(Studio.warning)
                             }
                         }
-                        if let error = model.roomError {
-                            Text(error).font(.caption).foregroundStyle(Studio.warning)
-                        }
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, compact ? 8 : 16)
+                        .frame(maxWidth: 560)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .animation(reduceMotion ? .none : Studio.spring, value: room.phase)
                     }
-                    .padding(24)
-                    .frame(maxWidth: 560)
-                    .frame(maxWidth: .infinity)
-                    .animation(reduceMotion ? .none : Studio.spring, value: room.phase)
                 }
             }
         }
@@ -1323,8 +1319,8 @@ struct RoomGameView: View {
         SectionCaption(title: "ROUND \(room.round + 1) / \(room.totalRounds)")
     }
 
-    private func listeningStage(_ room: RoomState) -> some View {
-        VStack(spacing: 20) {
+    private func listeningStage(_ room: RoomState, compact: Bool) -> some View {
+        VStack(spacing: compact ? 8 : 12) {
             if !model.roomAudioStarted {
                 ProgressView().tint(Studio.accent).scaleEffect(1.5)
                 Text("音源を読み込み中")
@@ -1334,17 +1330,16 @@ struct RoomGameView: View {
                         .buttonStyle(SecondaryButtonStyle())
                 }
             } else {
-                WaveMark()
                 Text("この曲は？")
-                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                    .font(.system(size: compact ? 26 : 30, weight: .bold, design: .rounded))
                     .foregroundStyle(Studio.primary)
-                CountdownBar(remaining: model.roomSecondsLeft, total: 30)
+                CountdownBar(remaining: model.roomSecondsLeft, total: 30, compact: true)
                 if room.settings.endless {
                     Text("エンドレスモード・誤答: \(room.pushedIds.count) / \(room.players.count)人")
-                        .foregroundStyle(Studio.secondary)
+                        .font(.caption).foregroundStyle(Studio.secondary)
                 } else {
                     Text("解答受付: \(room.pushedIds.count) / \(room.settings.answerSlots)人（残り\(max(0, room.settings.answerSlots - room.pushedIds.count))人）")
-                        .foregroundStyle(Studio.secondary)
+                        .font(.caption).foregroundStyle(Studio.secondary)
                 }
                 if room.player(model.rooms.playerId)?.disqualified == true {
                     Text("今回は観戦中です").foregroundStyle(Studio.secondary)
@@ -1354,22 +1349,20 @@ struct RoomGameView: View {
                 } else if room.pushedIds.contains(model.rooms.playerId) {
                     Text("この曲は解答済みです（再PUSH不可）").foregroundStyle(Studio.secondary)
                 } else if room.canPush(model.rooms.playerId) {
-                    PushButton { Task { await model.roomAction("push") } }
+                    PushButton(action: { Task { await model.roomAction("push") } }, size: compact ? 142 : 180)
                 }
             }
         }
     }
 
-    private func watchingStage(_ room: RoomState) -> some View {
-        VStack(spacing: 20) {
-            Spacer(minLength: 30)
-            WaveMark()
+    private func watchingStage(_ room: RoomState, compact: Bool) -> some View {
+        VStack(spacing: compact ? 8 : 12) {
             Text("\(room.activeAnswers.count)人が解答中...")
                 .font(.title2.bold()).foregroundStyle(Studio.primary)
             if room.settings.endless {
                 Text("曲と出題タイマーは停止中")
                     .foregroundStyle(Studio.secondary)
-                CountdownBar(remaining: model.roomSecondsLeft, total: 30)
+                CountdownBar(remaining: model.roomSecondsLeft, total: 30, compact: true)
             } else if room.audioStoppedAt != nil {
                 Text("30秒経過・曲は停止中。回答完了を待っています")
                     .foregroundStyle(Studio.secondary)
@@ -1378,25 +1371,75 @@ struct RoomGameView: View {
                     .foregroundStyle(Studio.secondary)
             }
             ForEach(room.activeAnswers) { answer in
-                StudioCard {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(room.player(answer.playerId)?.name ?? "プレイヤー")
-                            .font(.headline).foregroundStyle(Studio.primary)
-                        Text(answer.progress.isEmpty ? "入力待ち" : answer.progress)
-                            .font(.title2.bold()).foregroundStyle(Studio.accent)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: 10) {
+                    Text(room.player(answer.playerId)?.name ?? "プレイヤー")
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    Text(answer.progress.isEmpty ? "入力待ち" : answer.progress)
+                        .font(.subheadline.bold())
+                        .lineLimit(1)
+                        .foregroundStyle(Studio.accent)
                 }
+                .foregroundStyle(Studio.primary)
+                .padding(.horizontal, 12)
+                .frame(minHeight: 38)
+                .background(Studio.surface, in: RoundedRectangle(cornerRadius: 10))
             }
         }
     }
 
+    private func roomReveal(_ room: RoomState) -> some View {
+        VStack(spacing: 10) {
+            if let song = room.current?.song {
+                HStack(spacing: 12) {
+                    Artwork(url: song.artworkURL, size: 88)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(room.correctPlayerIDs.contains(model.rooms.playerId) ? "正解！" : "この曲でした")
+                            .font(.title3.bold())
+                            .foregroundStyle(Studio.accent)
+                        Text(song.title)
+                            .font(.headline)
+                            .lineLimit(2)
+                        Text(song.artist)
+                            .font(.caption)
+                            .foregroundStyle(Studio.secondary)
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .foregroundStyle(Studio.primary)
+                HStack(spacing: 8) {
+                    Button { model.saveReview(song) } label: {
+                        Label(model.reviews.contains { $0.id == song.id } ? "保存済み" : "復習に保存",
+                              systemImage: "bookmark")
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
+                    .disabled(model.reviews.contains { $0.id == song.id })
+                    if let url = song.trackURL {
+                        Link(destination: url) {
+                            Label("曲を開く", systemImage: "arrow.up.right")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(Studio.accent)
+                        }
+                    }
+                }
+            }
+            let winners = room.correctPlayerIDs.enumerated().compactMap { index, id in
+                room.player(id).map { "\(index + 1)位 \($0.name)" }
+            }
+            Text(winners.isEmpty ? "正解者なし" : winners.joined(separator: " ・ "))
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(winners.isEmpty ? Studio.secondary : Studio.accent)
+                .lineLimit(2)
+                .minimumScaleFactor(0.85)
+        }
+    }
+
     private func lobby(_ room: RoomState) -> some View {
-        VStack(spacing: 20) {
-            Spacer(minLength: 30)
-            WaveMark()
+        VStack(spacing: 10) {
             Text("みんなを待っています")
-                .font(.system(size: 30, weight: .bold, design: .rounded))
+                .font(.system(size: 26, weight: .bold, design: .rounded))
                 .foregroundStyle(Studio.primary)
                 .multilineTextAlignment(.center)
             Text("ルームIDを友だちに共有してください")
@@ -1406,7 +1449,6 @@ struct RoomGameView: View {
                     .font(.subheadline.bold())
                     .foregroundStyle(Studio.accent)
             }
-            players(room)
             Text("画像と音源の準備: \((room.assetsReadyIds ?? []).count) / \(room.players.count) 人")
                 .font(.subheadline).foregroundStyle(Studio.secondary)
             if let status = model.roomPreparationStatus {
@@ -1443,42 +1485,75 @@ struct RoomGameView: View {
         }
         .font(.subheadline)
         .foregroundStyle(Studio.secondary)
+        .frame(minHeight: 36)
         .disabled(room.skippedIds.contains(model.rooms.playerId))
     }
 
-    private func players(_ room: RoomState, ranked: Bool = false) -> some View {
-        StudioCard {
-            VStack(alignment: .leading, spacing: 15) {
-                SectionCaption(title: ranked ? "RANKING" : "PLAYERS")
-                ForEach(Array((ranked ? room.players.sorted { $0.score > $1.score } : room.players).enumerated()), id: \.element.id) { index, player in
-                    HStack(spacing: 12) {
+    private func compactPlayers(_ room: RoomState) -> some View {
+        let players = room.phase == "finished" ? room.players.sorted { $0.score > $1.score } : room.players
+        return LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
+            ForEach(Array(players.enumerated()), id: \.element.id) { index, player in
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 3) {
+                        if room.phase == "finished" {
+                            Text("\(index + 1)位")
+                                .font(.caption2.bold())
+                                .foregroundStyle(Studio.accent)
+                        }
                         Menu {
                             Text(player.badge ?? "称号未設定")
                         } label: {
-                            Text(ranked ? "\(index + 1)" : String(player.name.prefix(1)))
-                                .font(.system(size: 16, weight: .bold, design: .rounded))
-                                .foregroundStyle(Studio.background)
-                                .frame(width: 36, height: 36)
-                                .background(Studio.accent, in: Circle())
+                            Text(player.name)
+                                .font(.caption.weight(.semibold))
+                                .lineLimit(1)
                         }
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack(spacing: 5) {
-                                Text(player.name).lineLimit(1)
-                                if player.isHost { Image(systemName: "crown.fill").font(.caption2).foregroundStyle(Studio.accent) }
-                            }
-                            .foregroundStyle(Studio.primary)
-                            Text(player.disqualified ? "観戦中" : room.settings.lives == 0 ? "ライフ ∞" : "ライフ \(player.lives)")
+                        if player.isHost {
+                            Image(systemName: "crown.fill")
                                 .font(.caption2)
-                                .foregroundStyle(Studio.secondary)
+                                .foregroundStyle(Studio.accent)
+                                .accessibilityLabel("ホスト")
                         }
-                        Spacer()
-                        Text("\(player.score) pt")
-                            .font(.system(size: 16, weight: .bold, design: .rounded))
-                            .foregroundStyle(Studio.primary)
+                        Spacer(minLength: 2)
+                        Text(room.settings.lives == 0 ? "ライフ∞" : "ライフ\(player.lives)")
+                            .font(.caption2)
+                            .foregroundStyle(player.disqualified ? Studio.warning : Studio.secondary)
                     }
-                    .opacity(player.connected ? 1 : 0.5)
+                    HStack(spacing: 8) {
+                        Text("○\(player.correctCount ?? 0)")
+                            .foregroundStyle(Studio.accent)
+                        Text("×\(player.wrongCount ?? 0)")
+                            .foregroundStyle(Studio.secondary)
+                        Spacer(minLength: 0)
+                        Text("\(player.score) pt")
+                            .fontWeight(.bold)
+                    }
+                    HStack(spacing: 4) {
+                        Text("Skip \(room.skippedIds.contains(player.id) ? "あり" : "なし")")
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                        Spacer(minLength: 0)
+                        Text("PUSH \(pushTime(player))")
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                    }
+                    .foregroundStyle(Studio.secondary)
                 }
+                .font(.caption2)
+                .foregroundStyle(Studio.primary)
+                .padding(7)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Studio.surface, in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Studio.line))
+                .opacity(player.connected ? 1 : 0.5)
             }
         }
+        .frame(maxWidth: 560)
+        .frame(maxWidth: .infinity)
     }
+
+    private func pushTime(_ player: RoomPlayer) -> String {
+        guard let milliseconds = player.pushTimeMS else { return "—" }
+        return String(format: "%.1f秒", milliseconds / 1000)
+    }
+
 }

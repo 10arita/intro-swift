@@ -114,9 +114,14 @@ test('room API arbitrates PUSH, validates answers, scores, and protects sessions
     const state = (await call(`/rooms/${id}?playerId=p1`, null, hostToken, 'GET')).value;
     assert.equal(state.phase, 'listening');
     assert.equal(state.current.title, undefined);
+    assert.equal(state.players.find(p => p.id === 'p1').correctCount, 0);
+    assert.equal(state.players.find(p => p.id === 'p1').wrongCount, 0);
+    assert.equal(state.players.find(p => p.id === 'p1').pushTimeMS, null);
     const answer = normalize(songs.find(song => song.id === state.current.id).title);
+    now += 1200;
     const pushed = await call(`/rooms/${id}/push`, { playerId: 'p1' }, hostToken);
     assert.equal(pushed.value.phase, 'answering');
+    assert.equal(pushed.value.players.find(p => p.id === 'p1').pushTimeMS, 1300);
     assert.equal((await call(`/rooms/${id}/push`, { playerId: 'p2' }, guestToken)).status, 200);
     for (const char of answer) {
       const step = await call(`/rooms/${id}/choose`, { playerId: 'p1', choice: char }, hostToken);
@@ -127,9 +132,13 @@ test('room API arbitrates PUSH, validates answers, scores, and protects sessions
     const revealed = (await call(`/rooms/${id}?playerId=p1`, null, hostToken, 'GET')).value;
     assert.equal(revealed.phase, 'reveal');
     assert.equal(revealed.players.find(p => p.id === 'p1').score, 20);
+    assert.equal(revealed.players.find(p => p.id === 'p1').correctCount, 1);
+    assert.equal(revealed.players.find(p => p.id === 'p2').wrongCount, 1);
     assert.equal(revealed.current.title, songs.find(song => song.id === state.current.id).title);
     const next = (await call(`/rooms/${id}/next`, { playerId: 'p1' }, hostToken)).value;
     assert.equal(next.phase, 'preparing');
+    assert.equal(next.players.find(p => p.id === 'p1').pushTimeMS, null);
+    assert.equal(next.players.find(p => p.id === 'p1').correctCount, 1);
     await call(`/rooms/${id}/ready`, { playerId: 'p1' }, hostToken);
     await call(`/rooms/${id}/ready`, { playerId: 'p2' }, guestToken);
     now += 5100;
@@ -139,12 +148,14 @@ test('room API arbitrates PUSH, validates answers, scores, and protects sessions
     assert.equal(failed.value.phase, 'listening');
     assert.equal(failed.value.players.find(p => p.id === 'p1').score, 0);
     assert.equal(failed.value.players.find(p => p.id === 'p1').lives, 2);
+    assert.equal(failed.value.players.find(p => p.id === 'p1').wrongCount, 1);
     const second = await call(`/rooms/${id}/push`, { playerId: 'p2' }, guestToken);
     assert.equal(second.value.phase, 'answering');
     const answer2 = normalize(songs.find(song => song.id === second.value.current.id).title);
     for (const char of answer2) await call(`/rooms/${id}/choose`, { playerId: 'p2', choice: char }, guestToken);
     const final = (await call(`/rooms/${id}?playerId=p2`, null, guestToken, 'GET')).value;
     assert.equal(final.players.find(p => p.id === 'p2').score, 20);
+    assert.equal(final.players.find(p => p.id === 'p2').correctCount, 1);
     assert.equal((await call(`/rooms/${id}/next`, { playerId: 'p1' }, hostToken)).value.phase, 'finished');
   } finally {
     Date.now = realNow;
@@ -374,7 +385,9 @@ test('unanimous skip reveals and host role transfers on leave', () => {
     dispatch(`/rooms/${host.id}/ready`, { playerId: 'skipHost' }, host.sessionToken);
     dispatch(`/rooms/${host.id}/ready`, { playerId: 'skipGuest' }, guest.sessionToken);
     now += 5100;
-    assert.equal(dispatch(`/rooms/${host.id}/skip`, { playerId: 'skipHost' }, host.sessionToken).phase, 'listening');
+    const skipped = dispatch(`/rooms/${host.id}/skip`, { playerId: 'skipHost' }, host.sessionToken);
+    assert.equal(skipped.phase, 'listening');
+    assert.deepEqual(skipped.skippedIds, ['skipHost']);
     assert.equal(dispatch(`/rooms/${host.id}/skip`, { playerId: 'skipGuest' }, guest.sessionToken).phase, 'reveal');
     dispatch(`/rooms/${host.id}/leave`, { playerId: 'skipHost' }, host.sessionToken);
     const state = handle('GET', `/rooms/${host.id}`, {}, new URLSearchParams({ playerId: 'skipGuest' }), `Bearer ${guest.sessionToken}`).body;
