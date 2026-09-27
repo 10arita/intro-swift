@@ -8,6 +8,7 @@ struct RootView: View {
     @State private var openingPractice = false
     @State private var selectedTab: MainTab = .play
     @State private var playHomeToken = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Group {
@@ -19,6 +20,8 @@ struct RootView: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) { tabBar }
         .background(Studio.background)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: selectedTab)
+        .sensoryFeedback(.selection, trigger: selectedTab)
         .fullScreenCover(isPresented: Binding(get: { model.game != nil }, set: { if !$0 { model.closeGame() } })) {
             SoloGameView()
         }
@@ -61,7 +64,9 @@ struct RootView: View {
             selectedTab = tab
         } label: {
             VStack(spacing: 4) {
-                Image(systemName: symbol).font(.system(size: 22, weight: .medium))
+                Image(systemName: symbol).font(.system(size: 21, weight: .medium))
+                    .frame(width: 60, height: 30)
+                    .background(selectedTab == tab ? Studio.raised : .clear, in: Capsule())
                 Text(title).font(.caption2)
             }
             .foregroundStyle(selectedTab == tab ? Studio.accent : Studio.secondary)
@@ -126,6 +131,8 @@ struct PlayView: View {
             }
             .background(Studio.background)
             .toolbar(.hidden, for: .navigationBar)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: party)
+            .sensoryFeedback(.selection, trigger: source)
             .onChange(of: homeToken) { _, _ in resetToHome() }
             .onDisappear {
                 if sampleID != nil { model.player.stop(); sampleID = nil }
@@ -136,50 +143,64 @@ struct PlayView: View {
     private var landing: some View {
         GeometryReader { geometry in
             ScrollView {
-                VStack(spacing: 32) {
-                    Spacer(minLength: 48)
-                    VStack(spacing: 4) {
-                        Text("IntoL")
-                            .font(.system(size: 78, weight: .black, design: .rounded))
-                            .tracking(-4)
+                VStack(alignment: .leading, spacing: 24) {
+                    BrandHeader()
+                    Spacer(minLength: 8)
+                    VStack(alignment: .leading, spacing: 12) {
+                        WaveMark()
+                        Text("あの曲、\n何秒でわかる？")
+                            .font(.system(.largeTitle, design: .rounded, weight: .bold))
                             .foregroundStyle(Studio.primary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                        Text("MUSIC QUIZ")
-                            .font(.system(size: 12, weight: .bold, design: .monospaced))
-                            .tracking(4)
-                            .foregroundStyle(Studio.accent)
+                        Text("聴いて、ひらめいて、PUSH。")
+                            .font(.subheadline).foregroundStyle(Studio.secondary)
                     }
-                    .accessibilityElement(children: .combine)
-                    HStack(spacing: 12) {
-                        LandingButton(title: "ひとりで", symbol: "person.fill") { party = .solo }
-                        LandingButton(title: "みんなで", symbol: "person.2.fill", disabled: !model.serverConfigured) {
-                            party = .together
+                    VStack(spacing: 12) {
+                        PrimaryButton(title: "すぐに練習する", symbol: "play.fill", disabled: model.busy) {
+                            Task {
+                                model.searchTerm = ""
+                                await model.search()
+                                await model.startSolo()
+                            }
                         }
+                        Text("オリジナル音源 · アカウント不要")
+                            .font(.caption).foregroundStyle(Studio.secondary)
                     }
-                    .frame(maxWidth: 340)
-                    Spacer(minLength: 48)
+                    VStack(alignment: .leading, spacing: 10) {
+                        SectionCaption(title: "遊び方を選ぶ")
+                        PlayOptionButton(title: "ひとりで", subtitle: "好きな音源で、自分のペースで", symbol: "person.fill") { party = .solo }
+                        PlayOptionButton(title: "みんなで", subtitle: model.serverConfigured ? "ルームを作成・参加して対戦" : "サーバー設定が必要です", symbol: "person.2.fill", disabled: !model.serverConfigured) { party = .together }
+                    }
+                    Spacer(minLength: 0)
                 }
-                .padding(.horizontal, 24)
-                .frame(minHeight: geometry.size.height)
+                .padding(24)
+                .frame(minHeight: geometry.size.height, alignment: .topLeading)
+                .frame(maxWidth: 560)
                 .frame(maxWidth: .infinity)
             }
+            .scrollBounceBehavior(.basedOnSize)
         }
     }
 
     private var selectionFlow: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                BrandHeader()
-                    .padding(.top, 18)
+            VStack(alignment: .leading, spacing: 16) {
+                HStack {
                 Button(action: goBack) {
                     Label("戻る", systemImage: "chevron.left")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Studio.accent)
                         .frame(minHeight: 44)
                 }
-                .buttonStyle(.plain)
-                VStack(alignment: .leading, spacing: 8) {
+                .buttonStyle(StudioPressStyle())
+                Spacer()
+                Text("IntoL").font(.title3.bold()).foregroundStyle(Studio.primary)
+                }
+                HStack(spacing: 6) {
+                    ForEach(0..<3) { index in
+                        Capsule().fill(index <= (source != nil ? 2 : kind != nil ? 1 : 0) ? Studio.accent : Studio.line).frame(height: 3)
+                    }
+                }.accessibilityLabel("ステップ \(source != nil ? 3 : kind != nil ? 2 : 1) / 3")
+                VStack(alignment: .leading, spacing: 6) {
                     Text(selectionPath)
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(Studio.accent)
@@ -195,13 +216,14 @@ struct PlayView: View {
                 stepContent
             }
             .padding(.horizontal, 20)
-            .padding(.bottom, 32)
+            .padding(.bottom, 20)
             .frame(maxWidth: 640)
             .frame(maxWidth: .infinity)
             .animation(reduceMotion ? .none : Studio.spring, value: kind)
             .animation(reduceMotion ? .none : Studio.spring, value: source)
         }
         .scrollDismissesKeyboard(.interactively)
+        .scrollBounceBehavior(.basedOnSize)
     }
 
     private var selectionPath: String {
@@ -412,8 +434,15 @@ struct PlayView: View {
                     .font(.caption).foregroundStyle(Studio.secondary)
             }
         } else {
-            Text("アカウントで Apple Music を選び、接続してください")
-                .foregroundStyle(Studio.secondary)
+            HStack(spacing: 12) {
+                AppleMusicIcon(size: 44)
+                Text("好きなプレイリストで遊ぼう")
+                    .font(.headline).foregroundStyle(Studio.primary)
+            }
+            Button("Apple Music に接続") { Task { await model.connectAppleMusic() } }
+                .buttonStyle(SecondaryButtonStyle()).disabled(model.busy)
+            Text("ライブラリへのアクセスとサブスクリプションが必要です。")
+                .font(.caption).foregroundStyle(Studio.secondary)
         }
     }
 
@@ -640,15 +669,17 @@ private struct PlayOptionButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 16) {
-                Image(systemName: symbol)
-                    .font(.system(size: 20, weight: .semibold))
+                Group {
+                    if title.contains("Apple Music") { AppleMusicIcon() }
+                    else { Image(systemName: symbol).font(.system(size: 20, weight: .semibold)) }
+                }
                     .foregroundStyle(disabled ? Studio.secondary : Studio.accent)
                     .frame(width: 48, height: 48)
                     .background(Studio.raised, in: RoundedRectangle(cornerRadius: 14))
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title)
-                        .font(.system(.title3, design: .rounded, weight: .bold))
+                        .font(.system(.headline, design: .rounded, weight: .bold))
                         .foregroundStyle(Studio.primary)
                     Text(subtitle)
                         .font(.subheadline)
@@ -661,7 +692,7 @@ private struct PlayOptionButton: View {
                     .accessibilityHidden(true)
             }
             .padding(16)
-            .frame(maxWidth: .infinity, minHeight: 82, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
             .background(Studio.surface, in: RoundedRectangle(cornerRadius: Studio.radius))
             .overlay(RoundedRectangle(cornerRadius: Studio.radius).strokeBorder(Studio.line))
         }
@@ -815,14 +846,14 @@ private struct RevealCard: View {
     let saved: Bool
     let save: () -> Void
     var body: some View {
-        VStack(spacing: 22) {
+        VStack(spacing: 14) {
             Image(systemName: correct ? "checkmark.circle.fill" : "waveform")
                 .font(.system(size: 42, weight: .light))
                 .foregroundStyle(correct ? Studio.accent : Studio.warning)
             Text(correct ? "正解！" : "この曲でした")
                 .font(.system(size: 29, weight: .bold, design: .rounded))
                 .foregroundStyle(Studio.primary)
-            Artwork(url: song.artworkURL, size: 190)
+            Artwork(url: song.artworkURL, size: 144)
             VStack(spacing: 6) {
                 Text(song.title)
                     .font(.system(size: 25, weight: .bold, design: .rounded))
@@ -858,12 +889,13 @@ struct SoloGameView: View {
             Studio.background.ignoresSafeArea()
             if let game = model.game {
                 ScrollView {
-                    VStack(spacing: 28) {
+                    VStack(spacing: 16) {
                         HStack {
                             Button { model.closeGame() } label: {
                                 Image(systemName: "xmark").font(.headline).foregroundStyle(Studio.primary)
                                     .frame(width: 44, height: 44).background(Studio.surface, in: Circle())
                             }
+                            .accessibilityLabel("ゲームを閉じる")
                             Spacer()
                             Text(game.stage == .finished ? "RESULT" : "ROUND \(game.index + 1) / \(game.songs.count)")
                                 .font(.system(size: 12, weight: .bold, design: .monospaced))
@@ -871,7 +903,7 @@ struct SoloGameView: View {
                                 .foregroundStyle(Studio.secondary)
                         }
                         if game.stage == .preparing {
-                            Spacer(minLength: 70)
+                            Spacer(minLength: 24)
                             SectionCaption(title: "ROUND \(game.index + 1) / \(game.songs.count)")
                             ProgressView().tint(Studio.accent).scaleEffect(1.5)
                             Text("音源を読み込み中")
@@ -882,7 +914,7 @@ struct SoloGameView: View {
                                     .buttonStyle(SecondaryButtonStyle())
                             }
                         } else if game.stage == .countdown {
-                            Spacer(minLength: 70)
+                            Spacer(minLength: 24)
                             SectionCaption(title: "ROUND \(game.index + 1) / \(game.songs.count)")
                             WaveMark()
                             Text("第\(game.index + 1)曲目")
@@ -892,20 +924,20 @@ struct SoloGameView: View {
                                 .font(.system(size: 42, weight: .bold, design: .rounded))
                                 .foregroundStyle(Studio.accent)
                         } else if game.stage == .listening {
-                            Spacer(minLength: 30)
+                            Spacer(minLength: 4)
                             WaveMark()
                             Text("耳を澄ませて")
                                 .font(.system(size: 29, weight: .bold, design: .rounded))
                                 .foregroundStyle(Studio.primary)
                             Text("曲名が分かったら PUSH")
                                 .foregroundStyle(Studio.secondary)
-                            CountdownBar(remaining: game.secondsLeft, total: 30)
-                            PushButton { model.push() }
+                            CountdownBar(remaining: game.secondsLeft, total: 30, compact: true)
+                            PushButton(action: { model.push() }, size: 220)
                             Button("この曲をスキップ") { model.skip() }
                                 .font(.subheadline)
                                 .foregroundStyle(Studio.secondary)
                         } else if game.stage == .answering {
-                            Spacer(minLength: 26)
+                            Spacer(minLength: 4)
                             SectionCaption(title: "SPELL THE TITLE")
                             Text(game.answered.isEmpty ? "文字を選んでください" : game.answered)
                                 .font(.system(size: 35, weight: .bold, design: .rounded))
@@ -915,8 +947,8 @@ struct SoloGameView: View {
                                 .accessibilityLabel(game.answered.isEmpty ? "未入力" : "入力済み: \(game.answered)")
                             Text("次の文字を選ぶ")
                                 .foregroundStyle(Studio.secondary)
-                            CountdownBar(remaining: game.secondsLeft, total: 5)
-                            ChoiceGrid(choices: game.choices) { model.choose($0) }
+                            CountdownBar(remaining: game.secondsLeft, total: 5, compact: true)
+                            ChoiceGrid(choices: game.choices, action: { model.choose($0) }, compact: true)
                         } else if game.stage == .reveal {
                             RevealCard(song: game.current, correct: game.wasCorrect,
                                        saved: model.reviews.contains { $0.id == game.current.id }) {
@@ -996,32 +1028,12 @@ struct ReviewView: View {
                         ContentUnavailableView(learned ? "まだありません" : "保存した曲はありません", systemImage: "bookmark",
                                                description: Text("正解発表の画面から曲を保存できます。"))
                             .foregroundStyle(Studio.secondary)
-                            .frame(maxWidth: .infinity, minHeight: 280)
+                            .frame(maxWidth: .infinity, minHeight: 220)
                     } else {
                         ForEach(items) { item in
-                            StudioCard {
-                                HStack(spacing: 13) {
-                                    Artwork(url: item.song.artworkURL, size: 66)
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(item.song.title).font(.headline).foregroundStyle(Studio.primary).lineLimit(2)
-                                        Text(item.song.artist).font(.caption).foregroundStyle(Studio.secondary).lineLimit(1)
-                                    }
-                                    Spacer(minLength: 2)
-                                }
-                                HStack(spacing: 16) {
-                                    Button(learned ? "覚えてないに戻す" : "覚えた") { model.toggleLearned(item.id) }
-                                        .foregroundStyle(Studio.accent)
-                                    if let url = item.song.trackURL {
-                                        Link("曲を開く", destination: url).foregroundStyle(Studio.primary)
-                                    }
-                                    Spacer()
-                                    Button(role: .destructive) { model.removeReview(item.id) } label: {
-                                        Image(systemName: "trash")
-                                    }
-                                }
-                                .font(.caption.weight(.semibold))
-                                .padding(.top, 12)
-                            }
+                            ReviewSongRow(item: item,
+                                          toggleLearned: { model.toggleLearned(item.id) },
+                                          remove: { model.removeReview(item.id) })
                         }
                     }
                 }
@@ -1035,8 +1047,83 @@ struct ReviewView: View {
     }
 }
 
+private struct ReviewSongRow: View {
+    let item: ReviewSong
+    let toggleLearned: () -> Void
+    let remove: () -> Void
+
+    private var musicURL: URL? {
+        if let url = item.song.trackURL,
+           let host = url.host, ["music.apple.com", "itunes.apple.com"].contains(host) {
+            var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            components?.host = "music.apple.com"
+            return components?.url
+        }
+        return nil
+    }
+
+    private var searchURL: URL? {
+        guard !item.song.id.hasPrefix("demo:") else { return nil }
+        var components = URLComponents(string: "https://music.apple.com/jp/search")
+        components?.queryItems = [URLQueryItem(name: "term", value: "\(item.song.title) \(item.song.artist)")]
+        return components?.url
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Artwork(url: item.song.artworkURL, size: 48)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(item.song.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Studio.primary)
+                    .lineLimit(2)
+                Text(item.song.artist)
+                    .font(.caption).foregroundStyle(Studio.secondary).lineLimit(1)
+                if let url = musicURL ?? searchURL {
+                    Link(destination: url) {
+                        HStack(spacing: 4) {
+                            AppleMusicIcon(size: 16)
+                            Text(musicURL != nil ? "Apple Musicで聴く" : "Apple Musicで探す")
+                                .font(.caption2.weight(.semibold))
+                        }
+                        .foregroundStyle(Studio.accent)
+                        .frame(minHeight: 44, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                } else {
+                    Text("オリジナル音源")
+                        .font(.caption2).foregroundStyle(Studio.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Button(action: toggleLearned) {
+                Text(item.learned ? "戻す" : "覚えた")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Studio.accent)
+                    .padding(.horizontal, 8)
+                    .frame(minWidth: 44, minHeight: 44)
+                    .background(Studio.raised, in: RoundedRectangle(cornerRadius: 10))
+            }
+            .accessibilityLabel(item.learned ? "覚えてないに戻す" : "覚えたに変更")
+            Button(role: .destructive, action: remove) {
+                Image(systemName: "trash")
+                    .font(.system(size: 16))
+                    .foregroundStyle(Studio.accent)
+                    .frame(width: 44, height: 44)
+            }
+            .accessibilityLabel("\(item.song.title)を復習リストから削除")
+        }
+        .padding(12)
+        .background(Studio.surface, in: RoundedRectangle(cornerRadius: Studio.radius))
+        .overlay(RoundedRectangle(cornerRadius: Studio.radius).strokeBorder(Studio.line))
+        .buttonStyle(StudioPressStyle())
+    }
+}
+
 struct AccountView: View {
     @EnvironmentObject private var model: AppModel
+    @State private var showRecords = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         NavigationStack {
@@ -1045,9 +1132,14 @@ struct AccountView: View {
                     Text("アカウント")
                         .font(.system(size: 36, weight: .bold, design: .rounded))
                         .foregroundStyle(Studio.primary)
+                    Picker("表示内容", selection: $showRecords) {
+                        Text("接続・設定").tag(false)
+                        Text("プレイ記録").tag(true)
+                    }.pickerStyle(.segmented)
+                    if showRecords {
                     StudioCard {
                         VStack(alignment: .leading, spacing: 18) {
-                            SectionCaption(title: "PLAY RECORD")
+                            SectionCaption(title: "プレイ記録")
                             HStack(spacing: 20) {
                                 metric("完走", "\(model.totalGames) 回")
                                 metric("正答率", String(format: "%.0f%%", model.accuracy * 100))
@@ -1071,6 +1163,7 @@ struct AccountView: View {
                                     .font(.caption)
                                     .foregroundStyle(Studio.secondary)
                             }
+                            DisclosureGroup("ジャンル別の成績") {
                             ForEach(model.stats.genres.keys.sorted(), id: \.self) { genre in
                                 if let record = model.stats.genres[genre], record.attempts > 0 {
                                     HStack {
@@ -1084,9 +1177,10 @@ struct AccountView: View {
                             }
                         }
                     }
+                    }
                     StudioCard {
                         VStack(alignment: .leading, spacing: 15) {
-                            SectionCaption(title: "RECENT SESSIONS")
+                            SectionCaption(title: "最近のプレイ")
                             if model.history.isEmpty {
                                 Text("まだプレイ履歴がありません")
                                     .foregroundStyle(Studio.secondary)
@@ -1111,9 +1205,10 @@ struct AccountView: View {
                             }
                         }
                     }
+                    } else {
                     StudioCard {
                         VStack(alignment: .leading, spacing: 14) {
-                            SectionCaption(title: "SETTINGS")
+                            SectionCaption(title: "プロフィール・音楽サービス")
                             field("プレイヤー名", text: $model.nickname, prompt: "プレイヤー")
                             Picker("音楽サービス", selection: $model.selectedMusicProvider) {
                                 ForEach(MusicAccountProvider.allCases) { provider in
@@ -1141,8 +1236,10 @@ struct AccountView: View {
                             }
                         }
                     }
+                    }
                 }
                 .padding(20)
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: showRecords)
                 .frame(maxWidth: 640)
                 .frame(maxWidth: .infinity)
             }
@@ -1152,6 +1249,13 @@ struct AccountView: View {
     }
 
     @ViewBuilder private var appleMusicAccount: some View {
+        HStack(spacing: 10) {
+            AppleMusicIcon()
+            Text("Apple Music").font(.headline).foregroundStyle(Studio.primary)
+            Spacer()
+            Text(model.appleMusicConnected ? "接続済み" : "未接続")
+                .font(.caption).foregroundStyle(Studio.secondary)
+        }
         if model.appleMusicConnected {
             Text(model.appleMusicPlayable ? "Apple Music に接続中 · 再生可能" : "Apple Music に接続中 · サブスクリプションを確認してください")
                 .font(.subheadline).foregroundStyle(Studio.accent)

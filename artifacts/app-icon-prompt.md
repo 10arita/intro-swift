@@ -1,0 +1,5 @@
+Generated with the built-in image_gen tool.
+
+Use case: logo-brand. Create a finished iOS app icon image for IntoL, a Japanese music intro guessing quiz. Square 1024x1024, opaque full bleed background deep warm crimson #BA1421 matching the app's primary buttons. A single bold ivory-white audio waveform mark centered, composed of five vertically rounded bars of varying heights, with the central negative space subtly suggesting a play triangle. Elegant, friendly, minimal, precise optical balance, instantly legible at tiny app icon sizes. Very subtle warm pink tonal depth allowed, mostly flat solid colors, crisp clean edges. Central symbol occupies about 60% of square width and 54% height, ample safe margin. No text, no letters, no border, no extra objects, no Apple logo or Apple Music mark, no mockup, no device, no outer rounded corners (iOS supplies the mask), no transparency, no shadow outside image. Deliver only the square icon artwork.
+
+Installed in IntoL/Assets.xcassets/AppIcon.appiconset at 1024, 180, and 120 pixels. PNG images are opaque.
