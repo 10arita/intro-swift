@@ -25,15 +25,27 @@ enum AppError: LocalizedError {
 
 @MainActor final class PreviewPlayer: ObservableObject {
     private var player: AVPlayer?
+    private var filePlayer: AVAudioPlayer?
     private var preparedURL: URL?
     @Published private(set) var playing = false
 
     func play(_ url: URL, offset: Double = 0) {
         let source = GameAssets.shared.audioURL(for: url)
-        if preparedURL != url { stop(); player = AVPlayer(url: source) }
+        if preparedURL != url {
+            stop()
+            if source.isFileURL {
+                filePlayer = try? AVAudioPlayer(contentsOf: source)
+                filePlayer?.prepareToPlay()
+            } else { player = AVPlayer(url: source) }
+        }
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.duckOthers])
         try? AVAudioSession.sharedInstance().setActive(true)
         preparedURL = url
+        if let filePlayer {
+            filePlayer.currentTime = max(0, offset)
+            playing = filePlayer.play()
+            return
+        }
         if offset > 0 { player?.seek(to: CMTime(seconds: offset, preferredTimescale: 600)) }
         player?.play()
         playing = true
@@ -43,11 +55,75 @@ enum AppError: LocalizedError {
         let asset = AVURLAsset(url: GameAssets.shared.audioURL(for: url))
         guard try await asset.load(.isPlayable) else { throw AppError.message("音源を準備できません") }
         stop()
-        player = AVPlayer(playerItem: AVPlayerItem(asset: asset))
+        if asset.url.isFileURL {
+            let local = try AVAudioPlayer(contentsOf: asset.url)
+            guard local.prepareToPlay() else { throw AppError.message("音源を準備できません") }
+            filePlayer = local
+        } else { player = AVPlayer(playerItem: AVPlayerItem(asset: asset)) }
         preparedURL = url
     }
 
-    func pause() { player?.pause(); playing = false }
-    func resume() { player?.play(); playing = true }
-    func stop() { player?.pause(); player = nil; preparedURL = nil; playing = false }
+    func startPrepared(_ url: URL, offset: Double = 0) throws {
+        guard preparedURL == url else { throw AppError.message("音源の読み込みが完了していません") }
+        play(url, offset: offset)
+        guard playing else { throw AppError.message("音源を再生できません") }
+    }
+
+    func schedule(_ url: URL, at date: Date) throws {
+        guard preparedURL == url, let filePlayer else { throw AppError.message("音源の読み込みが完了していません") }
+        try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.duckOthers])
+        try AVAudioSession.sharedInstance().setActive(true)
+        filePlayer.currentTime = 0
+        guard filePlayer.play(atTime: filePlayer.deviceCurrentTime + max(0.05, date.timeIntervalSinceNow)) else {
+            throw AppError.message("音源の再生を予約できません")
+        }
+        playing = true
+    }
+
+    func pause() { player?.pause(); filePlayer?.pause(); playing = false }
+    func resume() { player?.play(); filePlayer?.play(); playing = true }
+    func stop() { player?.pause(); filePlayer?.stop(); player = nil; filePlayer = nil; preparedURL = nil; playing = false }
+}
+
+@MainActor final class ArtistTopSongsService {
+    private var titlesByArtist: [String: [String]] = [:]
+
+    func titles(for artist: String) async -> [String] {
+        let name = artist.components(separatedBy: ",").first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let key = TitleRules.normalized(name)
+        guard !key.isEmpty else { return [] }
+        if let cached = titlesByArtist[key] { return cached }
+        struct Result: Decodable {
+            struct Item: Decodable {
+                let artistId: Int?
+                let artistName: String?
+                let trackName: String?
+            }
+            let results: [Item]
+        }
+        var components = URLComponents(string: "https://itunes.apple.com/search")!
+        components.queryItems = [
+            .init(name: "term", value: name), .init(name: "country", value: "JP"),
+            .init(name: "media", value: "music"), .init(name: "entity", value: "song"),
+            .init(name: "limit", value: "50")
+        ]
+        guard let url = components.url else { return [] }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 6
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              (response as? HTTPURLResponse)?.statusCode == 200,
+              let items = try? JSONDecoder().decode(Result.self, from: data).results else { return [] }
+        let matching = items.filter { TitleRules.normalized($0.artistName ?? "") == key }
+        guard let artistID = matching.first?.artistId else { return [] }
+        var titles: [String] = []
+        var seen = Set<String>()
+        for item in matching where item.artistId == artistID {
+            guard let title = item.trackName else { continue }
+            let normalized = TitleRules.normalized(title)
+            if !normalized.isEmpty && seen.insert(normalized).inserted { titles.append(title) }
+            if titles.count == 7 { break }
+        }
+        titlesByArtist[key] = titles
+        return titles
+    }
 }

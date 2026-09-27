@@ -87,17 +87,22 @@ function shuffled(array) {
   }
   return copy;
 }
-export function choices(answer, prefix, titles) {
+export function choices(answer, prefix, titles, artistTopTitles = []) {
   const type = kind(answer);
   const chars = titles.map(normalize).map(title => [...title]);
+  const preferred = [];
+  if (!prefix) for (const char of shuffled(artistTopTitles.slice(0, 7).map(title => [...normalize(title)][0]))) {
+    if (char && char !== answer && !forbidden.has(char) && !preferred.includes(char)) preferred.push(char);
+    if (preferred.length === 3) break;
+  }
   const candidates = prefix ? [ ...(similar[answer] || []),
     ...chars.filter(c => c.join('').startsWith(prefix) && c.length > [...prefix].length).map(c => c[[...prefix].length]),
     ...chars.flatMap(c => c.slice(1).filter((_, i) => c[i] === [...prefix].at(-1)))
   ] : chars.map(c => c[0]);
   if (type === 2) candidates.push(...shuffled([...Array(1200)].map((_, index) => String.fromCodePoint(0x4e00 + index))));
   candidates.push(...shuffled(pools[type]));
-  const unique = [...new Set(candidates)].filter(c => c && c !== answer && kind(c) === type && !forbidden.has(c));
-  return shuffled([answer, ...unique.slice(0, 3)]);
+  const fallback = [...new Set(candidates)].filter(c => c && c !== answer && kind(c) === type && !forbidden.has(c) && !preferred.includes(c));
+  return shuffled([answer, ...[...preferred, ...fallback].slice(0, 3)]);
 }
 function clamp(value, min, max, fallback) {
   const number = Number(value);
@@ -118,6 +123,9 @@ function catalogSongs(origin) {
     .map(({ audioFile, ...song }) => ({ ...song, artworkURL: song.artworkURL || null,
       previewURL: `${origin.replace(/\/$/, '')}/media/${encodeURIComponent(audioFile)}`,
       trackURL: song.trackURL || null }));
+}
+function artistTopTitles(value) {
+  return Array.isArray(value) ? value.filter(t => typeof t === 'string' && normalize(t)).slice(0, 7).map(t => t.slice(0, 150)) : [];
 }
 function publicPlayer(player, room) {
   return { id: player.id, name: player.name, score: player.score, lives: player.lives,
@@ -175,8 +183,8 @@ function refresh(room) {
   }
   if (room.phase === 'preparing') {
     const active = room.players.filter(p => now - p.lastSeen < GRACE);
-    if (active.every(p => room.readyIds.has(p.id)) || now - room.prepareAt >= 8000) {
-      room.phase = 'countdown'; room.startAt = now + 3000; room.roundDeadline = room.startAt + 30_000;
+    if (active.length && active.every(p => room.readyIds.has(p.id))) {
+      room.phase = 'countdown'; room.startAt = now + 5000; room.roundDeadline = room.startAt + 30_000;
     }
   }
   if (room.phase === 'countdown' && now >= room.startAt) room.phase = 'listening';
@@ -251,10 +259,14 @@ export function handle(method, path, body, query, authorization, origin = 'https
        (mode === 'applemusic' && /^applemusic:\d+$/.test(song.id)) ||
        (mode === 'sabitro' && /^itunes:\d+$/.test(song.id) && /^https:\/\//.test(song.previewURL || ''))))
       .map(song => ({ id: song.id, title: song.title.slice(0, 150), artist: song.artist.slice(0, 100),
+        artistTopTitles: artistTopTitles(song.artistTopTitles),
         artworkURL: song.artworkURL || null, previewURL: mode === 'spotify' || mode === 'applemusic' ? null : song.previewURL,
         trackURL: song.trackURL || null, durationMS: Number(song.durationMS) || 180_000,
         genre: song.genre || 'その他', songleURL: song.songleURL || null, chorusMS: song.chorusMS || null })) : [];
-    const songs = mode === 'shared' ? catalogSongs(origin) : supplied;
+    const suppliedTopTitles = new Map((Array.isArray(body.songs) ? body.songs : [])
+      .filter(song => song && typeof song.id === 'string').map(song => [song.id, artistTopTitles(song.artistTopTitles)]));
+    const songs = mode === 'shared' ? catalogSongs(origin).map(song => ({ ...song,
+      artistTopTitles: suppliedTopTitles.get(song.id) || [] })) : supplied;
     if (!songs.length) return fail(400, '再生できる曲がありません');
     if (!/^[A-Za-z0-9-]{1,64}$/.test(String(body.playerId || '')) || !String(body.name || '').trim()) return fail(400, 'プレイヤー情報が必要です');
     let id; do { id = Array.from({length: 6}, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ'[randomInt(24)]).join(''); } while (rooms.has(id));
@@ -313,7 +325,7 @@ export function handle(method, path, body, query, authorization, origin = 'https
     if (room.phase !== 'listening' || player.disqualified || room.pushed.has(playerId) || room.pushed.size >= room.settings.answerSlots) return fail(409, '解答権を取得できません');
     room.pushed.add(playerId); room.skipped.delete(playerId); room.answeringPlayerID = playerId;
     room.answerProgress = ''; room.letterIndex = 0; room.answerDeadline = Date.now() + 5000;
-    room.options = choices([...normalize(currentSong(room).title)][0], '', room.corpus || room.songs.map(s => s.title));
+    room.options = choices([...normalize(currentSong(room).title)][0], '', room.corpus || room.songs.map(s => s.title), currentSong(room).artistTopTitles || []);
     room.phase = 'answering';
   } else if (action === 'choose') {
     if (room.phase !== 'answering' || room.answeringPlayerID !== playerId) return fail(409, '解答権がありません');

@@ -514,6 +514,12 @@ struct PlayView: View {
                                       source != .shared && (model.spotifySongs.isEmpty || (source == .spotify && !model.spotifyPremium)))) {
                         Task { await model.createRoom() }
                     }
+                    if let status = model.preparationStatus {
+                        HStack(spacing: 8) {
+                            ProgressView().tint(Studio.accent)
+                            Text(status).font(.caption).foregroundStyle(Studio.secondary)
+                        }
+                    }
                     if source == .spotify && !model.spotifyPremium {
                         Text("Spotify 対戦には全員の Premium が必要です")
                             .font(.caption).foregroundStyle(Studio.secondary)
@@ -851,7 +857,28 @@ struct SoloGameView: View {
                                 .tracking(1.5)
                                 .foregroundStyle(Studio.secondary)
                         }
-                        if game.stage == .listening {
+                        if game.stage == .preparing {
+                            Spacer(minLength: 70)
+                            SectionCaption(title: "ROUND \(game.index + 1) / \(game.songs.count)")
+                            ProgressView().tint(Studio.accent).scaleEffect(1.5)
+                            Text("音源を読み込み中")
+                                .font(.system(size: 29, weight: .bold, design: .rounded))
+                                .foregroundStyle(Studio.primary)
+                            if game.warning != nil {
+                                Button("再試行") { model.retrySoloRound() }
+                                    .buttonStyle(SecondaryButtonStyle())
+                            }
+                        } else if game.stage == .countdown {
+                            Spacer(minLength: 70)
+                            SectionCaption(title: "ROUND \(game.index + 1) / \(game.songs.count)")
+                            WaveMark()
+                            Text("第\(game.index + 1)曲目")
+                                .font(.system(size: 30, weight: .bold, design: .rounded))
+                                .foregroundStyle(Studio.primary)
+                            Text("\(max(1, Int(ceil(game.secondsLeft))))")
+                                .font(.system(size: 42, weight: .bold, design: .rounded))
+                                .foregroundStyle(Studio.accent)
+                        } else if game.stage == .listening {
                             Spacer(minLength: 30)
                             WaveMark()
                             Text("耳を澄ませて")
@@ -1193,38 +1220,61 @@ struct RoomGameView: View {
                             lobby(room)
                         } else if room.phase == "preparing" {
                             Spacer(minLength: 70)
+                            roundTitle(room)
                             ProgressView().tint(Studio.accent).scaleEffect(1.5)
                             Text("音源を準備中")
                                 .font(.system(size: 30, weight: .bold, design: .rounded))
                                 .foregroundStyle(Studio.primary)
                             Text("\(room.readyIds.count) / \(room.players.count) 人の準備が完了")
                                 .foregroundStyle(Studio.secondary)
+                            if model.roomError != nil {
+                                Button("準備を再試行") { model.retryRoomRound() }
+                                    .buttonStyle(SecondaryButtonStyle())
+                            }
                             players(room)
                         } else if room.phase == "countdown" {
                             Spacer(minLength: 70)
+                            roundTitle(room)
                             WaveMark()
-                            Text("まもなく開始")
+                            Text("第\(room.round + 1)曲目")
                                 .font(.system(size: 32, weight: .bold, design: .rounded))
                                 .foregroundStyle(Studio.primary)
+                            Text("\(max(1, Int(ceil(model.roomSecondsLeft - 30))))")
+                                .font(.system(size: 42, weight: .bold, design: .rounded))
+                                .foregroundStyle(Studio.accent)
                             Text("端末の音量を確認してください")
                                 .foregroundStyle(Studio.secondary)
+                            if model.roomError != nil {
+                                Button("再生を再試行") { model.retryRoomAudio() }
+                                    .buttonStyle(SecondaryButtonStyle())
+                            }
                             players(room)
                         } else if room.phase == "listening" {
                             roundTitle(room)
-                            WaveMark()
-                            Text("この曲は？")
-                                .font(.system(size: 32, weight: .bold, design: .rounded))
-                                .foregroundStyle(Studio.primary)
-                            CountdownBar(remaining: model.roomSecondsLeft, total: 30)
-                            let me = room.player(model.rooms.playerId)
-                            if me?.disqualified == true {
-                                Text("今回は観戦中です").foregroundStyle(Studio.secondary)
-                            } else if room.pushedIds.contains(model.rooms.playerId) {
-                                Text("この曲の解答権は使用済みです").foregroundStyle(Studio.secondary)
+                            if !model.roomAudioStarted {
+                                ProgressView().tint(Studio.accent).scaleEffect(1.5)
+                                Text("音源を読み込み中")
+                                    .font(.title2.bold()).foregroundStyle(Studio.primary)
+                                if model.roomError != nil {
+                                    Button("再生を再試行") { model.retryRoomAudio() }
+                                        .buttonStyle(SecondaryButtonStyle())
+                                }
                             } else {
-                                PushButton { Task { await model.roomAction("push") } }
+                                WaveMark()
+                                Text("この曲は？")
+                                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                                    .foregroundStyle(Studio.primary)
+                                CountdownBar(remaining: model.roomSecondsLeft, total: 30)
+                                let me = room.player(model.rooms.playerId)
+                                if me?.disqualified == true {
+                                    Text("今回は観戦中です").foregroundStyle(Studio.secondary)
+                                } else if room.pushedIds.contains(model.rooms.playerId) {
+                                    Text("この曲の解答権は使用済みです").foregroundStyle(Studio.secondary)
+                                } else {
+                                    PushButton { Task { await model.roomAction("push") } }
+                                }
+                                skipButton(room)
                             }
-                            skipButton(room)
                             players(room)
                         } else if room.phase == "answering" {
                             roundTitle(room)

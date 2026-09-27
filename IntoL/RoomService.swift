@@ -85,6 +85,13 @@ struct SavedProfile: Decodable {
 
 @MainActor final class RoomService {
     var baseURL = ""
+    private(set) var serverClockOffsetMS = 0.0
+    private var bestClockRTTMS = Double.infinity
+    private var clockSampleAt = Date.distantPast
+    var serverNowMS: Double { Date.now.timeIntervalSince1970 * 1000 + serverClockOffsetMS }
+    func localDate(for serverTimeMS: Double) -> Date {
+        Date(timeIntervalSince1970: (serverTimeMS - serverClockOffsetMS) / 1000)
+    }
     let playerId: String
     var profileID: String
     private(set) var token: String?
@@ -118,13 +125,21 @@ struct SavedProfile: Decodable {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
+        let sentAt = Date.now.timeIntervalSince1970 * 1000
         let (data, response) = try await URLSession.shared.data(for: request)
+        let receivedAt = Date.now.timeIntervalSince1970 * 1000
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         if !(200...299).contains(status) {
             let message = (try? JSONSerialization.jsonObject(with: data) as? [String: String])?["error"] ?? "ルームに接続できません (\(status))"
             throw AppError.message(message)
         }
         let state = try JSONDecoder().decode(RoomState.self, from: data)
+        let roundTrip = receivedAt - sentAt
+        if roundTrip < bestClockRTTMS || Date.now.timeIntervalSince(clockSampleAt) > 30 {
+            serverClockOffsetMS = state.serverNow - (sentAt + receivedAt) / 2
+            bestClockRTTMS = roundTrip
+            clockSampleAt = .now
+        }
         if let sessionToken = state.sessionToken {
             token = sessionToken
             Secrets.set(sessionToken, for: "roomSessionToken")

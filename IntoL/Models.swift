@@ -11,6 +11,7 @@ struct Song: Codable, Identifiable, Hashable {
     var genre: String
     var songleURL: URL? = nil
     var chorusMS: Int? = nil
+    var artistTopTitles: [String]? = nil
 
     var playablePreview: Bool { previewURL != nil }
 }
@@ -72,11 +73,17 @@ enum TitleRules {
         return result
     }()
 
-    static func choices(answer: String, prefix: String, corpus: [String]) -> [String] {
+    static func choices(answer: String, prefix: String, corpus: [String], artistTopTitles: [String] = []) -> [String] {
         let type = kind(answer)
         var candidates: [String] = []
+        var preferred: [String] = []
         let corpus = corpus + famousTitles
         if prefix.isEmpty {
+            for char in artistTopTitles.prefix(7).compactMap({ characters($0).first }).shuffled()
+                where char != answer && !forbidden.contains(char) && !preferred.contains(char) {
+                preferred.append(char)
+                if preferred.count == 3 { break }
+            }
             candidates += corpus.compactMap { characters($0).first }
         } else {
             candidates += similar[answer] ?? []
@@ -102,7 +109,9 @@ enum TitleRules {
             candidates += (0..<1200).compactMap { UnicodeScalar(0x4E00 + $0).map { String(Character($0)) } }.shuffled()
         }
         candidates += pools[type].map(String.init).shuffled()
-        let distractors = Array(NSOrderedSet(array: candidates.filter { $0 != answer && kind($0) == type && !forbidden.contains($0) })).compactMap { $0 as? String }
+        let fallback = Array(NSOrderedSet(array: candidates.filter { $0 != answer && kind($0) == type
+            && !forbidden.contains($0) && !preferred.contains($0) })).compactMap { $0 as? String }
+        let distractors = preferred + fallback
         return ([answer] + distractors.prefix(3)).shuffled()
     }
 }

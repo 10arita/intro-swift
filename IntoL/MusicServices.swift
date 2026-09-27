@@ -50,6 +50,8 @@ enum Secrets {
     private var accessToken: String?
     private var expiresAt = Date.distantPast
     private var authSession: ASWebAuthenticationSession?
+    private var artistIDByTrack: [String: String] = [:]
+    private var topTitlesByArtist: [String: [String]] = [:]
     var isConnected: Bool { Secrets.get("spotifyRefresh") != nil }
 
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
@@ -134,6 +136,7 @@ enum Secrets {
 
     private func api(_ path: String, method: String = "GET", body: [String: Any]? = nil) async throws -> Data {
         var request = URLRequest(url: URL(string: "https://api.spotify.com/v1/\(path)")!)
+        if path.hasPrefix("search?") { request.timeoutInterval = 6 }
         request.httpMethod = method
         request.setValue("Bearer \(try await validToken())", forHTTPHeaderField: "Authorization")
         if let body {
@@ -167,7 +170,7 @@ enum Secrets {
         struct Page: Decodable {
             struct Item: Decodable {
                 struct Track: Decodable {
-                    struct Artist: Decodable { let name: String }
+                    struct Artist: Decodable { let id: String?; let name: String }
                     struct Album: Decodable { let images: [SpotifyImage]? }
                     let id: String?
                     let name: String
@@ -190,6 +193,7 @@ enum Secrets {
                 guard let track = entry.item ?? entry.track, let id = track.id,
                       track.type == nil || track.type == "track",
                       !TitleRules.normalized(track.name).isEmpty else { return nil }
+                if let artistID = track.artists?.first?.id { artistIDByTrack["spotify:\(id)"] = artistID }
                 return Song(id: "spotify:\(id)", title: track.name,
                             artist: track.artists?.map(\.name).joined(separator: ", ") ?? "",
                             artworkURL: track.album?.images?.first?.url, previewURL: nil,
@@ -199,6 +203,43 @@ enum Secrets {
             if offset + 50 >= page.total { break }
         }
         return Array(Dictionary(grouping: result, by: \.id).values.compactMap(\.first))
+    }
+
+    func withArtistTopTitles(_ songs: [Song]) async -> [Song] {
+        struct Page: Decodable {
+            struct Track: Decodable {
+                struct Artist: Decodable { let id: String }
+                let name: String
+                let artists: [Artist]
+            }
+            struct Tracks: Decodable { let items: [Track] }
+            let tracks: Tracks
+        }
+        var result = songs
+        for index in result.indices {
+            guard let artistID = artistIDByTrack[result[index].id] else { continue }
+            if let cached = topTitlesByArtist[artistID] {
+                result[index].artistTopTitles = cached
+                continue
+            }
+            let name = result[index].artist.components(separatedBy: ",").first ?? result[index].artist
+            var query = URLComponents()
+            query.queryItems = [.init(name: "q", value: "artist:\"\(name)\""),
+                                .init(name: "type", value: "track"),
+                                .init(name: "market", value: "JP"), .init(name: "limit", value: "10")]
+            guard let data = try? await api("search?\(query.percentEncodedQuery ?? "")"),
+                  let page = try? JSONDecoder().decode(Page.self, from: data) else { continue }
+            var titles: [String] = []
+            var seen = Set<String>()
+            for track in page.tracks.items where track.artists.contains(where: { $0.id == artistID }) {
+                let key = TitleRules.normalized(track.name)
+                if !key.isEmpty && seen.insert(key).inserted { titles.append(track.name) }
+                if titles.count == 7 { break }
+            }
+            topTitlesByArtist[artistID] = titles
+            result[index].artistTopTitles = titles
+        }
+        return result
     }
 
     func preparePlayback() async throws {
@@ -236,6 +277,7 @@ struct AppleMusicPlaylist: Identifiable, Hashable {
     private var songsByID: [String: MusicKit.Song] = [:]
     private var playRequest = 0
     private var preparedSongID: String?
+    private var topTitlesByArtist: [String: [String]] = [:]
 
     var isAuthorized: Bool { MusicAuthorization.currentStatus == .authorized }
 
@@ -306,6 +348,34 @@ struct AppleMusicPlaylist: Identifiable, Hashable {
         return result
     }
 
+    func withArtistTopTitles(_ songs: [Song]) async -> [Song] {
+        var result = songs
+        for index in result.indices {
+            let item: MusicKit.Song
+            if let cached = songsByID[result[index].id] { item = cached }
+            else if let fetched = try? await catalogSong(for: result[index].id) { item = fetched }
+            else { continue }
+            guard let detailed = try? await item.with(.artists),
+                  let artist = detailed.artists?.first else { continue }
+            let artistID = String(describing: artist.id)
+            if let cached = topTitlesByArtist[artistID] {
+                result[index].artistTopTitles = cached
+                continue
+            }
+            guard let ranked = try? await artist.with(.topSongs), let topSongs = ranked.topSongs else { continue }
+            var titles: [String] = []
+            var seen = Set<String>()
+            for song in topSongs {
+                let key = TitleRules.normalized(song.title)
+                if !key.isEmpty && seen.insert(key).inserted { titles.append(song.title) }
+                if titles.count == 7 { break }
+            }
+            topTitlesByArtist[artistID] = titles
+            result[index].artistTopTitles = titles
+        }
+        return result
+    }
+
     func prepare(_ songID: String) async throws {
         let initialRequest = playRequest
         guard isAuthorized, try await MusicSubscription.current.canPlayCatalogContent else {
@@ -359,6 +429,13 @@ struct AppleMusicPlaylist: Identifiable, Hashable {
         player.playbackTime = TimeInterval(max(0, offsetMS)) / 1000
         try await player.play()
         if request == playRequest && Task.isCancelled { player.stop() }
+        for _ in 0..<40 {
+            try Task.checkCancellation()
+            guard request == playRequest else { throw CancellationError() }
+            if player.state.playbackStatus == .playing { return }
+            try await Task.sleep(for: .milliseconds(200))
+        }
+        throw AppError.message("Apple Music の再生開始を確認できません。接続を確認して再試行してください")
     }
 
     func pause() { player.pause() }

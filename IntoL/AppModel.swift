@@ -3,7 +3,7 @@ import SwiftUI
 import UIKit
 import AVFoundation
 
-enum SoloStage { case listening, answering, reveal, finished }
+enum SoloStage { case preparing, countdown, listening, answering, reveal, finished }
 
 enum MusicAccountProvider: String, CaseIterable, Identifiable {
     case appleMusic = "Apple Music"
@@ -15,7 +15,7 @@ struct SoloGame {
     var songs: [Song]
     var playlist: String
     var index = 0
-    var stage: SoloStage = .listening
+    var stage: SoloStage = .preparing
     var startedAt = Date()
     var deadline = Date()
     var pushTime = 0.0
@@ -55,6 +55,8 @@ struct SoloGame {
     @Published var roomSecondsLeft = 30.0
     @Published var roomError: String?
     @Published var roomPreparationStatus: String?
+    @Published var roomAudioStarting = false
+    @Published private(set) var roomAudioStarted = false
     let spotifyClientID = AppConfiguration.spotifyClientID
     var spotifyConfigured: Bool { serverConfigured && !spotifyClientID.isEmpty }
     @Published var spotifyConnected = false
@@ -82,14 +84,15 @@ struct SoloGame {
     let rooms = RoomService()
     let spotify = SpotifyService()
     let appleMusic = AppleMusicService()
+    private let artistTopSongs = ArtistTopSongsService()
     private var ticker: Task<Void, Never>?
+    private var soloRoundTask: Task<Void, Never>?
+    private var soloRoundToken = 0
     private var roomPoller: Task<Void, Never>?
     private var roomTicker: Task<Void, Never>?
-    private var roomReceivedAt = Date()
     private var scheduledRoomAudio: Task<Void, Never>?
     private var lastRoomRound: Int?
     private var lastRoomPhase: String?
-    private var roomAudioStarted = false
     private var preparedRoomRound: Int?
     private var roomPreloadTask: Task<Void, Never>?
     private var preloadedRoomID: String?
@@ -302,7 +305,8 @@ struct SoloGame {
 
     private func launchSolo(songs source: [Song], playlist: String) async throws {
         let limit = min(10, source.count)
-        let songs = Array(source.shuffled().prefix(limit))
+        preparationStatus = "選択肢を準備中"
+        let songs = await withArtistTopTitles(Array(source.shuffled().prefix(limit)))
         preparationStatus = "画像と音源を準備中 0 / \(songs.count)"
         try await GameAssets.shared.prepare(songs.map(GameAsset.init(song:))) { [weak self] ready, total in
             self?.preparationStatus = "画像と音源を準備中 \(ready) / \(total)"
@@ -328,9 +332,11 @@ struct SoloGame {
 
     private func beginRound() {
         guard var game else { return }
-        game.stage = .listening
-        game.startedAt = .now
-        game.deadline = .now.addingTimeInterval(30)
+        soloRoundTask?.cancel()
+        soloRoundToken += 1
+        let token = soloRoundToken
+        let song = game.current
+        game.stage = .preparing
         game.secondsLeft = 30
         game.letterIndex = 0
         game.answered = ""
@@ -338,9 +344,44 @@ struct SoloGame {
         game.warning = nil
         self.game = game
         stopAudio()
-        playAudio(game.current)
-        if game.current.id.hasPrefix("spotify:") {
-            let song = game.current
+        soloRoundTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                if song.id.hasPrefix("spotify:") {
+                    try await self.spotify.preparePlayback()
+                } else if song.id.hasPrefix("applemusic:") {
+                    try await self.appleMusic.prepare(song.id)
+                } else if let url = song.previewURL {
+                    try await self.player.prepare(url)
+                } else { throw AppError.message("この曲の音源がありません") }
+                try Task.checkCancellation()
+                guard self.soloRoundToken == token, var current = self.game else { return }
+                current.stage = .countdown
+                current.deadline = .now.addingTimeInterval(2)
+                current.secondsLeft = 2
+                self.game = current
+                try await Task.sleep(for: .seconds(2))
+                try Task.checkCancellation()
+                guard self.soloRoundToken == token, var starting = self.game else { return }
+                starting.stage = .preparing
+                self.game = starting
+                try await self.startPreparedRoundAudio(song)
+                try Task.checkCancellation()
+                guard self.soloRoundToken == token, var playing = self.game else { return }
+                playing.stage = .listening
+                playing.startedAt = .now
+                playing.deadline = .now.addingTimeInterval(30)
+                playing.secondsLeft = 30
+                self.game = playing
+            } catch {
+                guard self.soloRoundToken == token, !Task.isCancelled, var current = self.game else { return }
+                self.stopAudio()
+                current.stage = .preparing
+                current.warning = error.localizedDescription
+                self.game = current
+            }
+        }
+        if song.id.hasPrefix("spotify:") {
             Task { [weak self] in
                 guard let self else { return }
                 self.rooms.baseURL = self.serverURL
@@ -349,9 +390,28 @@ struct SoloGame {
         }
     }
 
+    private func startPreparedRoundAudio(_ song: Song, offsetMS: Int = 0) async throws {
+        if song.id.hasPrefix("spotify:") {
+            await spotifyPauseTask?.value
+            try Task.checkCancellation()
+            spotifyPlaying = true
+            try await spotify.play(song, offsetMS: offsetMS)
+        } else if song.id.hasPrefix("applemusic:") {
+            await appleMusicPauseTask?.value
+            try Task.checkCancellation()
+            appleMusicPlaying = true
+            try await appleMusic.play(song, offsetMS: offsetMS)
+        } else if let url = song.previewURL {
+            try player.startPrepared(url, offset: Double(offsetMS) / 1000)
+        }
+    }
+
     private func tick() {
         guard var game else { return }
         switch game.stage {
+        case .countdown:
+            game.secondsLeft = max(0, game.deadline.timeIntervalSinceNow)
+            self.game = game
         case .listening, .answering:
             game.secondsLeft = max(0, game.deadline.timeIntervalSinceNow)
             if game.secondsLeft <= 0 {
@@ -362,6 +422,11 @@ struct SoloGame {
         }
     }
 
+    func retrySoloRound() {
+        guard game?.stage == .preparing, game?.warning != nil else { return }
+        beginRound()
+    }
+
     func push() {
         guard var game, game.stage == .listening else { return }
         game.pushTime = min(30, Date.now.timeIntervalSince(game.startedAt))
@@ -369,7 +434,7 @@ struct SoloGame {
         game.letterIndex = 0
         game.deadline = .now.addingTimeInterval(5)
         game.secondsLeft = 5
-        game.choices = TitleRules.choices(answer: game.answer[0], prefix: "", corpus: game.current.id.hasPrefix("spotify:") || game.current.id.hasPrefix("applemusic:") ? quizCorpus : game.songs.map(\.title))
+        game.choices = TitleRules.choices(answer: game.answer[0], prefix: "", corpus: game.current.id.hasPrefix("spotify:") || game.current.id.hasPrefix("applemusic:") ? quizCorpus : game.songs.map(\.title), artistTopTitles: game.current.artistTopTitles ?? [])
         stats.attempts += 1
         stats.totalPushSeconds += game.pushTime
         var genre = stats.genres[game.current.genre] ?? GenreRecord()
@@ -446,6 +511,7 @@ struct SoloGame {
     }
 
     func closeGame() {
+        soloRoundTask?.cancel(); soloRoundTask = nil; soloRoundToken += 1
         ticker?.cancel(); ticker = nil
         stopAudio()
         game = nil
@@ -561,20 +627,19 @@ struct SoloGame {
     }
 
     private func pauseAudio() {
+        let active = musicTask ?? (roomID == nil ? soloRoundTask : scheduledRoomAudio)
         if appleMusicPlaying {
             let previous = appleMusicPauseTask
-            let play = musicTask
             appleMusicPauseTask = Task { [weak self] in
                 await previous?.value
-                await play?.value
+                await active?.value
                 self?.appleMusic.pause()
             }
         } else if spotifyPlaying {
             let previous = spotifyPauseTask
-            let play = musicTask
             spotifyPauseTask = Task { [weak self] in
                 await previous?.value
-                await play?.value
+                await active?.value
                 guard let self else { return }
                 try? await self.spotify.pause()
             }
@@ -583,7 +648,7 @@ struct SoloGame {
     }
 
     private func stopAudio() {
-        let play = musicTask
+        let play = musicTask ?? (roomID == nil ? soloRoundTask : scheduledRoomAudio)
         musicTask?.cancel(); musicTask = nil
         appleMusic.stop(); appleMusicPlaying = false
         if spotifyPlaying {
@@ -609,14 +674,32 @@ struct SoloGame {
     var totalCorrect: Int { stats.correct }
     var accuracy: Double { stats.accuracy }
 
+    private func withArtistTopTitles(_ songs: [Song]) async -> [Song] {
+        var result: [Song]
+        if songs.first?.id.hasPrefix("spotify:") == true {
+            result = await spotify.withArtistTopTitles(songs)
+        } else if songs.first?.id.hasPrefix("applemusic:") == true {
+            result = await appleMusic.withArtistTopTitles(songs)
+        } else {
+            result = songs
+        }
+        for index in result.indices where result[index].artistTopTitles?.isEmpty != false {
+            let titles = await artistTopSongs.titles(for: result[index].artist)
+            if !titles.isEmpty { result[index].artistTopTitles = titles }
+        }
+        return result
+    }
+
     func createRoom() async {
         guard !busy else { return }
-        busy = true; defer { busy = false }
+        busy = true; defer { busy = false; preparationStatus = nil }
         rooms.baseURL = serverURL
         do {
             var songs: [Song] = []
             var corpus: [String] = []
-            if roomMode == "applemusic" {
+            if roomMode == "shared" {
+                songs = sharedSongs.isEmpty ? try await rooms.catalog() : sharedSongs
+            } else if roomMode == "applemusic" {
                 guard appleMusicConnected, appleMusicPlayable else {
                     throw AppError.message("Apple Music 対戦にはアクセス許可とサブスクリプションが必要です")
                 }
@@ -648,6 +731,8 @@ struct SoloGame {
                 }
                 corpus = spotifySongs.map(\.title)
             }
+            preparationStatus = "選択肢を準備中"
+            songs = await withArtistTopTitles(songs)
             let state = try await rooms.create(name: nickname, settings: roomSettings, mode: roomMode,
                                                songs: songs, corpus: corpus, badge: stats.selectedBadge)
             guard state.mode == roomMode else {
@@ -719,7 +804,7 @@ struct SoloGame {
         roomTicker = Task { [weak self] in
             while !Task.isCancelled {
                 if let self, let room = self.room {
-                    self.roomSecondsLeft = max(0, self.remainingTime(room) - Date.now.timeIntervalSince(self.roomReceivedAt))
+                    self.roomSecondsLeft = self.remainingTime(room)
                 }
                 try? await Task.sleep(for: .milliseconds(60))
             }
@@ -740,7 +825,6 @@ struct SoloGame {
     private func receiveRoom(_ state: RoomState) {
         let old = room
         room = state
-        roomReceivedAt = .now
         if state.phase == "lobby", preloadedRoomID != state.id,
            !(state.assetsReadyIds ?? []).contains(rooms.playerId) {
             preloadedRoomID = state.id
@@ -805,6 +889,7 @@ struct SoloGame {
         if state.round != lastRoomRound {
             stopAudio()
             roomAudioStarted = false
+            roomAudioStarting = false
             scheduledRoomAudio?.cancel()
             scheduledRoomAudio = nil
             lastRoomRound = state.round
@@ -829,30 +914,45 @@ struct SoloGame {
             }
         }
         if state.phase == "countdown" && !roomAudioStarted && scheduledRoomAudio == nil {
-            let delay = max(0, (state.startAt ?? state.serverNow) - state.serverNow)
-            scheduledRoomAudio = Task { [weak self] in
-                try? await Task.sleep(for: .milliseconds(Int(delay)))
-                guard let self, !Task.isCancelled, !self.roomAudioStarted,
-                      self.room?.round == state.round,
-                      self.room?.phase == "countdown" || self.room?.phase == "listening" || self.room?.phase == "answering" else { return }
-                self.startRoomAudio(state)
-                if self.room?.answeringPlayerID == self.rooms.playerId && !state.settings.endless {
-                    self.pauseAudio()
+            let startAt = state.startAt ?? state.serverNow
+            let delay = max(0, startAt - rooms.serverNowMS)
+            if state.mode != "spotify", state.mode != "applemusic",
+               let preview = state.current?.previewURL,
+               GameAssets.shared.audioURL(for: preview).isFileURL, delay > 100 {
+                do {
+                    try player.schedule(preview, at: rooms.localDate(for: startAt))
+                    roomAudioStarted = true
+                    roomError = nil
+                } catch { roomError = error.localizedDescription }
+            } else {
+                scheduledRoomAudio = Task { [weak self] in
+                    do { try await Task.sleep(for: .milliseconds(Int(delay))) }
+                    catch { return }
+                    guard let self, !Task.isCancelled, !self.roomAudioStarted,
+                          self.room?.round == state.round,
+                          ["countdown", "listening", "answering"].contains(self.room?.phase ?? "") else { return }
+                    await self.startRoomAudio(state)
+                    if self.room?.answeringPlayerID == self.rooms.playerId && !state.settings.endless {
+                        self.pauseAudio()
+                    }
                 }
             }
         }
-        if state.phase == "listening" && !roomAudioStarted {
-            startRoomAudio(state)
+        if state.phase == "listening" && !roomAudioStarted && scheduledRoomAudio == nil {
+            scheduledRoomAudio = Task { [weak self] in
+                await self?.startRoomAudio(state)
+            }
         }
         if state.phase == "answering" && state.answeringPlayerID == rooms.playerId && old?.answeringPlayerID != rooms.playerId && !state.settings.endless {
             pauseAudio()
         }
         if state.phase == "listening" && old?.phase == "answering" && old?.answeringPlayerID == rooms.playerId && !state.settings.endless {
-            startRoomAudio(state)
+            Task { [weak self] in await self?.startRoomAudio(state) }
         }
         if state.phase == "reveal" && lastRoomPhase != "reveal" {
-            scheduledRoomAudio?.cancel(); scheduledRoomAudio = nil
+            scheduledRoomAudio?.cancel()
             stopAudio()
+            scheduledRoomAudio = nil
             if let song = state.current?.song { revealAudio(song) }
             UINotificationFeedbackGenerator().notificationOccurred(state.correctPlayerID == rooms.playerId ? .success : .warning)
         }
@@ -862,20 +962,35 @@ struct SoloGame {
         lastRoomPhase = state.phase
     }
 
-    private func startRoomAudio(_ state: RoomState) {
+    private func startRoomAudio(_ state: RoomState) async {
         guard let current = state.current else { return }
-        let elapsed = max(0, (state.serverNow - (state.startAt ?? state.serverNow)) / 1000)
-        if state.mode == "spotify" || state.mode == "applemusic" {
-            playAudio(Song(id: current.id, title: "", artist: "", artworkURL: nil,
-                           previewURL: nil, trackURL: nil, durationMS: 180_000, genre: "その他"),
-                      offsetMS: Int(elapsed * 1000))
-        } else if let preview = current.previewURL { player.play(preview, offset: elapsed) }
-        roomAudioStarted = true
+        guard !roomAudioStarting else { return }
+        roomAudioStarting = true
+        defer { roomAudioStarting = false }
+        do {
+            let elapsed = max(0, rooms.serverNowMS - (state.startAt ?? rooms.serverNowMS))
+            if state.mode == "spotify" || state.mode == "applemusic" {
+                try await startPreparedRoundAudio(Song(id: current.id, title: "", artist: "", artworkURL: nil,
+                    previewURL: nil, trackURL: nil, durationMS: 180_000, genre: "その他"), offsetMS: Int(elapsed))
+            } else if let preview = current.previewURL {
+                do { try player.startPrepared(preview, offset: elapsed / 1000) }
+                catch {
+                    try await player.prepare(preview)
+                    try player.startPrepared(preview, offset: elapsed / 1000)
+                }
+            } else { throw AppError.message("この曲の音源がありません") }
+            guard room?.round == state.round else { return }
+            roomAudioStarted = true
+            roomError = nil
+        } catch {
+            guard room?.round == state.round, !Task.isCancelled else { return }
+            roomError = error.localizedDescription
+        }
     }
 
     func remainingTime(_ state: RoomState) -> Double {
         let target = state.phase == "answering" && state.answeringPlayerID == rooms.playerId ? state.answerDeadline : state.roundDeadline
-        return max(0, ((target ?? state.serverNow) - state.serverNow) / 1000)
+        return max(0, ((target ?? rooms.serverNowMS) - rooms.serverNowMS) / 1000)
     }
 
     func roomAction(_ action: String, payload: [String: Any] = [:]) async {
@@ -892,6 +1007,21 @@ struct SoloGame {
         receiveRoom(room)
     }
 
+    func retryRoomRound() {
+        guard let room, room.phase == "preparing" else { return }
+        preparedRoomRound = nil
+        roomError = nil
+        receiveRoom(room)
+    }
+
+    func retryRoomAudio() {
+        guard let room, ["countdown", "listening"].contains(room.phase) else { return }
+        scheduledRoomAudio?.cancel()
+        scheduledRoomAudio = nil
+        roomError = nil
+        receiveRoom(room)
+    }
+
     private func playPushCue() {
         pushCue?.currentTime = 0
         pushCue?.play()
@@ -902,11 +1032,12 @@ struct SoloGame {
         preloadedRoomID = nil; roomPreparationStatus = nil
         roomPoller?.cancel(); roomPoller = nil
         roomTicker?.cancel(); roomTicker = nil
-        scheduledRoomAudio?.cancel(); scheduledRoomAudio = nil
+        scheduledRoomAudio?.cancel()
         if let roomID { _ = try? await rooms.action("leave", id: roomID) }
         stopAudio()
+        scheduledRoomAudio = nil
         room = nil; roomID = nil; rooms.clear()
         UserDefaults.standard.removeObject(forKey: "roomID")
-        lastRoomPhase = nil; lastRoomRound = nil; preparedRoomRound = nil; roomAudioStarted = false
+        lastRoomPhase = nil; lastRoomRound = nil; preparedRoomRound = nil; roomAudioStarted = false; roomAudioStarting = false
     }
 }

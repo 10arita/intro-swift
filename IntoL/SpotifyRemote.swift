@@ -79,6 +79,22 @@ import SpotifyiOS
                 }
             }
         }
+        // The play callback acknowledges the command. Wait until Spotify reports
+        // that this track is actually playing before starting a solo round timer.
+        for _ in 0..<40 {
+            try Task.checkCancellation()
+            let state: (any SPTAppRemotePlayerState)? = try? await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<(any SPTAppRemotePlayerState), Error>) in
+                player.getPlayerState { result, error in
+                    if let error { continuation.resume(throwing: error) }
+                    else if let state = result as? any SPTAppRemotePlayerState { continuation.resume(returning: state) }
+                    else { continuation.resume(throwing: AppError.message("Spotify の再生状態を確認できません")) }
+                }
+            }
+            if let state, state.track.uri == uri, !state.isPaused { return }
+            try await Task.sleep(for: .milliseconds(200))
+        }
+        throw AppError.message("Spotify の再生開始を確認できません。接続を確認して再試行してください")
     }
 
     func pause() async throws {

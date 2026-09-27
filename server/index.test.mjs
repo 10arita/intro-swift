@@ -12,6 +12,13 @@ test('title normalization and distractors preserve the character class', () => {
   assert.ok(option.includes('花'));
   assert.ok(option.every(value => /[\u3400-\u9fff]/u.test(value)));
   assert.ok(!choices('ー', 'マ', ['マー', 'ママ']).filter(value => value !== 'ー').includes('ッ'));
+  const famous = choices('花', '', ['花火', '春風'], ['青空', '新時代', '夜に駆ける', '花火', '空']);
+  assert.equal(famous.length, 4);
+  assert.ok(famous.includes('花'));
+  assert.ok(famous.filter(char => char !== '花').every(char => ['青', '新', '夜', '空'].includes(char)));
+  const short = choices('花', '', ['花火', '春風'], ['青空', '青い鳥']);
+  assert.equal(short.length, 4);
+  assert.ok(short.includes('青'));
 });
 
 test('catalog exposes only configured original audio', () => {
@@ -100,8 +107,10 @@ test('room API arbitrates PUSH, validates answers, scores, and protects sessions
     await call(`/rooms/${id}/assets-ready`, { playerId: 'p2' }, guestToken);
     assert.equal((await call(`/rooms/${id}/start`, { playerId: 'p1' }, hostToken)).value.phase, 'preparing');
     await call(`/rooms/${id}/ready`, { playerId: 'p1' }, hostToken);
+    now += 9000;
+    assert.equal((await call(`/rooms/${id}?playerId=p1`, null, hostToken, 'GET')).value.phase, 'preparing');
     assert.equal((await call(`/rooms/${id}/ready`, { playerId: 'p2' }, guestToken)).value.phase, 'countdown');
-    now += 3100;
+    now += 5100;
     const state = (await call(`/rooms/${id}?playerId=p1`, null, hostToken, 'GET')).value;
     assert.equal(state.phase, 'listening');
     assert.equal(state.current.title, undefined);
@@ -121,7 +130,7 @@ test('room API arbitrates PUSH, validates answers, scores, and protects sessions
     assert.equal(next.phase, 'preparing');
     await call(`/rooms/${id}/ready`, { playerId: 'p1' }, hostToken);
     await call(`/rooms/${id}/ready`, { playerId: 'p2' }, guestToken);
-    now += 3100;
+    now += 5100;
     const wrong = await call(`/rooms/${id}/push`, { playerId: 'p1' }, hostToken);
     assert.equal(wrong.value.phase, 'answering');
     const failed = await call(`/rooms/${id}/choose`, { playerId: 'p1', choice: 'X' }, hostToken);
@@ -156,7 +165,7 @@ test('unanimous skip reveals and host role transfers on leave', () => {
     dispatch(`/rooms/${host.id}/start`, { playerId: 'skipHost' }, host.sessionToken);
     dispatch(`/rooms/${host.id}/ready`, { playerId: 'skipHost' }, host.sessionToken);
     dispatch(`/rooms/${host.id}/ready`, { playerId: 'skipGuest' }, guest.sessionToken);
-    now += 3100;
+    now += 5100;
     assert.equal(dispatch(`/rooms/${host.id}/skip`, { playerId: 'skipHost' }, host.sessionToken).phase, 'listening');
     assert.equal(dispatch(`/rooms/${host.id}/skip`, { playerId: 'skipGuest' }, guest.sessionToken).phase, 'reveal');
     dispatch(`/rooms/${host.id}/leave`, { playerId: 'skipHost' }, host.sessionToken);
@@ -199,6 +208,23 @@ test('Spotify rooms hide the title, accept readiness, and allow a lobby host tra
   assert.equal(countdown.phase, 'countdown');
   assert.equal(countdown.current.id, song.id);
   assert.equal(countdown.current.title, undefined);
+});
+
+test('first room letter prefers the current artist top songs', () => {
+  const realNow = Date.now;
+  let now = realNow();
+  Date.now = () => now;
+  try {
+    const song = { id: 'spotify:ABCDEFGHIJKLMNOPQRSTUV', title: '花火', artist: 'Artist',
+      artistTopTitles: ['青空', '新時代', '夜に駆ける', '花火'] };
+    const created = handle('POST', '/rooms', { playerId: 'topHost', name: 'Host', mode: 'spotify',
+      songs: [song], settings: { questionCount: 1 } }, new URLSearchParams()).body;
+    const post = action => handle('POST', `/rooms/${created.id}/${action}`, { playerId: 'topHost' },
+      new URLSearchParams(), `Bearer ${created.sessionToken}`).body;
+    post('assets-ready'); post('start'); post('ready');
+    now += 5100;
+    assert.deepEqual(new Set(post('push').options), new Set(['花', '青', '新', '夜']));
+  } finally { Date.now = realNow; }
 });
 
 test('sabitro rooms accept only matched HTTPS previews', () => {
