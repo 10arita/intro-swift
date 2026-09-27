@@ -63,13 +63,19 @@ struct Artwork: View {
     var size: CGFloat = 72
 
     var body: some View {
-        AsyncImage(url: url) { phase in
-            switch phase {
-            case .success(let image): image.resizable().scaledToFill()
-            default:
-                ZStack {
-                    Studio.raised
-                    Image(systemName: "music.note").foregroundStyle(Studio.secondary)
+        Group {
+            if let image = GameAssets.shared.image(for: url) {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image): image.resizable().scaledToFill()
+                    default:
+                        ZStack {
+                            Studio.raised
+                            Image(systemName: "music.note").foregroundStyle(Studio.secondary)
+                        }
+                    }
                 }
             }
         }

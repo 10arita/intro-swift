@@ -19,7 +19,7 @@ test('profile and active room are restored from DATA_DIR', () => {
     const first = run(`
       import { handle, saveStateNow } from './index.mjs';
       const profile = handle('POST', '/profile', { id: 'persistent-player' }, new URLSearchParams()).body;
-      const room = handle('POST', '/rooms', { playerId: 'persistent-player', name: 'Tester' }, new URLSearchParams()).body;
+      const room = handle('POST', '/rooms', { playerId: 'persistent-player', name: 'Tester', settings: { questionCount: 1 } }, new URLSearchParams()).body;
       saveStateNow();
       console.log(JSON.stringify({ profileToken: profile.token, roomToken: room.sessionToken, roomID: room.id }));
     `, directory);

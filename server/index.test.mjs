@@ -29,7 +29,7 @@ test('Spotify room creation does not wait for external metadata services', async
     return new Promise(() => {});
   };
   try {
-    const body = { playerId: 'spotify-room-test', name: 'Host', mode: 'spotify',
+    const body = { playerId: 'spotify-room-test', name: 'Host', mode: 'spotify', settings: { questionCount: 1 },
       songs: [{ id: 'spotify:AAAAAAAAAAAAAAAAAAAAAA', title: 'Test Song', artist: 'Test Artist' }] };
     const request = Readable.from([Buffer.from(JSON.stringify(body))]);
     request.method = 'POST'; request.url = '/rooms'; request.headers = { host: 'localhost' };
@@ -51,10 +51,14 @@ test('Spotify room creation does not wait for external metadata services', async
 test('Apple Music rooms accept catalog IDs and keep answers hidden until reveal', () => {
   const song = { id: 'applemusic:1234567890', title: '青い空', artist: 'Artist',
     previewURL: 'https://example.com/should-not-play.mp3' };
-  const created = handle('POST', '/rooms', { playerId: 'amHost', name: 'Host', mode: 'applemusic', songs: [song] }, new URLSearchParams());
+  const created = handle('POST', '/rooms', { playerId: 'amHost', name: 'Host', mode: 'applemusic', songs: [song], settings: { questionCount: 1 } }, new URLSearchParams());
   assert.equal(created.status, 201);
   assert.equal(created.body.mode, 'applemusic');
   const token = created.body.sessionToken;
+  assert.equal(created.body.preload.length, 1);
+  assert.equal(created.body.preload[0].previewURL, null);
+  assert.equal(handle('POST', `/rooms/${created.body.id}/start`, { playerId: 'amHost' }, new URLSearchParams(), `Bearer ${token}`).status, 409);
+  handle('POST', `/rooms/${created.body.id}/assets-ready`, { playerId: 'amHost' }, new URLSearchParams(), `Bearer ${token}`);
   const started = handle('POST', `/rooms/${created.body.id}/start`, { playerId: 'amHost' }, new URLSearchParams(), `Bearer ${token}`);
   assert.equal(started.body.current.id, song.id);
   assert.equal(started.body.current.title, undefined);
@@ -84,8 +88,16 @@ test('room API arbitrates PUSH, validates answers, scores, and protects sessions
     const joined = await call(`/rooms/${id}/join`, { playerId: 'p2', name: 'Guest' });
     assert.equal(joined.status, 200);
     const guestToken = joined.value.sessionToken;
+    assert.equal(joined.value.preload.length, 2);
+    assert.ok(joined.value.preload.every(asset => !('title' in asset)));
     assert.equal((await call(`/rooms/${id}?playerId=p1`, null, null, 'GET')).status, 403);
     assert.equal((await call(`/rooms/${id}/start`, { playerId: 'p2' }, guestToken)).status, 403);
+    assert.equal((await call(`/rooms/${id}/start`, { playerId: 'p1' }, hostToken)).status, 409);
+    await call(`/rooms/${id}/assets-ready`, { playerId: 'p1' }, hostToken);
+    await call(`/rooms/${id}/assets-ready`, { playerId: 'p2' }, guestToken);
+    await call(`/rooms/${id}/assets-unready`, { playerId: 'p2' }, guestToken);
+    assert.equal((await call(`/rooms/${id}/start`, { playerId: 'p1' }, hostToken)).status, 409);
+    await call(`/rooms/${id}/assets-ready`, { playerId: 'p2' }, guestToken);
     assert.equal((await call(`/rooms/${id}/start`, { playerId: 'p1' }, hostToken)).value.phase, 'preparing');
     await call(`/rooms/${id}/ready`, { playerId: 'p1' }, hostToken);
     assert.equal((await call(`/rooms/${id}/ready`, { playerId: 'p2' }, guestToken)).value.phase, 'countdown');
@@ -137,8 +149,10 @@ test('unanimous skip reveals and host role transfers on leave', () => {
     return result.body;
   };
   try {
-    const host = dispatch('/rooms', { playerId: 'skipHost', name: 'Host' }, undefined);
+    const host = dispatch('/rooms', { playerId: 'skipHost', name: 'Host', settings: { questionCount: 1 } }, undefined);
     const guest = dispatch(`/rooms/${host.id}/join`, { playerId: 'skipGuest', name: 'Guest' }, undefined);
+    dispatch(`/rooms/${host.id}/assets-ready`, { playerId: 'skipHost' }, host.sessionToken);
+    dispatch(`/rooms/${host.id}/assets-ready`, { playerId: 'skipGuest' }, guest.sessionToken);
     dispatch(`/rooms/${host.id}/start`, { playerId: 'skipHost' }, host.sessionToken);
     dispatch(`/rooms/${host.id}/ready`, { playerId: 'skipHost' }, host.sessionToken);
     dispatch(`/rooms/${host.id}/ready`, { playerId: 'skipGuest' }, guest.sessionToken);
@@ -170,13 +184,15 @@ test('profile needs its secret and stores five results', () => {
 test('Spotify rooms hide the title, accept readiness, and allow a lobby host transfer', () => {
   const song = { id: 'spotify:1234567890123456789012', title: '怪獣の花唄', artist: 'Vaundy',
     previewURL: null, durationMS: 220000, genre: 'Pop' };
-  const host = handle('POST', '/rooms', { playerId: 'spHost', name: 'Host', mode: 'spotify', songs: [song] }, new URLSearchParams()).body;
+  const host = handle('POST', '/rooms', { playerId: 'spHost', name: 'Host', mode: 'spotify', songs: [song], settings: { questionCount: 1 } }, new URLSearchParams()).body;
   assert.equal(host.mode, 'spotify');
   assert.equal(host.current, null);
   const guest = handle('POST', `/rooms/${host.id}/join`, { playerId: 'spGuest', name: 'Guest' }, new URLSearchParams()).body;
   const call = (action, playerId, token, extra = {}) => handle('POST', `/rooms/${host.id}/${action}`,
     { playerId, ...extra }, new URLSearchParams(), `Bearer ${token}`).body;
   call('transfer', 'spHost', host.sessionToken, { targetId: 'spGuest' });
+  call('assets-ready', 'spHost', host.sessionToken);
+  call('assets-ready', 'spGuest', guest.sessionToken);
   assert.equal(call('start', 'spGuest', guest.sessionToken).phase, 'preparing');
   assert.equal(call('ready', 'spHost', host.sessionToken).phase, 'preparing');
   const countdown = call('ready', 'spGuest', guest.sessionToken);
@@ -191,7 +207,7 @@ test('sabitro rooms accept only matched HTTPS previews', () => {
   assert.equal(invalid.status, 400);
   const valid = handle('POST', '/rooms', { playerId: 'goodPreview', name: 'Host', mode: 'sabitro',
     songs: [{ id: 'itunes:1', title: '夜に駆ける', artist: 'YOASOBI', previewURL: 'https://audio.example/a.m4a',
-      durationMS: 30000, genre: 'J-Pop' }] }, new URLSearchParams());
+      durationMS: 30000, genre: 'J-Pop' }], settings: { questionCount: 1 } }, new URLSearchParams());
   assert.equal(valid.status, 201);
   assert.equal(valid.body.mode, 'sabitro');
 });

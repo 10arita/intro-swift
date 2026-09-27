@@ -16,6 +16,16 @@ struct Song: Codable, Identifiable, Hashable {
 }
 
 enum TitleRules {
+    static let famousTitles: [String] = {
+        ["famousSongs", "famousSongsJapaneseExpansion", "famousSongsJpop2015Plus", "famousSongsChart2015Plus"]
+            .flatMap { name -> [String] in
+                guard let url = Bundle.main.url(forResource: name, withExtension: "json"),
+                      let data = try? Data(contentsOf: url),
+                      let titles = try? JSONDecoder().decode([String].self, from: data) else { return [] }
+                return titles
+            }
+    }()
+
     static func normalized(_ title: String) -> String {
         var value = title.replacingOccurrences(of: #"\([^)]*\)|（[^）]*）"#, with: "", options: .regularExpression)
         value = value.replacingOccurrences(of: #"(?i)\s+(feat\.?|featuring)\s+.*$"#, with: "", options: .regularExpression)
@@ -65,6 +75,7 @@ enum TitleRules {
     static func choices(answer: String, prefix: String, corpus: [String]) -> [String] {
         let type = kind(answer)
         var candidates: [String] = []
+        let corpus = corpus + famousTitles
         if prefix.isEmpty {
             candidates += corpus.compactMap { characters($0).first }
         } else {

@@ -6,20 +6,22 @@ SwiftUI 製 iOS 17+ アプリと、Coolify 用 Node.js サーバーです。`rul
 
 | モード | 音源 | 条件 |
 | --- | --- | --- |
-| ひとりで | 同梱のオリジナル音源、サーバーの共有音源、Apple Music または Spotify のプレイリスト | Apple Music は本人のサブスクリプション、Spotify は Premium と再生先が必要 |
+| ひとりで | 同梱のオリジナル音源、サーバーの共有音源、Apple Music または Spotify のプレイリスト | Apple Music は本人のサブスクリプション、Spotify は Premium と端末内の Spotify アプリが必要 |
 | みんなで | ホストの Apple Music または Spotify のプレイリスト | 最大4人、全員が選んだサービスの再生条件を満たす必要があります |
 | サビトロ | iTunes Search API の試聴曲を検索、または Spotify プレイリストと照合 | ひとりでも最大4人でも遊べます。対戦のホストはプレイリスト取得のため Spotify 連携が必要 |
 | 共有音源対戦 | サーバー登録済み WAV | 最大4人、Spotify 不要 |
 
-1曲30秒の PUSH、1文字5秒の4択、解答権、誤答・ライフ・得点、全員スキップ、最終順位、ソロの0〜100点と15段階ランクを実装しています。対戦サーバーが PUSH の到着順を判定します。各端末が準備完了を通知してから3秒のカウントダウンを始めます。通信や Spotify Connect の処理時間による再生ずれは残ります。
+1曲30秒の PUSH、1文字5秒の4択、解答権、誤答・ライフ・得点、全員スキップ、最終順位、ソロの0〜100点と15段階ランクを実装しています。回答中は正解の文字数を表示しません。対戦サーバーが PUSH の到着順を判定します。ルーム開始前に全員が出題数分の画像と取得可能な音源を準備し、各ラウンドの準備完了後に3秒のカウントダウンを始めます。通信や Spotify アプリとの接続処理による再生ずれは残ります。
 
 復習リストは「覚えてない」「覚えた」を各50曲、ソロ履歴は直近5回です。統計、ジャンル別正答率、8種類の称号、切断後5分以内の復帰、ホスト自動・手動交代にも対応しています。記録と進行中のルームはサーバーの `DATA_DIR` に保存します。Spotify 連携時はアカウント単位、未連携時は端末単位で記録を扱います。
 
-文字選択肢はプレイリストと同梱の3つの曲名データ、80組の字形グループ、接頭辞、ビッグラム、同じ文字種の補充候補を使います。Spotify のソロプレイでは Apple Music 日本トップ100の曲名も使います。ルーム作成時は外部の曲名サービスを待ちません。小書き仮名と長音符はダミーに使いません。Songle でサビが見つかれば1.5秒手前から、見つからなければ曲長の32%を30〜90秒に収めた位置から Spotify で再生します。サビトロは試聴音源の冒頭から再生します。
+文字選択肢はプレイリストと同梱の4つの曲名データ、80組の字形グループ、接頭辞、ビッグラム、同じ文字種の補充候補を使います。2015〜2026年の Billboard JAPAN チャートを基に約1,100曲の題名を追加し、ソロと対戦の両方で使います。ルーム作成時は外部の曲名サービスを待ちません。小書き仮名と長音符はダミーに使いません。Songle でサビが見つかれば1.5秒手前から、見つからなければ曲長の32%を30〜90秒に収めた位置から Spotify で再生します。サビトロは試聴音源の冒頭から再生します。曲名コーパスは選択肢用であり、追加した曲の音源を同梱するものではありません。
+
+開始前の準備では、各曲のジャケット画像を読み込みます。共有 WAV と試聴音源は端末の一時領域へ読み込みます。Spotify 音源は公式 iOS SDK が端末内の Spotify アプリで再生し、Apple Music 音源は MusicKit が再生します。これらのサービスには全出題曲の音声をアプリ側へ事前取得する API がないため、接続と曲情報を先に確認し、Apple Music では最初の曲の再生も準備します。
 
 ## 先に Coolify サーバーを用意する
 
-Spotify 認証の HTTPS コールバックと複数端末の対戦にはサーバーが必要です。Apple Music のソロプレイとデモには不要です。Apple Music 対戦を使う場合は、この変更を含むサーバーを再デプロイしてください。
+Spotify 認証の HTTPS コールバックと複数端末の対戦にはサーバーが必要です。Apple Music のソロプレイとデモには不要です。対戦を使う場合は、この変更を含むサーバーを再デプロイしてください。
 
 1. このリポジトリを Coolify が参照できる Git リポジトリにプッシュします。
 2. Coolify の **New Resource → Dockerfile** でビルド基準ディレクトリを `server`、Dockerfile をその中の `Dockerfile` にします。公開ポートは `3000`、レプリカは **1** にします。
@@ -31,10 +33,10 @@ Spotify 認証の HTTPS コールバックと複数端末の対戦にはサー�
 
 ## Spotify の設定
 
-1. [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) でアプリを作成します。Redirect URI に **`https://あなたのドメイン/spotify/callback`** を完全一致で登録します。`intol://callback` は Spotify 側の登録先ではありません。サーバーが HTTPS コールバックを受け取り、アプリに戻します。
+1. [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) でアプリを作成します。Redirect URI に **`https://あなたのドメイン/spotify/callback`** と **`intol://spotify-remote`** を完全一致で登録し、iOS SDK を有効にします。前者はプレイリスト取得の認証、後者は端末内の Spotify アプリを SDK で操作する認証に使います。`intol://callback` は Spotify 側の登録先ではありません。
 2. Development Mode ではアプリ所有者に Premium が必要です。使用する Spotify アカウントを Dashboard の **Users Management** に追加してください。現在の上限は5ユーザーです。Spotify の [Development Mode の説明](https://developer.spotify.com/documentation/web-api/concepts/quota-modes)を参照してください。
 3. ビルド前にルートの `.env` へ `SPOTIFY_CLIENT_ID` を指定します。各 iPhone では IntoL「アカウント」の「Spotify に接続」を押します。「再連携」から改めて認証できます。
-4. Spotify アプリで一度曲を再生して再生先を有効にし、IntoL の「再生先を更新」でその端末を選択します。Spotify 音源の PUSH 中の一時停止とサビ出しは Connect API を使います。
+4. 同じ iPhone に Spotify アプリをインストールしてログインします。IntoL は開始時に SDK でアプリへ接続し、この iPhone で再生・一時停止・サビ出しを行います。初回接続時に Spotify アプリへ切り替わった場合は認証後に IntoL へ戻ってください。再生先の選択は不要です。
 5. 「プレイ」でプレイリストを選択します。2026年の Spotify API では、プレイリストの曲一覧取得は原則として自分が所有または共同編集するプレイリストに限られます。選択時に403が出る場合は自分のプレイリストを使ってください。
 
 ## Apple Music の設定
@@ -78,7 +80,9 @@ npm test
 
 この開発環境では iPhone 向けビルドとサーバーテストが成功しています。XcodeBuildMCP では iPhone 16 Pro (iOS 18.6) シミュレータでのビルド・起動と、デモの PUSH から正解発表まで確認できました。App Intent のビルドとショートカットのメタデータ生成も確認済みです。ただし、このシミュレータの「ショートカット」アプリでは追加したアクションを検索できず、ショートカットからの実行は未確認です。コマンドラインの `simctl` は CoreSimulator と Xcode のバージョン差により利用できません。
 
-2026-09-27 に公開サーバーのヘルスチェックと Spotify 認証コールバック、Premium 実アカウントの認証、自分のプレイリストの曲一覧取得、Mac の Spotify Web Player へのイントロ再生、ゲーム終了時の一時停止を確認しました。離れた場所にある iPhone は再生先の一覧に表示されましたが、再生指示後も曲の開始を確認できませんでした。実機での iTunes と Songle のライブ動作は未検証です。
+2026-09-27 に Spotify iOS SDK 5.0.1 を組み込んだシミュレータ向けビルドとサーバーテストを確認しました。Spotify と Apple Music の実再生、iTunes と Songle のライブ動作、複数 iPhone の同時再生は実機での確認が必要です。
+
+追加した曲名は [Billboard JAPAN の年間 Hot 100](https://www.billboard-japan.com/charts/detail?a=hot100_year&year=2025) と [週次 Hot 100](https://www.billboard-japan.com/charts/detail?a=hot100) を基に [scripts/build_jpop_corpus.py](scripts/build_jpop_corpus.py) で生成しました。題名だけを収録し、順位・アーティスト情報・音源は含めません。
 
 ## 自作音源と Songle URL
 

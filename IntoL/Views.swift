@@ -35,7 +35,7 @@ struct RootView: View {
             if model.searchSongs.isEmpty { await model.search() }
             await openRequestedPractice()
             if model.appleMusicConnected { await model.loadAppleMusicPlaylists() }
-            if model.spotifyConnected { await model.loadSpotifyPlaylists(); await model.loadSpotifyDevices() }
+            if model.spotifyConnected { await model.loadSpotifyPlaylists() }
             await model.syncProfile()
         }
         .onChange(of: shortcut.practiceRequest) { _, _ in
@@ -81,7 +81,7 @@ struct RootView: View {
         if model.searchSongs.isEmpty { await model.search() }
         guard shortcut.practiceRequest != nil else { return }
         shortcut.practiceRequest = nil
-        if !model.searchSongs.isEmpty && model.game == nil { model.startSolo() }
+        if !model.searchSongs.isEmpty && model.game == nil { await model.startSolo() }
     }
 }
 
@@ -312,7 +312,10 @@ struct PlayView: View {
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Studio.secondary)
                     ForEach(model.searchSongs.prefix(3)) { song in SongRow(song: song) }
-                    PrimaryButton(title: "プレイ開始", symbol: "arrow.right") { model.startSolo() }
+                    PrimaryButton(title: "プレイ開始", symbol: "arrow.right", disabled: model.busy) {
+                        Task { await model.startSolo() }
+                    }
+                    if let status = model.preparationStatus { Text(status).font(.caption).foregroundStyle(Studio.secondary) }
                 }
             }
         }
@@ -331,7 +334,10 @@ struct PlayView: View {
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(Studio.secondary)
                         ForEach(model.sharedSongs.prefix(3)) { song in SongRow(song: song) }
-                        PrimaryButton(title: "プレイ開始", symbol: "arrow.right") { model.startSolo(shared: true) }
+                        PrimaryButton(title: "プレイ開始", symbol: "arrow.right", disabled: model.busy) {
+                            Task { await model.startSolo(shared: true) }
+                        }
+                        if let status = model.preparationStatus { Text(status).font(.caption).foregroundStyle(Studio.secondary) }
                     }
                 } else {
                     Text("共有音源は現在利用できません")
@@ -359,6 +365,7 @@ struct PlayView: View {
                                 .font(.caption).foregroundStyle(Studio.secondary)
                         }
                     }
+                    if let status = model.preparationStatus { Text(status).font(.caption).foregroundStyle(Studio.secondary) }
                 }
             }
         }
@@ -372,8 +379,9 @@ struct PlayView: View {
                     ForEach(model.appleMusicSongs.prefix(3)) { song in SongRow(song: song) }
                     PrimaryButton(title: "プレイ開始", symbol: "arrow.right",
                                   disabled: !model.appleMusicPlayable || model.busy) {
-                        model.startAppleMusicSolo()
+                        Task { await model.startAppleMusicSolo() }
                     }
+                    if let status = model.preparationStatus { Text(status).font(.caption).foregroundStyle(Studio.secondary) }
                 }
             }
         }
@@ -434,8 +442,9 @@ struct PlayView: View {
                         PrimaryButton(title: "プレイ開始", symbol: "arrow.right", disabled: model.busy) {
                             model.player.stop()
                             sampleID = nil
-                            model.startItunesSolo()
+                            Task { await model.startItunesSolo() }
                         }
+                        if let status = model.preparationStatus { Text(status).font(.caption).foregroundStyle(Studio.secondary) }
                     }
                 } else {
                     Text("試聴曲検索は現在利用できません")
@@ -858,13 +867,13 @@ struct SoloGameView: View {
                         } else if game.stage == .answering {
                             Spacer(minLength: 26)
                             SectionCaption(title: "SPELL THE TITLE")
-                            Text(game.answered + String(repeating: "•", count: max(0, game.answer.count - game.letterIndex)))
+                            Text(game.answered.isEmpty ? "文字を選んでください" : game.answered)
                                 .font(.system(size: 35, weight: .bold, design: .rounded))
                                 .foregroundStyle(Studio.primary)
                                 .minimumScaleFactor(0.5)
                                 .lineLimit(2)
-                                .accessibilityLabel("\(game.letterIndex)文字入力済み、全\(game.answer.count)文字")
-                            Text("\(game.letterIndex + 1)文字目を選ぶ")
+                                .accessibilityLabel(game.answered.isEmpty ? "未入力" : "入力済み: \(game.answered)")
+                            Text("次の文字を選ぶ")
                                 .foregroundStyle(Studio.secondary)
                             CountdownBar(remaining: game.secondsLeft, total: 5)
                             ChoiceGrid(choices: game.choices) { model.choose($0) }
@@ -1127,22 +1136,8 @@ struct AccountView: View {
                 Button("解除") { model.disconnectSpotify() }
                     .buttonStyle(SecondaryButtonStyle())
             }
-            Button("再生先を更新") { Task { await model.loadSpotifyDevices() } }
-                .buttonStyle(SecondaryButtonStyle())
-            if !model.spotifyDevices.isEmpty {
-                Picker("Spotify 再生先", selection: Binding(
-                    get: { model.spotify.deviceID ?? "" },
-                    set: {
-                        model.objectWillChange.send()
-                        model.spotify.deviceID = $0.isEmpty ? nil : $0
-                    })) {
-                    Text("自動選択").tag("")
-                    ForEach(model.spotifyDevices) { device in
-                        Text("\(device.name) · \(device.type)").tag(device.id)
-                    }
-                }
-                .tint(Studio.accent)
-            }
+            Text("再生にはこの iPhone の Spotify アプリを使います。")
+                .font(.caption).foregroundStyle(Studio.secondary)
         } else if model.spotifyConfigured {
             Button("Spotify に接続") { Task { await model.connectSpotify() } }
                 .buttonStyle(SecondaryButtonStyle())
@@ -1235,7 +1230,7 @@ struct RoomGameView: View {
                             roundTitle(room)
                             if room.answeringPlayerID == model.rooms.playerId {
                                 SectionCaption(title: "YOUR TURN")
-                                Text(model.roomAnswer + "•••")
+                                Text(model.roomAnswer.isEmpty ? "文字を選んでください" : model.roomAnswer)
                                     .font(.system(size: 36, weight: .bold, design: .rounded))
                                     .foregroundStyle(Studio.primary)
                                 CountdownBar(remaining: model.roomSecondsLeft, total: 5)
@@ -1314,6 +1309,15 @@ struct RoomGameView: View {
                     .foregroundStyle(Studio.accent)
             }
             players(room)
+            Text("画像と音源の準備: \((room.assetsReadyIds ?? []).count) / \(room.players.count) 人")
+                .font(.subheadline).foregroundStyle(Studio.secondary)
+            if let status = model.roomPreparationStatus {
+                Text(status).font(.caption).foregroundStyle(Studio.secondary)
+            }
+            if model.roomError != nil {
+                Button("準備を再試行") { model.retryRoomPreload() }
+                    .buttonStyle(SecondaryButtonStyle())
+            }
             if room.hostId == model.rooms.playerId {
                 if room.players.count > 1 {
                     Menu {
@@ -1327,7 +1331,8 @@ struct RoomGameView: View {
                             .font(.subheadline).foregroundStyle(Studio.accent)
                     }
                 }
-                PrimaryButton(title: "ゲームを始める", symbol: "play.fill") {
+                PrimaryButton(title: "ゲームを始める", symbol: "play.fill",
+                              disabled: (room.assetsReadyIds ?? []).count < room.players.count) {
                     Task { await model.roomAction("start") }
                 }
             }

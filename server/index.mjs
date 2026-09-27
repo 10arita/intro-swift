@@ -14,6 +14,7 @@ if (DATA_FILE && existsSync(DATA_FILE)) {
     for (const room of saved.rooms || []) {
       room.pushed = new Set(room.pushed || []); room.skipped = new Set(room.skipped || []);
       room.readyIds = new Set(room.readyIds || []);
+      room.assetsReadyIds = new Set(room.assetsReadyIds || []);
       rooms.set(room.id, room);
     }
     for (const profile of saved.profiles || []) profiles.set(profile.id, profile);
@@ -24,7 +25,7 @@ export function saveStateNow() {
   if (!DATA_FILE) return;
   mkdirSync(DATA_DIR, { recursive: true });
   const temporary = `${DATA_FILE}.tmp`;
-  writeFileSync(temporary, JSON.stringify({ rooms: [...rooms.values()].map(room => ({ ...room, pushed: [...room.pushed], skipped: [...room.skipped], readyIds: [...room.readyIds] })), profiles: [...profiles.values()] }));
+  writeFileSync(temporary, JSON.stringify({ rooms: [...rooms.values()].map(room => ({ ...room, pushed: [...room.pushed], skipped: [...room.skipped], readyIds: [...room.readyIds], assetsReadyIds: [...room.assetsReadyIds] })), profiles: [...profiles.values()] }));
   renameSync(temporary, DATA_FILE);
 }
 function persist() {
@@ -36,7 +37,7 @@ function persist() {
   saveTimer.unref();
 }
 const catalog = JSON.parse(readFileSync(new URL('./catalog.json', import.meta.url), 'utf8'));
-const seedTitles = ['famousSongs.json', 'famousSongsJapaneseExpansion.json', 'famousSongsJpop2015Plus.json']
+const seedTitles = ['famousSongs.json', 'famousSongsJapaneseExpansion.json', 'famousSongsJpop2015Plus.json', 'famousSongsChart2015Plus.json']
   .flatMap(file => JSON.parse(readFileSync(new URL(`./corpus/${file}`, import.meta.url), 'utf8')));
 const PORT = Number(process.env.PORT ?? 3000);
 const MAX_BODY = 256_000;
@@ -198,7 +199,10 @@ function snapshot(room, playerId) {
     answerDeadline: room.answeringPlayerID === playerId ? room.answerDeadline : null,
     answeringPlayerID: room.answeringPlayerID, answerProgress: room.answeringPlayerID === playerId ? room.answerProgress : '',
     options: room.answeringPlayerID === playerId ? room.options : [],
-    pushedIds: [...room.pushed], skippedIds: [...room.skipped], readyIds: [...room.readyIds], correctPlayerID: room.correctPlayerID,
+    pushedIds: [...room.pushed], skippedIds: [...room.skipped], readyIds: [...room.readyIds],
+    assetsReadyIds: [...(room.assetsReadyIds || [])],
+    preload: room.phase === 'lobby' ? room.songs.map(({ id, artworkURL, previewURL }) => ({ id, artworkURL, previewURL })) : [],
+    correctPlayerID: room.correctPlayerID,
     current: song ? {
       id: song.id, previewURL: song.previewURL,
       ...(disclosed ? { title: song.title, artist: song.artist, artworkURL: song.artworkURL,
@@ -255,15 +259,16 @@ export function handle(method, path, body, query, authorization, origin = 'https
     if (!/^[A-Za-z0-9-]{1,64}$/.test(String(body.playerId || '')) || !String(body.name || '').trim()) return fail(400, 'プレイヤー情報が必要です');
     let id; do { id = Array.from({length: 6}, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ'[randomInt(24)]).join(''); } while (rooms.has(id));
     const s = settings(body.settings);
+    if (songs.length < s.questionCount) return fail(400, `問題数分の曲がありません（利用可能: ${songs.length}曲）`);
     const room = { id, mode, settings: s, songs: shuffled(songs).slice(0, s.questionCount), corpus: [...new Set([...songs.map(song => song.title), ...seedTitles, ...(Array.isArray(body.corpus) ? body.corpus.filter(s => typeof s === 'string').slice(0, 500) : [])])], phase: 'lobby', round: -1,
       hostId: String(body.playerId), players: [{ id: String(body.playerId), secret: randomUUID(), name: String(body.name).trim().slice(0, 24),
         badge: String(body.badge || '').slice(0, 24), score: 0, lives: s.lives, disqualified: false, joinedAt: Date.now(), lastSeen: Date.now() }],
-      pushed: new Set(), skipped: new Set(), readyIds: new Set(), startAt: null, roundDeadline: null, answerDeadline: null,
+      pushed: new Set(), skipped: new Set(), readyIds: new Set(), assetsReadyIds: new Set(), startAt: null, roundDeadline: null, answerDeadline: null,
       answeringPlayerID: null, answerProgress: '', options: [], correctPlayerID: null, firstWrongDone: false };
     rooms.set(id, room);
     return { status: 201, body: { ...snapshot(room, String(body.playerId)), sessionToken: room.players[0].secret } };
   }
-  const match = path.match(/^\/rooms\/([A-Z]{6})(?:\/(join|heartbeat|ready|start|push|choose|skip|next|leave|transfer))?$/);
+  const match = path.match(/^\/rooms\/([A-Z]{6})(?:\/(join|heartbeat|assets-ready|assets-unready|ready|start|push|choose|skip|next|leave|transfer))?$/);
   if (!match) return fail(404, '見つかりません');
   const room = rooms.get(match[1]); if (!room) return fail(404, 'ルームが見つかりません');
   refresh(room);
@@ -288,7 +293,15 @@ export function handle(method, path, body, query, authorization, origin = 'https
   player.lastSeen = Date.now();
   if (action === 'start') {
     if (room.hostId !== playerId || room.phase !== 'lobby') return fail(403, 'ホストのみ開始できます');
+    if (room.players.some(p => !room.assetsReadyIds?.has(p.id))) return fail(409, '全員の画像と音源の準備が終わるまでお待ちください');
     beginRound(room);
+  } else if (action === 'assets-ready') {
+    if (room.phase !== 'lobby') return fail(409, '開始前ではありません');
+    room.assetsReadyIds ||= new Set();
+    room.assetsReadyIds.add(playerId);
+  } else if (action === 'assets-unready') {
+    if (room.phase !== 'lobby') return fail(409, '開始前ではありません');
+    room.assetsReadyIds?.delete(playerId);
   } else if (action === 'ready') {
     if (room.phase !== 'preparing') return fail(409, '準備中ではありません');
     room.readyIds.add(playerId);

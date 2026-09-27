@@ -13,13 +13,6 @@ struct SpotifyPlaylist: Identifiable, Decodable, Hashable {
 }
 
 struct SpotifyImage: Decodable, Hashable { let url: URL? }
-struct SpotifyDevice: Identifiable, Decodable, Hashable {
-    let id: String
-    let name: String
-    let type: String
-    let is_active: Bool
-    let is_restricted: Bool
-}
 struct SpotifyAccount: Decodable {
     let id: String
     let account_id: String?
@@ -53,16 +46,11 @@ enum Secrets {
 @MainActor final class SpotifyService: NSObject, ASWebAuthenticationPresentationContextProviding {
     var clientID = AppConfiguration.spotifyClientID
     var serverURL = ""
-    var deviceID: String? { didSet { UserDefaults.standard.set(deviceID, forKey: "spotifyDeviceID") } }
+    let remote = SpotifyRemote()
     private var accessToken: String?
     private var expiresAt = Date.distantPast
     private var authSession: ASWebAuthenticationSession?
     var isConnected: Bool { Secrets.get("spotifyRefresh") != nil }
-
-    override init() {
-        deviceID = UserDefaults.standard.string(forKey: "spotifyDeviceID")
-        super.init()
-    }
 
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
         UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first ?? UIWindow()
@@ -85,7 +73,7 @@ enum Secrets {
             .init(name: "client_id", value: client), .init(name: "response_type", value: "code"),
             .init(name: "redirect_uri", value: redirectURI), .init(name: "code_challenge_method", value: "S256"),
             .init(name: "code_challenge", value: challenge), .init(name: "state", value: state),
-            .init(name: "scope", value: "playlist-read-private playlist-read-collaborative user-read-private user-read-playback-state user-modify-playback-state"),
+            .init(name: "scope", value: "playlist-read-private playlist-read-collaborative user-read-private app-remote-control"),
             .init(name: "show_dialog", value: forceDialog ? "true" : "false")
         ]
         let callback: URL = try await withCheckedThrowingContinuation { continuation in
@@ -111,7 +99,7 @@ enum Secrets {
     func disconnect() {
         accessToken = nil; expiresAt = .distantPast
         Secrets.set(nil, for: "spotifyRefresh")
-        deviceID = nil
+        remote.disconnect()
     }
 
     private struct TokenResponse: Decodable {
@@ -157,7 +145,7 @@ enum Secrets {
         guard (200...299).contains(status) else {
             if status == 401 { accessToken = nil; expiresAt = .distantPast }
             let detail = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"]
-            throw AppError.message("Spotify API エラー \(status): \(detail.map(String.init(describing:)) ?? "再接続または再生デバイスを確認してください")")
+            throw AppError.message("Spotify API エラー \(status): \(detail.map(String.init(describing:)) ?? "再接続してください")")
         }
         return data
     }
@@ -213,45 +201,20 @@ enum Secrets {
         return Array(Dictionary(grouping: result, by: \.id).values.compactMap(\.first))
     }
 
-    func devices() async throws -> [SpotifyDevice] {
-        struct Response: Decodable { let devices: [SpotifyDevice] }
-        return try JSONDecoder().decode(Response.self, from: try await api("me/player/devices")).devices.filter { !$0.is_restricted }
+    func preparePlayback() async throws {
+        try await remote.prepare(clientID: clientID, accessToken: try await validToken())
     }
+
+    func handleRemoteCallback(_ url: URL) -> Bool { remote.handleCallback(url) }
 
     func play(_ song: Song, offsetMS: Int = 0) async throws {
         guard song.id.hasPrefix("spotify:") else { return }
-        let devices = try await devices()
-        let selected = devices.first { $0.id == deviceID } ?? devices.first { $0.is_active } ?? devices.first
-        guard let selected else { throw AppError.message("Spotify アプリで曲を再生し、設定から再生先を選んでください") }
-        deviceID = selected.id
-        if !selected.is_active {
-            _ = try await api("me/player", method: "PUT", body: ["device_ids": [selected.id], "play": false])
-            try await Task.sleep(for: .milliseconds(800))
-        }
-        _ = try await api("me/player/play?device_id=\(selected.id)", method: "PUT",
-                          body: ["uris": ["spotify:track:\(song.id.dropFirst(8))"], "position_ms": max(0, offsetMS)])
-        struct PlaybackState: Decodable {
-            struct Item: Decodable { let id: String? }
-            struct Device: Decodable { let id: String }
-            let is_playing: Bool
-            let item: Item?
-            let device: Device?
-        }
-        let trackID = String(song.id.dropFirst(8))
-        for _ in 0..<3 {
-            try await Task.sleep(for: .milliseconds(500))
-            if let data = try? await api("me/player"),
-               let state = try? JSONDecoder().decode(PlaybackState.self, from: data),
-               state.is_playing, state.item?.id == trackID, state.device?.id == selected.id {
-                return
-            }
-        }
-        throw AppError.message("選択した再生先で曲の開始を確認できません。Spotifyでその再生先を有効にし、再生先を更新してください")
+        try await preparePlayback()
+        try await remote.play(uri: "spotify:track:\(song.id.dropFirst(8))", offsetMS: offsetMS)
     }
 
     func pause() async throws {
-        guard let deviceID else { return }
-        _ = try await api("me/player/pause?device_id=\(deviceID)", method: "PUT")
+        try await remote.pause()
     }
 }
 
@@ -367,6 +330,15 @@ struct AppleMusicPlaylist: Identifiable, Hashable {
         }
         songsByID[songID] = item
         return item
+    }
+
+    func prepareCatalog(_ songIDs: [String]) async throws {
+        guard isAuthorized, try await MusicSubscription.current.canPlayCatalogContent else {
+            throw AppError.message("Apple Music のアクセス許可とサブスクリプションが必要です")
+        }
+        for id in songIDs where songsByID[id] == nil {
+            _ = try await catalogSong(for: id)
+        }
     }
 
     func play(_ song: Song, offsetMS: Int = 0) async throws {

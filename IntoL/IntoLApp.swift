@@ -46,6 +46,7 @@ struct IntoLApp: App {
             RootView()
                 .environmentObject(model)
                 .preferredColorScheme(.light)
+                .onOpenURL { url in _ = model.spotify.handleRemoteCallback(url) }
         }
     }
 }

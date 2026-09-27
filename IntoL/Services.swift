@@ -29,7 +29,8 @@ enum AppError: LocalizedError {
     @Published private(set) var playing = false
 
     func play(_ url: URL, offset: Double = 0) {
-        if preparedURL != url { stop(); player = AVPlayer(url: url) }
+        let source = GameAssets.shared.audioURL(for: url)
+        if preparedURL != url { stop(); player = AVPlayer(url: source) }
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.duckOthers])
         try? AVAudioSession.sharedInstance().setActive(true)
         preparedURL = url
@@ -39,7 +40,7 @@ enum AppError: LocalizedError {
     }
 
     func prepare(_ url: URL) async throws {
-        let asset = AVURLAsset(url: url)
+        let asset = AVURLAsset(url: GameAssets.shared.audioURL(for: url))
         guard try await asset.load(.isPlayable) else { throw AppError.message("音源を準備できません") }
         stop()
         player = AVPlayer(playerItem: AVPlayerItem(asset: asset))

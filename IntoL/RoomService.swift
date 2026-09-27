@@ -1,7 +1,7 @@
 import Foundation
 
 struct RoomSettings: Codable {
-    var questionCount = 10
+    var questionCount = 6
     var answerSlots = 2
     var targetScore = 50
     var correctPoints = 10
@@ -63,6 +63,8 @@ struct RoomState: Decodable, Identifiable {
     let pushedIds: [String]
     let skippedIds: [String]
     let readyIds: [String]
+    let assetsReadyIds: [String]?
+    let preload: [GameAsset]?
     let correctPlayerID: String?
     let current: RoomCurrent?
     let sessionToken: String?
