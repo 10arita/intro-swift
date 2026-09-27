@@ -167,6 +167,7 @@
 			);
 			inputPaths = (
 				"$(SRCROOT)/scripts/generate_app_config.py",
+				"$(SRCROOT)/.env",
 			);
 			name = "Generate App Config";
 			outputPaths = (
