@@ -122,9 +122,11 @@ test('room API arbitrates PUSH, validates answers, scores, and protects sessions
       const step = await call(`/rooms/${id}/choose`, { playerId: 'p1', choice: char }, hostToken);
       assert.equal(step.status, 200);
     }
+    assert.equal((await call(`/rooms/${id}?playerId=p1`, null, hostToken, 'GET')).value.phase, 'answering');
+    await call(`/rooms/${id}/choose`, { playerId: 'p2', choice: 'X' }, guestToken);
     const revealed = (await call(`/rooms/${id}?playerId=p1`, null, hostToken, 'GET')).value;
     assert.equal(revealed.phase, 'reveal');
-    assert.equal(revealed.players.find(p => p.id === 'p1').score, 10);
+    assert.equal(revealed.players.find(p => p.id === 'p1').score, 20);
     assert.equal(revealed.current.title, songs.find(song => song.id === state.current.id).title);
     const next = (await call(`/rooms/${id}/next`, { playerId: 'p1' }, hostToken)).value;
     assert.equal(next.phase, 'preparing');
@@ -142,7 +144,7 @@ test('room API arbitrates PUSH, validates answers, scores, and protects sessions
     const answer2 = normalize(songs.find(song => song.id === second.value.current.id).title);
     for (const char of answer2) await call(`/rooms/${id}/choose`, { playerId: 'p2', choice: char }, guestToken);
     const final = (await call(`/rooms/${id}?playerId=p2`, null, guestToken, 'GET')).value;
-    assert.equal(final.players.find(p => p.id === 'p2').score, 10);
+    assert.equal(final.players.find(p => p.id === 'p2').score, 20);
     assert.equal((await call(`/rooms/${id}/next`, { playerId: 'p1' }, hostToken)).value.phase, 'finished');
   } finally {
     Date.now = realNow;
@@ -190,7 +192,78 @@ test('normal mode admits two parallel answers and reveals progress only after sl
   } finally { Date.now = realNow; }
 });
 
-test('normal mode leaves unused slots open after a wrong answer and ends at 30 seconds', () => {
+test('normal mode keeps accepting PUSH after an early correct answer and ranks both correct players', () => {
+  const realNow = Date.now;
+  let now = realNow();
+  Date.now = () => now;
+  try {
+    const { action, state } = startedThreePlayerRoom(false);
+    now += 6000;
+    action('push', 'relayA');
+    action('choose', 'relayA', { choice: '花' });
+    action('choose', 'relayA', { choice: '火' });
+    const stillOpen = state('relayB');
+    assert.equal(stillOpen.phase, 'listening');
+    assert.equal(stillOpen.pushClosed, false);
+    assert.equal(stillOpen.current.title, undefined);
+    assert.equal(stillOpen.correctPlayerIDs.length, 0);
+    assert.equal(stillOpen.players.find(p => p.id === 'relayA').score, 0);
+    assert.equal(state('relayA').answerStatus, 'correct');
+    assert.equal(action('push', 'relayB').status, 200);
+    assert.equal(state('relayC').phase, 'answering');
+    assert.equal(state('relayC').pushClosed, true);
+    assert.equal(state('relayC').correctPlayerIDs.length, 0);
+    action('choose', 'relayB', { choice: '花' });
+    action('choose', 'relayB', { choice: '火' });
+    const revealed = state('relayC');
+    assert.equal(revealed.phase, 'reveal');
+    assert.deepEqual(revealed.correctPlayerIDs, ['relayA', 'relayB']);
+    assert.equal(revealed.players.find(p => p.id === 'relayA').score, 20);
+    assert.equal(revealed.players.find(p => p.id === 'relayB').score, 10);
+  } finally { Date.now = realNow; }
+});
+
+test('normal mode ranks correct answers by PUSH order even when completion order differs', () => {
+  const realNow = Date.now;
+  let now = realNow();
+  Date.now = () => now;
+  try {
+    const { action, state } = startedThreePlayerRoom(false);
+    now += 6000;
+    action('push', 'relayA');
+    action('push', 'relayB');
+    action('choose', 'relayB', { choice: '花' });
+    action('choose', 'relayB', { choice: '火' });
+    assert.equal(state('relayC').phase, 'answering');
+    assert.equal(state('relayC').activeAnswers.length, 1);
+    action('choose', 'relayA', { choice: '花' });
+    action('choose', 'relayA', { choice: '火' });
+    assert.deepEqual(state('relayC').correctPlayerIDs, ['relayA', 'relayB']);
+    assert.equal(state('relayC').players.find(p => p.id === 'relayA').score, 20);
+    assert.equal(state('relayC').players.find(p => p.id === 'relayB').score, 10);
+  } finally { Date.now = realNow; }
+});
+
+test('normal mode closes PUSH when no eligible player remains, even with unused slots', () => {
+  const realNow = Date.now;
+  let now = realNow();
+  Date.now = () => now;
+  try {
+    const { action, state } = startedThreePlayerRoom(false, { answerSlots: 4 });
+    now += 6000;
+    for (const id of ['relayA', 'relayB', 'relayC']) action('push', id);
+    assert.equal(state('relayA').pushClosed, true);
+    assert.equal(state('relayA').phase, 'answering');
+    action('choose', 'relayA', { choice: '花' });
+    action('choose', 'relayA', { choice: '火' });
+    assert.equal(state('relayA').phase, 'answering');
+    action('choose', 'relayB', { choice: 'X' });
+    action('choose', 'relayC', { choice: 'X' });
+    assert.equal(state('relayA').phase, 'reveal');
+  } finally { Date.now = realNow; }
+});
+
+test('normal mode lets active answers finish after the 30-second PUSH deadline', () => {
   const realNow = Date.now;
   let now = realNow();
   Date.now = () => now;
@@ -202,9 +275,19 @@ test('normal mode leaves unused slots open after a wrong answer and ends at 30 s
     assert.equal(state('relayC').phase, 'listening');
     assert.equal(state('relayC').pushedIds.length, 1);
     assert.equal(action('push', 'relayA').status, 409);
+    now += 28_000;
     assert.equal(action('push', 'relayB').status, 200);
-    now += 30_000;
+    now += 1000;
+    const closed = state('relayC');
+    assert.equal(closed.phase, 'answering');
+    assert.equal(closed.pushClosed, true);
+    assert.ok(closed.audioStoppedAt);
+    assert.equal(action('push', 'relayC').status, 409);
+    action('choose', 'relayB', { choice: '花' });
+    now += 3000;
+    action('choose', 'relayB', { choice: '火' });
     assert.equal(state('relayC').phase, 'reveal');
+    assert.equal(state('relayC').correctPlayerID, 'relayB');
   } finally { Date.now = realNow; }
 });
 

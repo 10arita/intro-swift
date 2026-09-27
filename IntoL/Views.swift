@@ -1264,7 +1264,7 @@ struct RoomGameView: View {
                                     Task { await model.roomAction("choose", payload: ["choice": choice]) }
                                 }
                             } else if room.phase == "answering" &&
-                                        (room.settings.endless || room.pushedIds.count >= room.settings.answerSlots) {
+                                        (room.settings.endless || room.pushClosed) {
                                 watchingStage(room)
                             } else {
                                 listeningStage(room)
@@ -1273,12 +1273,19 @@ struct RoomGameView: View {
                             players(room)
                         } else if room.phase == "reveal" {
                             if let song = room.current?.song {
-                                RevealCard(song: song, correct: room.correctPlayerID == model.rooms.playerId,
+                                RevealCard(song: song, correct: room.correctPlayerIDs.contains(model.rooms.playerId),
                                            saved: model.reviews.contains { $0.id == song.id }) { model.saveReview(song) }
                             }
-                            if let winner = room.player(room.correctPlayerID ?? "") {
-                                Text("\(winner.name) が正解")
-                                    .font(.headline).foregroundStyle(Studio.accent)
+                            if room.correctPlayerIDs.isEmpty {
+                                Text("正解者なし")
+                                    .font(.headline).foregroundStyle(Studio.secondary)
+                            } else {
+                                ForEach(room.correctPlayerIDs.indices, id: \.self) { index in
+                                    if let player = room.player(room.correctPlayerIDs[index]) {
+                                        Text("\(index + 1)位 \(player.name) が正解")
+                                            .font(.headline).foregroundStyle(Studio.accent)
+                                    }
+                                }
                             }
                             players(room)
                             if room.hostId == model.rooms.playerId {
@@ -1341,6 +1348,9 @@ struct RoomGameView: View {
                 }
                 if room.player(model.rooms.playerId)?.disqualified == true {
                     Text("今回は観戦中です").foregroundStyle(Studio.secondary)
+                } else if room.answerStatus == "correct" {
+                    Text("正解入力済みです。受付終了を待っています")
+                        .foregroundStyle(Studio.accent)
                 } else if room.pushedIds.contains(model.rooms.playerId) {
                     Text("この曲は解答済みです（再PUSH不可）").foregroundStyle(Studio.secondary)
                 } else if room.canPush(model.rooms.playerId) {
@@ -1360,6 +1370,12 @@ struct RoomGameView: View {
                 Text("曲と出題タイマーは停止中")
                     .foregroundStyle(Studio.secondary)
                 CountdownBar(remaining: model.roomSecondsLeft, total: 30)
+            } else if room.audioStoppedAt != nil {
+                Text("30秒経過・曲は停止中。回答完了を待っています")
+                    .foregroundStyle(Studio.secondary)
+            } else {
+                Text("PUSH受付終了。回答完了を待っています")
+                    .foregroundStyle(Studio.secondary)
             }
             ForEach(room.activeAnswers) { answer in
                 StudioCard {

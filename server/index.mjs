@@ -20,6 +20,9 @@ if (DATA_FILE && existsSync(DATA_FILE)) {
         deadline: room.answerDeadline, options: room.options || [], status: 'active' }] : [];
       room.pausedAt ||= null;
       room.pausedPositionMS ||= null;
+      room.pushClosed ||= false;
+      room.audioStoppedAt ||= null;
+      room.correctPlayerIDs ||= room.correctPlayerID ? [room.correctPlayerID] : [];
       rooms.set(room.id, room);
     }
     for (const profile of saved.profiles || []) profiles.set(profile.id, profile);
@@ -139,8 +142,28 @@ function publicPlayer(player, room) {
 }
 function currentSong(room) { return room.songs[room.round]; }
 function reveal(room) {
+  if (room.phase === 'reveal') return;
+  const correct = new Set(room.correctPlayerIDs);
+  room.correctPlayerIDs = [...room.pushed].filter(id => correct.has(id));
+  room.correctPlayerID = room.correctPlayerIDs[0] ?? null;
+  room.correctPlayerIDs.forEach((id, index) => {
+    const player = room.players.find(item => item.id === id);
+    if (player) player.score += room.settings.correctPoints + (index === 0 ? room.settings.firstBonus : 0);
+  });
+  room.pushClosed = true;
   room.phase = 'reveal'; room.pausedAt = null; room.pausedPositionMS = null;
   room.revealAt = Date.now();
+}
+function settleNormal(room, now = Date.now()) {
+  if (now >= room.roundDeadline) {
+    room.pushClosed = true;
+    room.audioStoppedAt ??= now;
+  }
+  const eligible = room.players.some(player => !player.disqualified && !room.pushed.has(player.id) && now - player.lastSeen < GRACE);
+  if (room.pushed.size >= room.settings.answerSlots || !eligible) room.pushClosed = true;
+  const active = room.answers.some(answer => answer.status === 'active');
+  if (room.pushClosed && !active) reveal(room);
+  else room.phase = active ? 'answering' : 'listening';
 }
 function beginRound(room) {
   if (room.round + 1 >= room.songs.length || room.settings.targetScore > 0 && room.players.some(p => p.score >= room.settings.targetScore) || room.players.every(p => p.disqualified)) {
@@ -155,9 +178,12 @@ function beginRound(room) {
   room.answers = [];
   room.pausedAt = null;
   room.pausedPositionMS = null;
+  room.pushClosed = false;
+  room.audioStoppedAt = null;
   room.pushed = new Set();
   room.skipped = new Set();
   room.correctPlayerID = null;
+  room.correctPlayerIDs = [];
   room.firstWrongDone = false;
 }
 function wrong(room, player, answer) {
@@ -177,9 +203,13 @@ function wrong(room, player, answer) {
     room.pausedAt = null;
     room.pausedPositionMS = null;
   }
+  if (!s.endless) {
+    settleNormal(room);
+    return;
+  }
   const active = room.answers.some(item => item.status === 'active');
   const eligible = room.players.some(p => !p.disqualified && !room.pushed.has(p.id) && Date.now() - p.lastSeen < GRACE);
-  if (!active && ((!s.endless && room.pushed.size >= s.answerSlots) || !eligible || Date.now() >= room.roundDeadline)) reveal(room);
+  if (!active && (!eligible || Date.now() >= room.roundDeadline)) reveal(room);
   else room.phase = active ? 'answering' : 'listening';
 }
 function refresh(room) {
@@ -197,11 +227,20 @@ function refresh(room) {
     }
   }
   if (room.phase === 'countdown' && now >= room.startAt) room.phase = 'listening';
-  if (['listening', 'answering'].includes(room.phase) && room.pausedAt == null && now >= room.roundDeadline) reveal(room);
+  if (['listening', 'answering'].includes(room.phase)) {
+    if (room.settings.endless) {
+      if (room.pausedAt == null && now >= room.roundDeadline) reveal(room);
+    } else settleNormal(room, now);
+  }
   if (room.phase === 'answering') {
     for (const answer of room.answers.filter(item => item.status === 'active' && now >= item.deadline)) {
       const player = room.players.find(p => p.id === answer.playerId);
-      if (player) wrong(room, player, answer); else reveal(room);
+      if (player) wrong(room, player, answer);
+      else {
+        answer.status = 'wrong';
+        if (room.settings.endless) reveal(room);
+        else settleNormal(room, now);
+      }
     }
   }
 }
@@ -209,8 +248,9 @@ function snapshot(room, playerId) {
   refresh(room);
   const song = room.round >= 0 ? currentSong(room) : null;
   const disclosed = room.phase === 'reveal' || room.phase === 'finished';
-  const ownAnswer = room.answers.find(answer => answer.playerId === playerId && answer.status === 'active');
-  const watching = room.settings.endless || room.pushed.size >= room.settings.answerSlots ||
+  const ownAttempt = room.answers.find(answer => answer.playerId === playerId);
+  const ownAnswer = ownAttempt?.status === 'active' ? ownAttempt : null;
+  const watching = room.settings.endless || room.pushClosed ||
     room.pushed.has(playerId) || room.players.find(player => player.id === playerId)?.disqualified;
   return {
     id: room.id, mode: room.mode, hostId: room.hostId, phase: room.phase, round: room.round,
@@ -218,14 +258,17 @@ function snapshot(room, playerId) {
     settings: room.settings, players: room.players.map(p => publicPlayer(p, room)),
     serverNow: Date.now(), startAt: room.startAt, roundDeadline: room.roundDeadline,
     pausedAt: room.pausedAt, pausedPositionMS: room.pausedPositionMS,
+    pushClosed: room.pushClosed, audioStoppedAt: room.audioStoppedAt,
     answerDeadline: ownAnswer?.deadline ?? null,
-    answerProgress: ownAnswer?.progress ?? '', options: ownAnswer?.options ?? [],
+    answerProgress: ownAnswer?.progress ?? '', answerStatus: ownAttempt?.status ?? null,
+    options: ownAnswer?.options ?? [],
     activeAnswers: room.answers.filter(answer => answer.status === 'active').map(answer => ({
       playerId: answer.playerId, progress: watching ? answer.progress : '' })),
     pushedIds: [...room.pushed], skippedIds: [...room.skipped], readyIds: [...room.readyIds],
     assetsReadyIds: [...(room.assetsReadyIds || [])],
     preload: room.phase === 'lobby' ? room.songs.map(({ id, artworkURL, previewURL }) => ({ id, artworkURL, previewURL })) : [],
-    correctPlayerID: room.correctPlayerID,
+    correctPlayerID: disclosed ? room.correctPlayerID : null,
+    correctPlayerIDs: disclosed ? room.correctPlayerIDs : [],
     current: song ? {
       id: song.id, previewURL: song.previewURL,
       ...(disclosed ? { title: song.title, artist: song.artist, artworkURL: song.artworkURL,
@@ -291,7 +334,8 @@ export function handle(method, path, body, query, authorization, origin = 'https
       hostId: String(body.playerId), players: [{ id: String(body.playerId), secret: randomUUID(), name: String(body.name).trim().slice(0, 24),
         badge: String(body.badge || '').slice(0, 24), score: 0, lives: s.lives, disqualified: false, joinedAt: Date.now(), lastSeen: Date.now() }],
       pushed: new Set(), skipped: new Set(), readyIds: new Set(), assetsReadyIds: new Set(), startAt: null, roundDeadline: null,
-      pausedAt: null, pausedPositionMS: null, answers: [], correctPlayerID: null, firstWrongDone: false };
+      pausedAt: null, pausedPositionMS: null, pushClosed: false, audioStoppedAt: null,
+      answers: [], correctPlayerID: null, correctPlayerIDs: [], firstWrongDone: false };
     rooms.set(id, room);
     return { status: 201, body: { ...snapshot(room, String(body.playerId)), sessionToken: room.players[0].secret } };
   }
@@ -339,7 +383,7 @@ export function handle(method, path, body, query, authorization, origin = 'https
   } else if (action === 'push') {
     if (!['listening', 'answering'].includes(room.phase) || player.disqualified || room.pushed.has(playerId) ||
         room.settings.endless && room.phase === 'answering' ||
-        !room.settings.endless && room.pushed.size >= room.settings.answerSlots) return fail(409, '解答権を取得できません');
+        !room.settings.endless && room.pushClosed) return fail(409, '解答権を取得できません');
     room.pushed.add(playerId); room.skipped.delete(playerId);
     room.answers.push({ playerId, progress: '', letterIndex: 0, deadline: Date.now() + 5000,
       options: choices([...normalize(currentSong(room).title)][0], '', room.corpus || room.songs.map(s => s.title), currentSong(room).artistTopTitles || []),
@@ -349,6 +393,7 @@ export function handle(method, path, body, query, authorization, origin = 'https
       room.pausedPositionMS = Math.max(0, room.pausedAt - room.startAt);
     }
     room.phase = 'answering';
+    if (!room.settings.endless) settleNormal(room);
   } else if (action === 'choose') {
     const attempt = room.answers.find(answer => answer.playerId === playerId && answer.status === 'active');
     if (room.phase !== 'answering' || !attempt) return fail(409, '解答権がありません');
@@ -359,8 +404,11 @@ export function handle(method, path, body, query, authorization, origin = 'https
       else {
         attempt.progress += answer[attempt.letterIndex]; attempt.letterIndex++;
         if (attempt.letterIndex === answer.length) {
-          player.score += room.settings.correctPoints + (room.pushed.size === 1 ? room.settings.firstBonus : 0);
-          room.correctPlayerID = playerId; reveal(room);
+          attempt.status = 'correct';
+          attempt.options = [];
+          room.correctPlayerIDs.push(playerId);
+          if (room.settings.endless) reveal(room);
+          else settleNormal(room);
         } else {
           attempt.options = choices(answer[attempt.letterIndex], attempt.progress, room.corpus || room.songs.map(s => s.title));
           attempt.deadline = Date.now() + 5000;
@@ -370,7 +418,10 @@ export function handle(method, path, body, query, authorization, origin = 'https
   } else if (action === 'skip') {
     if (!['listening','answering'].includes(room.phase) || player.disqualified) return fail(409, '今はスキップできません');
     room.skipped.add(playerId);
-    if (room.players.filter(p => !p.disqualified && Date.now() - p.lastSeen < GRACE).every(p => room.skipped.has(p.id))) reveal(room);
+    if (room.players.filter(p => !p.disqualified && Date.now() - p.lastSeen < GRACE).every(p => room.skipped.has(p.id))) {
+      if (room.settings.endless) reveal(room);
+      else { room.pushClosed = true; settleNormal(room); }
+    }
   } else if (action === 'next') {
     if (room.hostId !== playerId || room.phase !== 'reveal') return fail(403, 'ホストのみ進められます');
     beginRound(room);

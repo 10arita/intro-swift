@@ -64,8 +64,11 @@ struct RoomState: Decodable, Identifiable {
     let roundDeadline: Double?
     let pausedAt: Double?
     let pausedPositionMS: Double?
+    let pushClosed: Bool
+    let audioStoppedAt: Double?
     let answerDeadline: Double?
     let answerProgress: String
+    let answerStatus: String?
     let options: [String]
     let activeAnswers: [RoomActiveAnswer]
     let pushedIds: [String]
@@ -74,6 +77,7 @@ struct RoomState: Decodable, Identifiable {
     let assetsReadyIds: [String]?
     let preload: [GameAsset]?
     let correctPlayerID: String?
+    let correctPlayerIDs: [String]
     let current: RoomCurrent?
     let sessionToken: String?
 
@@ -82,7 +86,7 @@ struct RoomState: Decodable, Identifiable {
     func canPush(_ id: String) -> Bool {
         guard ["listening", "answering"].contains(phase), player(id)?.disqualified == false,
               !pushedIds.contains(id) else { return false }
-        return settings.endless ? activeAnswers.isEmpty : pushedIds.count < settings.answerSlots
+        return settings.endless ? activeAnswers.isEmpty : !pushClosed
     }
 }
 
