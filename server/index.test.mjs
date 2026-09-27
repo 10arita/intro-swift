@@ -134,6 +134,8 @@ test('room API arbitrates PUSH, validates answers, scores, and protects sessions
     assert.equal(revealed.players.find(p => p.id === 'p1').score, 20);
     assert.equal(revealed.players.find(p => p.id === 'p1').correctCount, 1);
     assert.equal(revealed.players.find(p => p.id === 'p2').wrongCount, 1);
+    assert.deepEqual(revealed.players.find(p => p.id === 'p1').roundResults, ['correct']);
+    assert.deepEqual(revealed.players.find(p => p.id === 'p2').roundResults, ['wrong']);
     assert.equal(revealed.current.title, songs.find(song => song.id === state.current.id).title);
     const next = (await call(`/rooms/${id}/next`, { playerId: 'p1' }, hostToken)).value;
     assert.equal(next.phase, 'preparing');
@@ -156,6 +158,8 @@ test('room API arbitrates PUSH, validates answers, scores, and protects sessions
     const final = (await call(`/rooms/${id}?playerId=p2`, null, guestToken, 'GET')).value;
     assert.equal(final.players.find(p => p.id === 'p2').score, 20);
     assert.equal(final.players.find(p => p.id === 'p2').correctCount, 1);
+    assert.deepEqual(final.players.find(p => p.id === 'p1').roundResults, ['correct', 'wrong']);
+    assert.deepEqual(final.players.find(p => p.id === 'p2').roundResults, ['wrong', 'correct']);
     assert.equal((await call(`/rooms/${id}/next`, { playerId: 'p1' }, hostToken)).value.phase, 'finished');
   } finally {
     Date.now = realNow;
@@ -178,6 +182,30 @@ function startedThreePlayerRoom(endless, settings = {}) {
   for (const id of Object.keys(tokens)) action('ready', id);
   return { action, state };
 }
+
+test('a rejected simultaneous PUSH keeps the losing player in the room', () => {
+  const realNow = Date.now;
+  let now = realNow();
+  Date.now = () => now;
+  try {
+    const { action, state } = startedThreePlayerRoom(true);
+    now += 6000;
+    assert.equal(action('push', 'relayA').status, 200);
+    const rejected = action('push', 'relayB');
+    assert.equal(rejected.status, 409);
+    assert.equal(rejected.body.state.players.length, 3);
+    assert.deepEqual(rejected.body.state.options, []);
+    const loser = state('relayB');
+    assert.equal(loser.players.length, 3);
+    assert.ok(loser.players.some(player => player.id === 'relayB'));
+    assert.equal(loser.answerStatus, null);
+    action('choose', 'relayA', { choice: '花' });
+    action('choose', 'relayA', { choice: '火' });
+    const revealed = state('relayB');
+    assert.deepEqual(revealed.players.find(player => player.id === 'relayA').roundResults, ['correct']);
+    assert.deepEqual(revealed.players.find(player => player.id === 'relayB').roundResults, [null]);
+  } finally { Date.now = realNow; }
+});
 
 test('normal mode admits two parallel answers and reveals progress only after slots fill', () => {
   const realNow = Date.now;

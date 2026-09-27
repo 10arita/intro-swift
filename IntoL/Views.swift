@@ -22,8 +22,8 @@ struct RootView: View {
         .fullScreenCover(isPresented: Binding(get: { model.game != nil }, set: { if !$0 { model.closeGame() } })) {
             SoloGameView()
         }
-        .fullScreenCover(isPresented: Binding(get: { model.room != nil }, set: { if !$0 { Task { await model.leaveRoom() } } })) {
-            RoomGameView()
+        .fullScreenCover(isPresented: Binding(get: { model.room != nil }, set: { _ in })) {
+            RoomGameView().interactiveDismissDisabled()
         }
         .alert("IntoL", isPresented: Binding(get: { model.alert != nil }, set: { if !$0 { model.alert = nil } })) {
             Button("OK", role: .cancel) { model.alert = nil }
@@ -1303,6 +1303,15 @@ struct RoomGameView: View {
                             if let error = model.roomError {
                                 Text(error).font(.caption).foregroundStyle(Studio.warning)
                             }
+                            if let notice = model.roomNotice {
+                                Text(notice)
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(Studio.primary)
+                                    .multilineTextAlignment(.center)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background(Studio.raised, in: RoundedRectangle(cornerRadius: 10))
+                            }
                         }
                         .padding(.horizontal, 20)
                         .padding(.bottom, compact ? 8 : 16)
@@ -1348,6 +1357,10 @@ struct RoomGameView: View {
                         .foregroundStyle(Studio.accent)
                 } else if room.pushedIds.contains(model.rooms.playerId) {
                     Text("この曲は解答済みです（再PUSH不可）").foregroundStyle(Studio.secondary)
+                } else if model.roomPushPending {
+                    ProgressView("PUSHを判定中…")
+                        .tint(Studio.accent)
+                        .font(.subheadline.weight(.semibold))
                 } else if room.canPush(model.rooms.playerId) {
                     PushButton(action: { Task { await model.roomAction("push") } }, size: compact ? 142 : 180)
                 }
@@ -1518,15 +1531,14 @@ struct RoomGameView: View {
                             .font(.caption2)
                             .foregroundStyle(player.disqualified ? Studio.warning : Studio.secondary)
                     }
-                    HStack(spacing: 8) {
-                        Text("○\(player.correctCount ?? 0)")
-                            .foregroundStyle(Studio.accent)
-                        Text("×\(player.wrongCount ?? 0)")
+                    HStack {
+                        Text("問題別")
                             .foregroundStyle(Studio.secondary)
                         Spacer(minLength: 0)
                         Text("\(player.score) pt")
-                            .fontWeight(.bold)
+                            .font(.caption.weight(.bold))
                     }
+                    roundMarks(player.roundResults ?? [])
                     HStack(spacing: 4) {
                         Text("Skip \(room.skippedIds.contains(player.id) ? "あり" : "なし")")
                             .lineLimit(1)
@@ -1554,6 +1566,39 @@ struct RoomGameView: View {
     private func pushTime(_ player: RoomPlayer) -> String {
         guard let milliseconds = player.pushTimeMS else { return "—" }
         return String(format: "%.1f秒", milliseconds / 1000)
+    }
+
+    private func roundMarks(_ results: [String?]) -> some View {
+        Group {
+            if results.isEmpty {
+                Text("結果待ち")
+                    .font(.caption)
+                    .foregroundStyle(Studio.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 5) {
+                            ForEach(results.indices, id: \.self) { index in
+                                let result = results[index]
+                                Text(result == "correct" ? "○" : result == "wrong" ? "×" : "−")
+                                    .font(.system(size: 30, weight: .bold, design: .rounded))
+                                    .foregroundStyle(result == "correct" ? Studio.accent :
+                                                     result == "wrong" ? Studio.warning : Studio.secondary)
+                                    .frame(minWidth: 28)
+                                    .id(index)
+                                    .accessibilityLabel("第\(index + 1)問、\(result == "correct" ? "正解" : result == "wrong" ? "不正解" : "未回答")")
+                            }
+                        }
+                    }
+                    .onAppear { proxy.scrollTo(results.count - 1, anchor: .trailing) }
+                    .onChange(of: results.count) { _, count in
+                        if count > 0 { proxy.scrollTo(count - 1, anchor: .trailing) }
+                    }
+                }
+            }
+        }
+        .frame(height: 38)
     }
 
 }

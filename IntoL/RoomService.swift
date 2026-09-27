@@ -18,6 +18,7 @@ struct RoomPlayer: Decodable, Identifiable {
     let score: Int
     let correctCount: Int?
     let wrongCount: Int?
+    let roundResults: [String?]?
     let pushTimeMS: Double?
     let lives: Int
     let disqualified: Bool
@@ -98,7 +99,14 @@ private struct RoomCatalog: Decodable { let songs: [Song] }
 private struct ItunesMatch: Decodable { let song: Song? }
 private struct CorpusResponse: Decodable { let titles: [String] }
 private struct ChorusResponse: Decodable { let positionMS: Int }
+private struct RoomFailure: Decodable { let error: String; let state: RoomState? }
 enum RoomStreamError: Error { case unsupported }
+struct RoomHTTPError: LocalizedError {
+    let status: Int
+    let message: String
+    let state: RoomState?
+    var errorDescription: String? { message }
+}
 struct SavedProfile: Decodable {
     let reviews: [ReviewSong]
     let history: [SoloResult]
@@ -162,8 +170,9 @@ struct SavedProfile: Decodable {
         let receivedAt = Date.now.timeIntervalSince1970 * 1000
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         if !(200...299).contains(status) {
-            let message = (try? JSONSerialization.jsonObject(with: data) as? [String: String])?["error"] ?? "ルームに接続できません (\(status))"
-            throw AppError.message(message)
+            let failure = try? JSONDecoder().decode(RoomFailure.self, from: data)
+            throw RoomHTTPError(status: status, message: failure?.error ?? "ルームに接続できません (\(status))",
+                                state: failure?.state)
         }
         let state = try JSONDecoder().decode(RoomState.self, from: data)
         sampleClock(state, sentAt: sentAt, receivedAt: receivedAt)

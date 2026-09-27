@@ -54,6 +54,8 @@ struct SoloGame {
     @Published var roomOptions: [String] = []
     @Published var roomSecondsLeft = 30.0
     @Published var roomError: String?
+    @Published var roomNotice: String?
+    @Published var roomPushPending = false
     @Published var roomPreparationStatus: String?
     @Published var roomAudioStarting = false
     @Published private(set) var roomAudioStarted = false
@@ -89,6 +91,7 @@ struct SoloGame {
     private var soloRoundTask: Task<Void, Never>?
     private var soloRoundToken = 0
     private var roomSyncTask: Task<Void, Never>?
+    private var roomNoticeTask: Task<Void, Never>?
     private var roomTicker: Task<Void, Never>?
     private var scheduledRoomAudio: Task<Void, Never>?
     private var lastRoomRound: Int?
@@ -804,6 +807,9 @@ struct SoloGame {
         UserDefaults.standard.set(state.id, forKey: "roomID")
         room = state
         roomError = nil
+        roomNoticeTask?.cancel(); roomNoticeTask = nil
+        roomNotice = nil
+        roomPushPending = false
         preloadedRoomID = nil
         roomPreloadTask?.cancel()
         roomSyncTask?.cancel()
@@ -858,6 +864,11 @@ struct SoloGame {
     private func receiveRoom(_ state: RoomState) {
         let old = room
         room = state
+        if roomPushPending, old?.round == state.round,
+           !state.pushedIds.contains(rooms.playerId), !state.canPush(rooms.playerId) {
+            showRoomNotice("解答権は取れませんでした。ルームには残っています")
+        }
+        if old?.round != state.round { roomNotice = nil }
         if state.phase == "lobby", preloadedRoomID != state.id,
            !(state.assetsReadyIds ?? []).contains(rooms.playerId) {
             preloadedRoomID = state.id
@@ -1053,9 +1064,38 @@ struct SoloGame {
 
     func roomAction(_ action: String, payload: [String: Any] = [:]) async {
         guard let roomID else { return }
-        if action == "push" { playPushCue(); UIImpactFeedbackGenerator(style: .medium).impactOccurred() }
-        do { receiveNetworkRoom(try await rooms.action(action, id: roomID, payload: payload)) }
-        catch { alert = error.localizedDescription }
+        if action == "push" {
+            guard !roomPushPending, room?.canPush(rooms.playerId) == true else { return }
+            roomPushPending = true
+            playPushCue()
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        }
+        defer { if action == "push" { roomPushPending = false } }
+        do {
+            let state = try await rooms.action(action, id: roomID, payload: payload)
+            guard self.roomID == roomID else { return }
+            roomNotice = nil
+            receiveNetworkRoom(state)
+        } catch {
+            guard self.roomID == roomID else { return }
+            if action == "push", let failure = error as? RoomHTTPError, failure.status == 409 {
+                if let state = failure.state { receiveNetworkRoom(state) }
+                else if let state = try? await rooms.state(roomID), self.roomID == roomID { receiveNetworkRoom(state) }
+                showRoomNotice("解答権は取れませんでした。ルームには残っています")
+            } else {
+                showRoomNotice(error.localizedDescription)
+            }
+        }
+    }
+
+    private func showRoomNotice(_ message: String) {
+        roomNotice = message
+        roomNoticeTask?.cancel()
+        roomNoticeTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            self?.roomNotice = nil
+        }
     }
 
     func retryRoomPreload() {
@@ -1087,6 +1127,8 @@ struct SoloGame {
     }
 
     func leaveRoom() async {
+        roomNoticeTask?.cancel(); roomNoticeTask = nil
+        roomNotice = nil; roomPushPending = false
         roomPreloadTask?.cancel(); roomPreloadTask = nil
         preloadedRoomID = nil; roomPreparationStatus = nil
         roomSyncTask?.cancel(); roomSyncTask = nil

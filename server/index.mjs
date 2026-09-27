@@ -143,6 +143,7 @@ function publicPlayer(player, room) {
   const attempt = room.answers.find(answer => answer.playerId === player.id);
   return { id: player.id, name: player.name, score: player.score, lives: player.lives,
     correctCount: player.correctCount ?? 0, wrongCount: player.wrongCount ?? 0,
+    roundResults: player.roundResults || [],
     pushTimeMS: attempt?.pushTimeMS ?? null,
     disqualified: player.disqualified, connected: Date.now() - player.lastSeen < GRACE,
     isHost: player.id === room.hostId, joinedAt: player.joinedAt, badge: player.badge || null };
@@ -153,6 +154,11 @@ function reveal(room) {
   const correct = new Set(room.correctPlayerIDs);
   room.correctPlayerIDs = [...room.pushed].filter(id => correct.has(id));
   room.correctPlayerID = room.correctPlayerIDs[0] ?? null;
+  for (const player of room.players) {
+    player.roundResults ||= [];
+    player.roundResults[room.round] = correct.has(player.id) ? 'correct' :
+      room.answers.some(answer => answer.playerId === player.id && answer.status === 'wrong') ? 'wrong' : null;
+  }
   room.correctPlayerIDs.forEach((id, index) => {
     const player = room.players.find(item => item.id === id);
     if (player) {
@@ -346,7 +352,7 @@ export function handle(method, path, body, query, authorization, origin = 'https
     const room = { id, mode, settings: s, songs: shuffled(songs).slice(0, s.questionCount), corpus: [...new Set([...songs.map(song => song.title), ...seedTitles, ...(Array.isArray(body.corpus) ? body.corpus.filter(s => typeof s === 'string').slice(0, 500) : [])])], phase: 'lobby', round: -1,
       hostId: String(body.playerId), players: [{ id: String(body.playerId), secret: randomUUID(), name: String(body.name).trim().slice(0, 24),
         badge: String(body.badge || '').slice(0, 24), score: 0, correctCount: 0, wrongCount: 0,
-        lives: s.lives, disqualified: false, joinedAt: Date.now(), lastSeen: Date.now() }],
+        roundResults: [], lives: s.lives, disqualified: false, joinedAt: Date.now(), lastSeen: Date.now() }],
       pushed: new Set(), skipped: new Set(), readyIds: new Set(), assetsReadyIds: new Set(), startAt: null, roundDeadline: null,
       pausedAt: null, pausedPositionMS: null, pushClosed: false, audioStoppedAt: null,
       answers: [], correctPlayerID: null, correctPlayerIDs: [], firstWrongDone: false };
@@ -368,7 +374,7 @@ export function handle(method, path, body, query, authorization, origin = 'https
       if (!/^[A-Za-z0-9-]{1,64}$/.test(playerId)) return fail(400, 'プレイヤー情報が無効です');
       player = { id: playerId, secret: randomUUID(), name: String(body.name || 'プレイヤー').trim().slice(0, 24),
         badge: String(body.badge || '').slice(0, 24), score: 0, correctCount: 0, wrongCount: 0,
-        lives: room.settings.lives, disqualified: false, joinedAt: Date.now(), lastSeen: Date.now() };
+        roundResults: [], lives: room.settings.lives, disqualified: false, joinedAt: Date.now(), lastSeen: Date.now() };
       room.players.push(player);
       newlyJoined = true;
     }
@@ -397,7 +403,9 @@ export function handle(method, path, body, query, authorization, origin = 'https
   } else if (action === 'push') {
     if (!['listening', 'answering'].includes(room.phase) || player.disqualified || room.pushed.has(playerId) ||
         room.settings.endless && room.phase === 'answering' ||
-        !room.settings.endless && room.pushClosed) return fail(409, '解答権を取得できません');
+        !room.settings.endless && room.pushClosed) {
+      return { status: 409, body: { error: '解答権を取得できません', state: snapshot(room, playerId) } };
+    }
     const pushedAt = Date.now();
     room.pushed.add(playerId); room.skipped.delete(playerId);
     room.answers.push({ playerId, progress: '', letterIndex: 0, deadline: pushedAt + 5000,
@@ -461,8 +469,8 @@ function send(response, status, body) {
 function roomSignature(room) {
   return JSON.stringify({
     phase: room.phase, round: room.round, hostId: room.hostId,
-    players: room.players.map(({ id, score, lives, disqualified, correctCount, wrongCount }) =>
-      [id, score, lives, disqualified, correctCount, wrongCount]),
+    players: room.players.map(({ id, score, lives, disqualified, correctCount, wrongCount, roundResults }) =>
+      [id, score, lives, disqualified, correctCount, wrongCount, roundResults]),
     ready: [...room.readyIds], assetsReady: [...room.assetsReadyIds],
     pushed: [...room.pushed], skipped: [...room.skipped],
     answers: room.answers.map(({ playerId, progress, deadline, options, status }) =>
