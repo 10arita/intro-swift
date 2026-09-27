@@ -1,77 +1,364 @@
 // !$*UTF8*$!
 {
-    archiveVersion = 1;
-    classes = {};
-    objectVersion = 56;
-    objects = {
-        A00000000000000000000001 = {isa = PBXBuildFile; fileRef = B00000000000000000000001; };
-        A00000000000000000000002 = {isa = PBXBuildFile; fileRef = B00000000000000000000002; };
-        A00000000000000000000003 = {isa = PBXBuildFile; fileRef = B00000000000000000000003; };
-        A00000000000000000000004 = {isa = PBXBuildFile; fileRef = B00000000000000000000004; };
-        A00000000000000000000005 = {isa = PBXBuildFile; fileRef = B00000000000000000000005; };
-        A00000000000000000000006 = {isa = PBXBuildFile; fileRef = B00000000000000000000006; };
-        A00000000000000000000007 = {isa = PBXBuildFile; fileRef = B00000000000000000000007; };
-        A00000000000000000000008 = {isa = PBXBuildFile; fileRef = B00000000000000000000008; };
-        A00000000000000000000009 = {isa = PBXBuildFile; fileRef = B0000000000000000000000B; };
-        A0000000000000000000000A = {isa = PBXBuildFile; fileRef = B0000000000000000000000C; };
-        A0000000000000000000000B = {isa = PBXBuildFile; fileRef = B0000000000000000000000D; };
-        A0000000000000000000000C = {isa = PBXBuildFile; fileRef = B0000000000000000000000E; };
-        A0000000000000000000000D = {isa = PBXBuildFile; fileRef = B0000000000000000000000F; };
-        A0000000000000000000000E = {isa = PBXBuildFile; fileRef = B00000000000000000000010; };
-        B00000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntoLApp.swift; sourceTree = "<group>"; };
-        B00000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Design.swift; sourceTree = "<group>"; };
-        B00000000000000000000003 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
-        B00000000000000000000004 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services.swift; sourceTree = "<group>"; };
-        B00000000000000000000005 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
-        B00000000000000000000006 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomService.swift; sourceTree = "<group>"; };
-        B00000000000000000000007 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views.swift; sourceTree = "<group>"; };
-        B00000000000000000000008 = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-        B00000000000000000000009 = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-        B0000000000000000000000A = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = IntoL.app; sourceTree = BUILT_PRODUCTS_DIR; };
-        B0000000000000000000000B = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoCatalog.swift; sourceTree = "<group>"; };
-        B0000000000000000000000C = {isa = PBXFileReference; lastKnownFileType = folder; path = Audio; sourceTree = "<group>"; };
-        B0000000000000000000000D = {isa = PBXFileReference; lastKnownFileType = image.png; path = "AppIcon-60@2x.png"; sourceTree = "<group>"; };
-        B0000000000000000000000E = {isa = PBXFileReference; lastKnownFileType = image.png; path = "AppIcon-60@3x.png"; sourceTree = "<group>"; };
-        B0000000000000000000000F = {isa = PBXFileReference; lastKnownFileType = image.png; path = AppIcon.png; sourceTree = "<group>"; };
-        B00000000000000000000010 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicServices.swift; sourceTree = "<group>"; };
-        C00000000000000000000001 = {isa = PBXGroup; children = (C00000000000000000000002, C00000000000000000000003); sourceTree = "<group>"; };
-        C00000000000000000000002 = {isa = PBXGroup; children = (B00000000000000000000001, B00000000000000000000002, B00000000000000000000003, B00000000000000000000004, B00000000000000000000010, B00000000000000000000005, B00000000000000000000006, B00000000000000000000007, B0000000000000000000000B, B0000000000000000000000C, B0000000000000000000000D, B0000000000000000000000E, B0000000000000000000000F, B00000000000000000000008, B00000000000000000000009); path = IntoL; sourceTree = "<group>"; };
-        C00000000000000000000003 = {isa = PBXGroup; children = (B0000000000000000000000A); name = Products; sourceTree = "<group>"; };
-        D00000000000000000000001 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A00000000000000000000001, A00000000000000000000002, A00000000000000000000003, A00000000000000000000004, A0000000000000000000000E, A00000000000000000000005, A00000000000000000000006, A00000000000000000000007, A00000000000000000000009); runOnlyForDeploymentPostprocessing = 0; };
-        D00000000000000000000002 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A0000000000000000000000A, A0000000000000000000000B, A0000000000000000000000C, A0000000000000000000000D); runOnlyForDeploymentPostprocessing = 0; };
-        D00000000000000000000003 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
-        D00000000000000000000004 = {isa = PBXShellScriptBuildPhase; alwaysOutOfDate = 1; buildActionMask = 2147483647; files = (); inputPaths = ("$(SRCROOT)/scripts/generate_app_config.py"); name = "Generate App Config"; outputPaths = ("$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/AppConfig.plist"); runOnlyForDeploymentPostprocessing = 0; shellPath = /bin/sh; shellScript = "/usr/bin/python3 \"$SRCROOT/scripts/generate_app_config.py\" \"$SRCROOT/.env\" \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/AppConfig.plist\"\n"; };
-        E00000000000000000000001 = {
-            isa = PBXNativeTarget;
-            buildConfigurationList = G00000000000000000000002;
-            buildPhases = (D00000000000000000000001, D00000000000000000000003, D00000000000000000000002, D00000000000000000000004);
-            buildRules = ();
-            dependencies = ();
-            name = IntoL;
-            productName = IntoL;
-            productReference = B0000000000000000000000A;
-            productType = "com.apple.product-type.application";
-        };
-        F00000000000000000000001 = {
-            isa = PBXProject;
-            attributes = { BuildIndependentTargetsInParallel = 1; LastUpgradeCheck = 2600; TargetAttributes = { E00000000000000000000001 = { CreatedOnToolsVersion = 26.0; }; }; };
-            buildConfigurationList = G00000000000000000000001;
-            compatibilityVersion = "Xcode 14.0";
-            developmentRegion = ja;
-            hasScannedForEncodings = 0;
-            knownRegions = (ja, en, Base);
-            mainGroup = C00000000000000000000001;
-            productRefGroup = C00000000000000000000003;
-            projectDirPath = "";
-            projectRoot = "";
-            targets = (E00000000000000000000001);
-        };
-        G00000000000000000000001 = {isa = XCConfigurationList; buildConfigurations = (H00000000000000000000001, H00000000000000000000002); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
-        G00000000000000000000002 = {isa = XCConfigurationList; buildConfigurations = (H00000000000000000000003, H00000000000000000000004); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
-        H00000000000000000000001 = {isa = XCBuildConfiguration; buildSettings = { ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; CLANG_ENABLE_OBJC_ARC = YES; CLANG_WARN_DOCUMENTATION_COMMENTS = YES; DEBUG_INFORMATION_FORMAT = dwarf; ENABLE_STRICT_OBJC_MSGSEND = YES; GCC_C_LANGUAGE_STANDARD = gnu17; GCC_OPTIMIZATION_LEVEL = 0; SDKROOT = iphoneos; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; }; name = Debug; };
-        H00000000000000000000002 = {isa = XCBuildConfiguration; buildSettings = { ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; CLANG_ENABLE_OBJC_ARC = YES; CLANG_WARN_DOCUMENTATION_COMMENTS = YES; DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym"; ENABLE_NS_ASSERTIONS = NO; ENABLE_STRICT_OBJC_MSGSEND = YES; GCC_C_LANGUAGE_STANDARD = gnu17; SDKROOT = iphoneos; SWIFT_COMPILATION_MODE = wholemodule; SWIFT_OPTIMIZATION_LEVEL = "-O"; }; name = Release; };
-        H00000000000000000000003 = {isa = XCBuildConfiguration; buildSettings = { ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = IntoL/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 17.0; LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks"); MARKETING_VERSION = 1.0; PRODUCT_BUNDLE_IDENTIFIER = com.example.IntoL; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_STRICT_CONCURRENCY = minimal; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = 1; }; name = Debug; };
-        H00000000000000000000004 = {isa = XCBuildConfiguration; buildSettings = { ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = IntoL/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 17.0; LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks"); MARKETING_VERSION = 1.0; PRODUCT_BUNDLE_IDENTIFIER = com.example.IntoL; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_STRICT_CONCURRENCY = minimal; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = 1; }; name = Release; };
-    };
-    rootObject = F00000000000000000000001;
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A00000000000000000000001 /* IntoLApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000001 /* IntoLApp.swift */; };
+		A00000000000000000000002 /* Design.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000002 /* Design.swift */; };
+		A00000000000000000000003 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000003 /* Models.swift */; };
+		A00000000000000000000004 /* Services.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000004 /* Services.swift */; };
+		A00000000000000000000005 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000005 /* AppModel.swift */; };
+		A00000000000000000000006 /* RoomService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000006 /* RoomService.swift */; };
+		A00000000000000000000007 /* Views.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000007 /* Views.swift */; };
+		A00000000000000000000009 /* DemoCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000000B /* DemoCatalog.swift */; };
+		A0000000000000000000000A /* Audio in Resources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000000C /* Audio */; };
+		A0000000000000000000000B /* AppIcon-60@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000000D /* AppIcon-60@2x.png */; };
+		A0000000000000000000000C /* AppIcon-60@3x.png in Resources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000000E /* AppIcon-60@3x.png */; };
+		A0000000000000000000000D /* AppIcon.png in Resources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000000F /* AppIcon.png */; };
+		A0000000000000000000000E /* MusicServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000010 /* MusicServices.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		B00000000000000000000001 /* IntoLApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntoLApp.swift; sourceTree = "<group>"; };
+		B00000000000000000000002 /* Design.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Design.swift; sourceTree = "<group>"; };
+		B00000000000000000000003 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		B00000000000000000000004 /* Services.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services.swift; sourceTree = "<group>"; };
+		B00000000000000000000005 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		B00000000000000000000006 /* RoomService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomService.swift; sourceTree = "<group>"; };
+		B00000000000000000000007 /* Views.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views.swift; sourceTree = "<group>"; };
+		B00000000000000000000008 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		B00000000000000000000009 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		B0000000000000000000000A /* IntoL.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = IntoL.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B0000000000000000000000B /* DemoCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoCatalog.swift; sourceTree = "<group>"; };
+		B0000000000000000000000C /* Audio */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Audio; sourceTree = "<group>"; };
+		B0000000000000000000000D /* AppIcon-60@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "AppIcon-60@2x.png"; sourceTree = "<group>"; };
+		B0000000000000000000000E /* AppIcon-60@3x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "AppIcon-60@3x.png"; sourceTree = "<group>"; };
+		B0000000000000000000000F /* AppIcon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = AppIcon.png; sourceTree = "<group>"; };
+		B00000000000000000000010 /* MusicServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicServices.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		D00000000000000000000003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		C00000000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				C00000000000000000000002 /* IntoL */,
+				C00000000000000000000003 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		C00000000000000000000002 /* IntoL */ = {
+			isa = PBXGroup;
+			children = (
+				B00000000000000000000001 /* IntoLApp.swift */,
+				B00000000000000000000002 /* Design.swift */,
+				B00000000000000000000003 /* Models.swift */,
+				B00000000000000000000004 /* Services.swift */,
+				B00000000000000000000010 /* MusicServices.swift */,
+				B00000000000000000000005 /* AppModel.swift */,
+				B00000000000000000000006 /* RoomService.swift */,
+				B00000000000000000000007 /* Views.swift */,
+				B0000000000000000000000B /* DemoCatalog.swift */,
+				B0000000000000000000000C /* Audio */,
+				B0000000000000000000000D /* AppIcon-60@2x.png */,
+				B0000000000000000000000E /* AppIcon-60@3x.png */,
+				B0000000000000000000000F /* AppIcon.png */,
+				B00000000000000000000008 /* Assets.xcassets */,
+				B00000000000000000000009 /* Info.plist */,
+			);
+			path = IntoL;
+			sourceTree = "<group>";
+		};
+		C00000000000000000000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				B0000000000000000000000A /* IntoL.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		E00000000000000000000001 /* IntoL */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = G00000000000000000000002 /* Build configuration list for PBXNativeTarget "IntoL" */;
+			buildPhases = (
+				D00000000000000000000001 /* Sources */,
+				D00000000000000000000003 /* Frameworks */,
+				D00000000000000000000002 /* Resources */,
+				D00000000000000000000004 /* Generate App Config */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = IntoL;
+			productName = IntoL;
+			productReference = B0000000000000000000000A /* IntoL.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		F00000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 2650;
+				TargetAttributes = {
+					E00000000000000000000001 = {
+						CreatedOnToolsVersion = 26.0;
+					};
+				};
+			};
+			buildConfigurationList = G00000000000000000000001 /* Build configuration list for PBXProject "IntoL" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = ja;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				ja,
+				en,
+				Base,
+			);
+			mainGroup = C00000000000000000000001;
+			productRefGroup = C00000000000000000000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				E00000000000000000000001 /* IntoL */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		D00000000000000000000002 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A0000000000000000000000A /* Audio in Resources */,
+				A0000000000000000000000B /* AppIcon-60@2x.png in Resources */,
+				A0000000000000000000000C /* AppIcon-60@3x.png in Resources */,
+				A0000000000000000000000D /* AppIcon.png in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		D00000000000000000000004 /* Generate App Config */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/scripts/generate_app_config.py",
+			);
+			name = "Generate App Config";
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/AppConfig.plist",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "/usr/bin/python3 \"$SRCROOT/scripts/generate_app_config.py\" \"$SRCROOT/.env\" \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/AppConfig.plist\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		D00000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A00000000000000000000001 /* IntoLApp.swift in Sources */,
+				A00000000000000000000002 /* Design.swift in Sources */,
+				A00000000000000000000003 /* Models.swift in Sources */,
+				A00000000000000000000004 /* Services.swift in Sources */,
+				A0000000000000000000000E /* MusicServices.swift in Sources */,
+				A00000000000000000000005 /* AppModel.swift in Sources */,
+				A00000000000000000000006 /* RoomService.swift in Sources */,
+				A00000000000000000000007 /* Views.swift in Sources */,
+				A00000000000000000000009 /* DemoCatalog.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		H00000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		H00000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+			};
+			name = Release;
+		};
+		H00000000000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 846DPLLG2V;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = IntoL/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.IntoL;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		H00000000000000000000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 846DPLLG2V;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = IntoL/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.IntoL;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		G00000000000000000000001 /* Build configuration list for PBXProject "IntoL" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				H00000000000000000000001 /* Debug */,
+				H00000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		G00000000000000000000002 /* Build configuration list for PBXNativeTarget "IntoL" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				H00000000000000000000003 /* Debug */,
+				H00000000000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = F00000000000000000000001 /* Project object */;
 }

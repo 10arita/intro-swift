@@ -34,6 +34,7 @@ struct RootView: View {
             Task { await model.restoreRoom() }
             if model.searchSongs.isEmpty { await model.search() }
             await openRequestedPractice()
+            if model.appleMusicConnected { await model.loadAppleMusicPlaylists() }
             if model.spotifyConnected { await model.loadSpotifyPlaylists(); await model.loadSpotifyDevices() }
             await model.syncProfile()
         }
@@ -105,7 +106,7 @@ private struct BrandHeader: View {
 
 private enum PlayParty { case solo, together }
 private enum PlayKind { case intro, sabitro }
-private enum PlaySource { case demo, shared, spotify, itunes, spotifyPreview, join }
+private enum PlaySource { case demo, shared, appleMusic, spotify, itunes, spotifyPreview, join }
 
 struct PlayView: View {
     let homeToken: Int
@@ -217,6 +218,7 @@ struct PlayView: View {
         switch source {
         case .demo: return "オリジナル音源"
         case .shared: return "共有音源"
+        case .appleMusic: return "Apple Music"
         case .spotify: return "Spotify"
         case .itunes: return "試聴曲を探す"
         case .spotifyPreview: return "プレイリストから探す"
@@ -232,6 +234,7 @@ struct PlayView: View {
         switch source {
         case .demo: return "アプリに入っている曲ですぐに遊べます。"
         case .shared: return "サーバーに登録された曲を使います。"
+        case .appleMusic: return "Apple Music のライブラリにあるプレイリストを使います。"
         case .spotify: return "自分のプレイリストを使います。"
         case .itunes: return "iTunes の試聴音源で遊びます。"
         case .spotifyPreview: return "プレイリストの曲を iTunes の試聴音源に照合します。"
@@ -262,12 +265,14 @@ struct PlayView: View {
             if party == .solo && kind == .intro {
                 PlayOptionButton(title: "オリジナル音源", subtitle: "すぐに始める", symbol: "music.note") { source = .demo }
                 PlayOptionButton(title: "共有音源", subtitle: model.serverConfigured ? "登録された曲で遊ぶ" : "サーバー設定が必要です", symbol: "music.note.list", disabled: !model.serverConfigured) { source = .shared }
+                PlayOptionButton(title: "Apple Music", subtitle: "自分のプレイリストで遊ぶ", symbol: "music.note.list") { source = .appleMusic }
                 PlayOptionButton(title: "Spotify", subtitle: model.spotifyConfigured ? "自分のプレイリストで遊ぶ" : "Spotify 設定が必要です", symbol: "music.mic", disabled: !model.spotifyConfigured) { source = .spotify }
             } else if party == .solo {
                 PlayOptionButton(title: "試聴曲を検索", subtitle: "曲名やアーティストから探す", symbol: "magnifyingglass") { source = .itunes }
                 PlayOptionButton(title: "Spotifyプレイリスト", subtitle: model.spotifyConfigured ? "試聴曲と照合して遊ぶ" : "Spotify 設定が必要です", symbol: "music.note.list", disabled: !model.spotifyConfigured) { source = .spotifyPreview }
             } else if kind == .intro {
                 PlayOptionButton(title: "共有音源で作る", subtitle: "登録された曲で対戦", symbol: "music.note.list") { selectRoomSource(.shared) }
+                PlayOptionButton(title: "Apple Musicで作る", subtitle: "全員が Apple Music で再生", symbol: "music.note.list") { selectRoomSource(.appleMusic) }
                 PlayOptionButton(title: "Spotifyで作る", subtitle: model.spotifyConfigured ? "全員が Premium で再生" : "Spotify 設定が必要です", symbol: "music.mic", disabled: !model.spotifyConfigured) { selectRoomSource(.spotify) }
                 PlayOptionButton(title: "ルームに参加", subtitle: "6文字のIDを入力", symbol: "person.badge.plus") { source = .join }
             } else {
@@ -282,6 +287,7 @@ struct PlayView: View {
             switch source {
             case .demo: demoContent
             case .shared: sharedContent
+            case .appleMusic: appleMusicContent
             case .spotify: spotifyContent(sabitro: false)
             case .itunes: itunesContent
             case .spotifyPreview: spotifyContent(sabitro: true)
@@ -358,6 +364,51 @@ struct PlayView: View {
         }
     }
 
+    private var appleMusicContent: some View {
+        StudioCard {
+            VStack(alignment: .leading, spacing: 16) {
+                appleMusicPlaylistInput
+                if model.appleMusicConnected, !model.appleMusicSongs.isEmpty {
+                    ForEach(model.appleMusicSongs.prefix(3)) { song in SongRow(song: song) }
+                    PrimaryButton(title: "プレイ開始", symbol: "arrow.right",
+                                  disabled: !model.appleMusicPlayable || model.busy) {
+                        model.startAppleMusicSolo()
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var appleMusicPlaylistInput: some View {
+        if model.appleMusicConnected {
+            if model.appleMusicPlaylists.isEmpty {
+                Button("プレイリストを読み込む") { Task { await model.loadAppleMusicPlaylists() } }
+                    .buttonStyle(SecondaryButtonStyle())
+            } else {
+                Picker("プレイリスト", selection: $model.selectedAppleMusicPlaylistID) {
+                    Text("選択してください").tag("")
+                    ForEach(model.appleMusicPlaylists) { list in Text(list.name).tag(list.id) }
+                }
+                .tint(Studio.accent)
+                .onChange(of: model.selectedAppleMusicPlaylistID) { _, id in
+                    Task { await model.selectAppleMusicPlaylist(id) }
+                }
+            }
+            if model.busy { ProgressView().tint(Studio.accent) }
+            if !model.appleMusicSongs.isEmpty {
+                Text("\(model.appleMusicSongs.count)曲を読み込みました")
+                    .font(.subheadline).foregroundStyle(Studio.secondary)
+            }
+            if !model.appleMusicPlayable {
+                Text("再生には Apple Music のサブスクリプションが必要です")
+                    .font(.caption).foregroundStyle(Studio.secondary)
+            }
+        } else {
+            Text("アカウントで Apple Music を選び、接続してください")
+                .foregroundStyle(Studio.secondary)
+        }
+    }
+
     private var itunesContent: some View {
         StudioCard {
             VStack(alignment: .leading, spacing: 16) {
@@ -431,6 +482,7 @@ struct PlayView: View {
             VStack(alignment: .leading, spacing: 18) {
                 if model.serverConfigured {
                     if source == .spotify || source == .spotifyPreview { playlistInput }
+                    if source == .appleMusic { appleMusicPlaylistInput }
                     Stepper("問題数 \(model.roomSettings.questionCount)", value: $model.roomSettings.questionCount, in: 1...50)
                     Stepper("解答権 \(model.roomSettings.answerSlots)人", value: $model.roomSettings.answerSlots, in: 1...4)
                     DisclosureGroup("ルール詳細") {
@@ -449,11 +501,16 @@ struct PlayView: View {
                     }
                     .tint(Studio.accent)
                     PrimaryButton(title: "ルームを作る", symbol: "arrow.right",
-                                  disabled: model.busy || (source != .shared && model.spotifySongs.isEmpty) || (source == .spotify && !model.spotifyPremium)) {
+                                  disabled: model.busy || (source == .appleMusic ? model.appleMusicSongs.isEmpty || !model.appleMusicPlayable :
+                                      source != .shared && (model.spotifySongs.isEmpty || (source == .spotify && !model.spotifyPremium)))) {
                         Task { await model.createRoom() }
                     }
                     if source == .spotify && !model.spotifyPremium {
                         Text("Spotify 対戦には全員の Premium が必要です")
+                            .font(.caption).foregroundStyle(Studio.secondary)
+                    }
+                    if source == .appleMusic && !model.appleMusicPlayable {
+                        Text("Apple Music 対戦には全員のサブスクリプションが必要です")
                             .font(.caption).foregroundStyle(Studio.secondary)
                     }
                 } else {
@@ -510,6 +567,7 @@ struct PlayView: View {
         source = value
         switch value {
         case .shared: model.roomMode = "shared"
+        case .appleMusic: model.roomMode = "applemusic"
         case .spotify: model.roomMode = "spotify"
         case .spotifyPreview: model.roomMode = "sabitro"
         default: break
@@ -1008,34 +1066,17 @@ struct AccountView: View {
                         VStack(alignment: .leading, spacing: 14) {
                             SectionCaption(title: "SETTINGS")
                             field("プレイヤー名", text: $model.nickname, prompt: "プレイヤー")
-                            if model.spotifyConnected {
-                                Text("接続中: \(model.spotifyAccountName) \(model.spotifyPremium ? "Premium" : "Free")")
-                                    .font(.subheadline).foregroundStyle(Studio.accent)
-                                HStack {
-                                    Button("再連携") { Task { await model.connectSpotify(reconnect: true) } }
-                                        .buttonStyle(SecondaryButtonStyle())
-                                    Button("解除") { model.disconnectSpotify() }
-                                        .buttonStyle(SecondaryButtonStyle())
+                            Picker("音楽サービス", selection: $model.selectedMusicProvider) {
+                                ForEach(MusicAccountProvider.allCases) { provider in
+                                    Text(provider.rawValue).tag(provider)
                                 }
-                                Button("再生先を更新") { Task { await model.loadSpotifyDevices() } }
-                                    .buttonStyle(SecondaryButtonStyle())
-                                if !model.spotifyDevices.isEmpty {
-                                    Picker("Spotify 再生先", selection: Binding(
-                                        get: { model.spotify.deviceID ?? "" },
-                                        set: {
-                                            model.objectWillChange.send()
-                                            model.spotify.deviceID = $0.isEmpty ? nil : $0
-                                        })) {
-                                        Text("自動選択").tag("")
-                                        ForEach(model.spotifyDevices) { device in
-                                            Text("\(device.name) · \(device.type)").tag(device.id)
-                                        }
-                                    }
-                                    .tint(Studio.accent)
-                                }
-                            } else if model.spotifyConfigured {
-                                Button("Spotify に接続") { Task { await model.connectSpotify() } }
-                                    .buttonStyle(SecondaryButtonStyle())
+                            }
+                            .pickerStyle(.segmented)
+                            .accessibilityLabel("接続する音楽サービス")
+                            if model.selectedMusicProvider == .appleMusic {
+                                appleMusicAccount
+                            } else {
+                                spotifyAccount
                             }
                             if model.serverConfigured {
                                 Button("記録を同期") { Task { await model.syncProfile() } }
@@ -1058,6 +1099,57 @@ struct AccountView: View {
             }
             .background(Studio.background)
             .toolbar(.hidden, for: .navigationBar)
+        }
+    }
+
+    @ViewBuilder private var appleMusicAccount: some View {
+        if model.appleMusicConnected {
+            Text(model.appleMusicPlayable ? "Apple Music に接続中 · 再生可能" : "Apple Music に接続中 · サブスクリプションを確認してください")
+                .font(.subheadline).foregroundStyle(Studio.accent)
+            Button("接続状態を更新") { Task { await model.loadAppleMusicPlaylists() } }
+                .buttonStyle(SecondaryButtonStyle())
+        } else {
+            Button("Apple Music に接続") { Task { await model.connectAppleMusic() } }
+                .buttonStyle(SecondaryButtonStyle())
+                .disabled(model.busy)
+            Text("iPhone の Apple Music へのアクセスを許可します。")
+                .font(.caption).foregroundStyle(Studio.secondary)
+        }
+    }
+
+    @ViewBuilder private var spotifyAccount: some View {
+        if model.spotifyConnected {
+            Text("接続中: \(model.spotifyAccountName) \(model.spotifyPremium ? "Premium" : "Free")")
+                .font(.subheadline).foregroundStyle(Studio.accent)
+            HStack {
+                Button("再連携") { Task { await model.connectSpotify(reconnect: true) } }
+                    .buttonStyle(SecondaryButtonStyle())
+                Button("解除") { model.disconnectSpotify() }
+                    .buttonStyle(SecondaryButtonStyle())
+            }
+            Button("再生先を更新") { Task { await model.loadSpotifyDevices() } }
+                .buttonStyle(SecondaryButtonStyle())
+            if !model.spotifyDevices.isEmpty {
+                Picker("Spotify 再生先", selection: Binding(
+                    get: { model.spotify.deviceID ?? "" },
+                    set: {
+                        model.objectWillChange.send()
+                        model.spotify.deviceID = $0.isEmpty ? nil : $0
+                    })) {
+                    Text("自動選択").tag("")
+                    ForEach(model.spotifyDevices) { device in
+                        Text("\(device.name) · \(device.type)").tag(device.id)
+                    }
+                }
+                .tint(Studio.accent)
+            }
+        } else if model.spotifyConfigured {
+            Button("Spotify に接続") { Task { await model.connectSpotify() } }
+                .buttonStyle(SecondaryButtonStyle())
+                .disabled(model.busy)
+        } else {
+            Text("Spotify の利用にはサーバーと Client ID の設定が必要です")
+                .font(.caption).foregroundStyle(Studio.secondary)
         }
     }
 

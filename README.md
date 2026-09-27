@@ -6,8 +6,8 @@ SwiftUI 製 iOS 17+ アプリと、Coolify 用 Node.js サーバーです。`rul
 
 | モード | 音源 | 条件 |
 | --- | --- | --- |
-| ひとりで | 同梱のオリジナル音源、サーバーの共有音源、Spotify のプレイリスト | Spotify 音源だけ本人の Premium と再生先が必要 |
-| みんなで | ホストの Spotify プレイリスト | 最大4人、全員の Spotify Premium と再生先が必要 |
+| ひとりで | 同梱のオリジナル音源、サーバーの共有音源、Apple Music または Spotify のプレイリスト | Apple Music は本人のサブスクリプション、Spotify は Premium と再生先が必要 |
+| みんなで | ホストの Apple Music または Spotify のプレイリスト | 最大4人、全員が選んだサービスの再生条件を満たす必要があります |
 | サビトロ | iTunes Search API の試聴曲を検索、または Spotify プレイリストと照合 | ひとりでも最大4人でも遊べます。対戦のホストはプレイリスト取得のため Spotify 連携が必要 |
 | 共有音源対戦 | サーバー登録済み WAV | 最大4人、Spotify 不要 |
 
@@ -19,7 +19,7 @@ SwiftUI 製 iOS 17+ アプリと、Coolify 用 Node.js サーバーです。`rul
 
 ## 先に Coolify サーバーを用意する
 
-Spotify 認証の HTTPS コールバックと複数端末の対戦にはサーバーが必要です。デモだけなら不要です。
+Spotify 認証の HTTPS コールバックと複数端末の対戦にはサーバーが必要です。Apple Music のソロプレイとデモには不要です。Apple Music 対戦を使う場合は、この変更を含むサーバーを再デプロイしてください。
 
 1. このリポジトリを Coolify が参照できる Git リポジトリにプッシュします。
 2. Coolify の **New Resource → Dockerfile** でビルド基準ディレクトリを `server`、Dockerfile をその中の `Dockerfile` にします。公開ポートは `3000`、レプリカは **1** にします。
@@ -37,15 +37,26 @@ Spotify 認証の HTTPS コールバックと複数端末の対戦にはサー�
 4. Spotify アプリで一度曲を再生して再生先を有効にし、IntoL の「再生先を更新」でその端末を選択します。Spotify 音源の PUSH 中の一時停止とサビ出しは Connect API を使います。
 5. 「プレイ」でプレイリストを選択します。2026年の Spotify API では、プレイリストの曲一覧取得は原則として自分が所有または共同編集するプレイリストに限られます。選択時に403が出る場合は自分のプレイリストを使ってください。
 
+## Apple Music の設定
+
+MusicKit for Swift を使います。Apple Music API の秘密鍵や手動の Developer Token はアプリに不要です。MusicKit が App ID を使って Developer Token を自動生成します。[Apple の設定手順](https://developer.apple.com/documentation/musickit/using-automatic-token-generation-for-apple-music-api)を参照してください。
+
+1. [Apple Developer の Certificates, Identifiers & Profiles](https://developer.apple.com/account/resources/identifiers/list) で、このアプリ用の **Explicit App ID** を作成するか既存の App ID を開き、**App Services → MusicKit** を有効にします。
+2. Xcode の **Targets → IntoL → Signing & Capabilities** で自分の Team を選び、Bundle Identifier をその App ID と完全に一致させます。リポジトリ内の `com.example.IntoL` は仮の値です。署名プロファイルを更新して実機にインストールします。
+3. Apple Music を利用できる Apple Account で iPhone にサインインし、Apple Music の有効なサブスクリプションを用意します。IntoL の「アカウント」で **Apple Music** を選び、「Apple Music に接続」を押してライブラリへのアクセスを許可します。許可を拒否した場合は iPhone の設定から IntoL のメディアライブラリアクセスを変更します。
+4. 「プレイ」→「ひとりで」→「イントロ」→「Apple Music」からプレイリストを選びます。対戦する場合は全員がApple Musicに接続し、ホストは「みんなで」→「イントロ」→「Apple Musicで作る」を選びます。対戦では各曲を ISRC で Apple Music カタログに対応付けるため、一部の曲は除外されます。参加者の地域で再生できない曲があると、そのラウンドの準備が完了しません。
+
+Apple Music のプレイリストはイントロクイズで利用できます。サビトロでは従来どおり iTunes 試聴音源または Spotify プレイリストとの照合を使います。Apple Music の正解発表では曲の長さから推定した位置から再生します。
+
 ## Xcode で起動・確認する
 
 1. `cp .env.example .env` を実行し、サーバーと Spotify を使う場合は `APP_SERVER_URL` と `SPOTIFY_CLIENT_ID` を記入します。値が空欄でもデモは動きます。`.env` は Git の管理対象外です。値を変えたらアプリを再ビルドしてください。
 2. [IntoL.xcodeproj](IntoL.xcodeproj) を Xcode で開きます。
 3. **Targets → IntoL → Signing & Capabilities** で自分の Team を選び、`com.example.IntoL` を自分の Bundle Identifier に変えます。
-4. iPhone 実機を選んで **Run**（⌘R）します。必要に応じて iPhone のデベロッパモードを有効化し、Mac を信頼します。シミュレータでもデモの画面と一部音源は確認できますが、Spotify Connect は実機と Spotify アプリで確認してください。
+4. iPhone 実機を選んで **Run**（⌘R）します。必要に応じて iPhone のデベロッパモードを有効化し、Mac を信頼します。シミュレータでもデモの画面と一部音源は確認できますが、Apple Music と Spotify の実再生は実機で確認してください。
 5. まず設定なしで「プレイ」→「ひとりで」→「イントロ」→「オリジナル音源」→「プレイ開始」→ PUSH → 4択 → 結果 → 復習を確認します。
    「ショートカット」アプリから「ひとりで練習」を実行すると、同じオリジナル音源のソロ練習を直接始められます。
-6. サーバーを設定したら2台の iPhone で共有音源ルーム、Spotify ルーム、サビトロを順に確認します。サビトロでは iTunes に一致しない曲を除外します。終了後は「アカウント」で記録の同期状態を確認します。
+6. サーバーを設定したら2台の iPhone で共有音源ルーム、Apple Music ルーム、Spotify ルーム、サビトロを順に確認します。サビトロでは iTunes に一致しない曲を除外します。終了後は「アカウント」で記録の同期状態を確認します。
 7. Wi-Fi を一時的に切って5分以内に戻し、同じルーム・得点・ライフに復帰することを確認します。ホストの退出と待機室の「ホストを譲る」も試せます。
 
 署名なしの iPhone 向けビルド:

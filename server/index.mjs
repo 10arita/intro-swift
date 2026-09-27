@@ -240,13 +240,14 @@ export function handle(method, path, body, query, authorization, origin = 'https
   }
   if (method === 'POST' && path === '/rooms') {
     if (rooms.size >= 500) return fail(503, 'ルーム数の上限に達しました');
-    const mode = ['shared', 'spotify', 'sabitro'].includes(body.mode) ? body.mode : 'shared';
+    const mode = ['shared', 'spotify', 'applemusic', 'sabitro'].includes(body.mode) ? body.mode : 'shared';
     const supplied = Array.isArray(body.songs) ? body.songs.slice(0, 50).filter(song =>
       song && typeof song.title === 'string' && normalize(song.title) && typeof song.artist === 'string' &&
       ((mode === 'spotify' && /^spotify:[A-Za-z0-9]{22}$/.test(song.id)) ||
+       (mode === 'applemusic' && /^applemusic:\d+$/.test(song.id)) ||
        (mode === 'sabitro' && /^itunes:\d+$/.test(song.id) && /^https:\/\//.test(song.previewURL || ''))))
       .map(song => ({ id: song.id, title: song.title.slice(0, 150), artist: song.artist.slice(0, 100),
-        artworkURL: song.artworkURL || null, previewURL: mode === 'spotify' ? null : song.previewURL,
+        artworkURL: song.artworkURL || null, previewURL: mode === 'spotify' || mode === 'applemusic' ? null : song.previewURL,
         trackURL: song.trackURL || null, durationMS: Number(song.durationMS) || 180_000,
         genre: song.genre || 'その他', songleURL: song.songleURL || null, chorusMS: song.chorusMS || null })) : [];
     const songs = mode === 'shared' ? catalogSongs(origin) : supplied;

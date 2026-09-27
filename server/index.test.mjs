@@ -48,6 +48,22 @@ test('Spotify room creation does not wait for external metadata services', async
   }
 });
 
+test('Apple Music rooms accept catalog IDs and keep answers hidden until reveal', () => {
+  const song = { id: 'applemusic:1234567890', title: '青い空', artist: 'Artist',
+    previewURL: 'https://example.com/should-not-play.mp3' };
+  const created = handle('POST', '/rooms', { playerId: 'amHost', name: 'Host', mode: 'applemusic', songs: [song] }, new URLSearchParams());
+  assert.equal(created.status, 201);
+  assert.equal(created.body.mode, 'applemusic');
+  const token = created.body.sessionToken;
+  const started = handle('POST', `/rooms/${created.body.id}/start`, { playerId: 'amHost' }, new URLSearchParams(), `Bearer ${token}`);
+  assert.equal(started.body.current.id, song.id);
+  assert.equal(started.body.current.title, undefined);
+  assert.equal(started.body.current.previewURL, null);
+  const invalid = handle('POST', '/rooms', { playerId: 'amInvalid', name: 'Host', mode: 'applemusic',
+    songs: [{ ...song, id: 'applemusic:i.12345' }] }, new URLSearchParams());
+  assert.equal(invalid.status, 400);
+});
+
 test('room API arbitrates PUSH, validates answers, scores, and protects sessions', async () => {
   const realNow = Date.now;
   let now = realNow();

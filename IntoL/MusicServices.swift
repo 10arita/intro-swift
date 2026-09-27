@@ -3,6 +3,7 @@ import AuthenticationServices
 import CryptoKit
 import Security
 import UIKit
+import MusicKit
 
 struct SpotifyPlaylist: Identifiable, Decodable, Hashable {
     let id: String
@@ -258,5 +259,141 @@ private extension Data {
     func base64URLEncoded() -> String {
         base64EncodedString().replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+    }
+}
+
+struct AppleMusicPlaylist: Identifiable, Hashable {
+    let id: String
+    let name: String
+}
+
+@MainActor final class AppleMusicService {
+    private let player = ApplicationMusicPlayer.shared
+    private var playlistsByID: [String: MusicKit.Playlist] = [:]
+    private var songsByID: [String: MusicKit.Song] = [:]
+    private var playRequest = 0
+    private var preparedSongID: String?
+
+    var isAuthorized: Bool { MusicAuthorization.currentStatus == .authorized }
+
+    func authorize() async throws -> Bool {
+        guard await MusicAuthorization.request() == .authorized else {
+            throw AppError.message("Apple Music へのアクセスを許可してください。拒否した場合は iPhone の設定から変更できます")
+        }
+        return try await MusicSubscription.current.canPlayCatalogContent
+    }
+
+    func canPlay() async throws -> Bool {
+        guard isAuthorized else { return false }
+        return try await MusicSubscription.current.canPlayCatalogContent
+    }
+
+    func playlists() async throws -> [AppleMusicPlaylist] {
+        var request = MusicLibraryRequest<MusicKit.Playlist>()
+        request.limit = 0
+        let items = try await request.response().items
+        playlistsByID = Dictionary(uniqueKeysWithValues: items.map { (String(describing: $0.id), $0) })
+        return items.map { AppleMusicPlaylist(id: String(describing: $0.id), name: $0.name) }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    func songs(in playlistID: String) async throws -> [Song] {
+        guard let playlist = playlistsByID[playlistID] else {
+            throw AppError.message("Apple Music のプレイリストを読み込み直してください")
+        }
+        let detailed = try await playlist.with(.tracks, preferredSource: .library)
+        guard var tracks = detailed.tracks else { return [] }
+        while tracks.hasNextBatch {
+            guard let next = try await tracks.nextBatch() else { break }
+            tracks += next
+        }
+        var results: [Song] = []
+        for track in tracks {
+            guard case .song(let item) = track, item.playParameters != nil,
+                  !TitleRules.characters(item.title).isEmpty else { continue }
+            let id = "applemusic:\(item.id)"
+            songsByID[id] = item
+            results.append(Song(id: id, title: item.title, artist: item.artistName,
+                                artworkURL: item.artwork?.url(width: 300, height: 300),
+                                previewURL: nil, trackURL: item.url,
+                                durationMS: Int((item.duration ?? 180) * 1000),
+                                genre: item.genreNames.first ?? "その他"))
+        }
+        return results
+    }
+
+    func catalogSongs(for source: [Song]) async -> [Song] {
+        var result: [Song] = []
+        for song in source {
+            guard let librarySong = songsByID[song.id], let isrc = librarySong.isrc else { continue }
+            do {
+                let request = MusicCatalogResourceRequest<MusicKit.Song>(matching: \.isrc, equalTo: Optional(isrc))
+                guard let catalogSong = try await request.response().items.first,
+                      catalogSong.playParameters != nil else { continue }
+                let id = "applemusic:\(catalogSong.id)"
+                guard id.range(of: #"^applemusic:[0-9]+$"#, options: .regularExpression) != nil else { continue }
+                songsByID[id] = catalogSong
+                result.append(Song(id: id, title: catalogSong.title, artist: catalogSong.artistName,
+                                   artworkURL: catalogSong.artwork?.url(width: 300, height: 300),
+                                   previewURL: nil, trackURL: catalogSong.url,
+                                   durationMS: Int((catalogSong.duration ?? 180) * 1000),
+                                   genre: catalogSong.genreNames.first ?? song.genre))
+            } catch { continue }
+        }
+        return result
+    }
+
+    func prepare(_ songID: String) async throws {
+        let initialRequest = playRequest
+        guard isAuthorized, try await MusicSubscription.current.canPlayCatalogContent else {
+            throw AppError.message("Apple Music のアクセス許可とサブスクリプションが必要です")
+        }
+        let item = try await catalogSong(for: songID)
+        guard initialRequest == playRequest, !Task.isCancelled else { throw CancellationError() }
+        playRequest += 1
+        let currentRequest = playRequest
+        player.stop()
+        player.queue = [item]
+        try await player.prepareToPlay()
+        if currentRequest == playRequest { preparedSongID = songID }
+    }
+
+    private func catalogSong(for songID: String) async throws -> MusicKit.Song {
+        guard songID.hasPrefix("applemusic:") else { throw AppError.message("Apple Music の曲IDが無効です") }
+        let id = String(songID.dropFirst("applemusic:".count))
+        let request = MusicCatalogResourceRequest<MusicKit.Song>(matching: \.id, equalTo: MusicItemID(id))
+        guard let item = try await request.response().items.first, item.playParameters != nil else {
+            throw AppError.message("この Apple Music の曲は再生できません")
+        }
+        songsByID[songID] = item
+        return item
+    }
+
+    func play(_ song: Song, offsetMS: Int = 0) async throws {
+        let initialRequest = playRequest
+        let item: MusicKit.Song
+        if let cached = songsByID[song.id] { item = cached }
+        else { item = try await catalogSong(for: song.id) }
+        guard initialRequest == playRequest, !Task.isCancelled else { throw CancellationError() }
+        playRequest += 1
+        let request = playRequest
+        if preparedSongID != song.id {
+            player.stop()
+            player.queue = [item]
+            try await player.prepareToPlay()
+        }
+        preparedSongID = nil
+        guard request == playRequest, !Task.isCancelled else { return }
+        player.playbackTime = TimeInterval(max(0, offsetMS)) / 1000
+        try await player.play()
+        if request == playRequest && Task.isCancelled { player.stop() }
+    }
+
+    func pause() { player.pause() }
+
+    func stop() {
+        playRequest += 1
+        preparedSongID = nil
+        player.stop()
     }
 }

@@ -5,6 +5,12 @@ import AVFoundation
 
 enum SoloStage { case listening, answering, reveal, finished }
 
+enum MusicAccountProvider: String, CaseIterable, Identifiable {
+    case appleMusic = "Apple Music"
+    case spotify = "Spotify"
+    var id: String { rawValue }
+}
+
 struct SoloGame {
     var songs: [Song]
     var playlist: String
@@ -57,6 +63,15 @@ struct SoloGame {
     @Published var quizCorpus: [String] = []
     @Published var spotifyDevices: [SpotifyDevice] = []
     @Published var selectedPlaylistID = ""
+    @Published var selectedMusicProvider: MusicAccountProvider =
+        MusicAccountProvider(rawValue: UserDefaults.standard.string(forKey: "musicAccountProvider") ?? "") ?? .appleMusic {
+        didSet { UserDefaults.standard.set(selectedMusicProvider.rawValue, forKey: "musicAccountProvider") }
+    }
+    @Published var appleMusicConnected = false
+    @Published var appleMusicPlayable = false
+    @Published var appleMusicPlaylists: [AppleMusicPlaylist] = []
+    @Published var appleMusicSongs: [Song] = []
+    @Published var selectedAppleMusicPlaylistID = ""
     @Published var roomMode = "shared"
     @Published var itunesTerm = ""
     @Published var itunesSongs: [Song] = []
@@ -65,6 +80,7 @@ struct SoloGame {
     let player = PreviewPlayer()
     let rooms = RoomService()
     let spotify = SpotifyService()
+    let appleMusic = AppleMusicService()
     private var ticker: Task<Void, Never>?
     private var roomPoller: Task<Void, Never>?
     private var roomTicker: Task<Void, Never>?
@@ -78,6 +94,8 @@ struct SoloGame {
     private var musicTask: Task<Void, Never>?
     private var spotifyPlaying = false
     private var spotifyPauseTask: Task<Void, Never>?
+    private var appleMusicPlaying = false
+    private var appleMusicPauseTask: Task<Void, Never>?
     private var profileSaveTask: Task<Void, Never>?
     private var recordedRoomAttempts = Set<String>()
     private var recordedRoomGenres = Set<String>()
@@ -91,6 +109,10 @@ struct SoloGame {
         spotify.serverURL = serverURL
         spotify.clientID = spotifyClientID
         spotifyConnected = spotifyConfigured && spotify.isConnected
+        appleMusicConnected = appleMusic.isAuthorized
+        if UserDefaults.standard.string(forKey: "musicAccountProvider") == nil && spotifyConnected {
+            selectedMusicProvider = .spotify
+        }
         if let url = Bundle.main.url(forResource: "push", withExtension: "wav", subdirectory: "Audio") {
             pushCue = try? AVAudioPlayer(contentsOf: url)
             pushCue?.prepareToPlay()
@@ -116,6 +138,7 @@ struct SoloGame {
         do {
             try await spotify.connect(forceDialog: reconnect)
             spotifyConnected = true
+            selectedMusicProvider = .spotify
             let account = try await spotify.account()
             spotifyPremium = account.isPremium
             spotifyAccountName = account.display_name ?? account.id
@@ -166,6 +189,61 @@ struct SoloGame {
         catch { alert = error.localizedDescription }
     }
 
+    func connectAppleMusic() async {
+        guard !busy else { return }
+        busy = true; defer { busy = false }
+        do {
+            appleMusicPlayable = try await appleMusic.authorize()
+            appleMusicConnected = true
+            selectedMusicProvider = .appleMusic
+            appleMusicPlaylists = try await appleMusic.playlists()
+        } catch {
+            appleMusicConnected = appleMusic.isAuthorized
+            alert = error.localizedDescription
+        }
+    }
+
+    func loadAppleMusicPlaylists() async {
+        guard appleMusic.isAuthorized else {
+            appleMusicConnected = false
+            appleMusicPlayable = false
+            appleMusicPlaylists = []
+            appleMusicSongs = []
+            return
+        }
+        do {
+            appleMusicConnected = true
+            appleMusicPlayable = try await appleMusic.canPlay()
+            appleMusicPlaylists = try await appleMusic.playlists()
+            if !appleMusicPlaylists.contains(where: { $0.id == selectedAppleMusicPlaylistID }) {
+                selectedAppleMusicPlaylistID = ""
+                appleMusicSongs = []
+            }
+        } catch { alert = error.localizedDescription }
+    }
+
+    func selectAppleMusicPlaylist(_ id: String) async {
+        guard !id.isEmpty, !busy else { return }
+        selectedAppleMusicPlaylistID = id
+        appleMusicSongs = []
+        busy = true; defer { busy = false }
+        do {
+            appleMusicSongs = try await appleMusic.songs(in: id)
+            quizCorpus = appleMusicSongs.map(\.title)
+        } catch { alert = error.localizedDescription }
+    }
+
+    func startAppleMusicSolo() {
+        guard appleMusicConnected, appleMusicPlayable else {
+            alert = "Apple Music の再生にはアクセス許可と有効なサブスクリプションが必要です"
+            return
+        }
+        guard !appleMusicSongs.isEmpty else { alert = "先にプレイリストを選んでください"; return }
+        quizCorpus = appleMusicSongs.map(\.title)
+        let name = appleMusicPlaylists.first { $0.id == selectedAppleMusicPlaylistID }?.name ?? "Apple Music"
+        launchSolo(songs: appleMusicSongs, playlist: "Apple Music · \(name)")
+    }
+
     func searchItunes() async {
         rooms.baseURL = serverURL
         busy = true; defer { busy = false }
@@ -204,6 +282,7 @@ struct SoloGame {
     func startSpotifySolo() async {
         guard spotifyPremium else { alert = "ひとりで Spotify の音源を再生するには Premium が必要です"; return }
         guard !spotifySongs.isEmpty else { alert = "先にプレイリストを選んでください"; return }
+        quizCorpus = spotifySongs.map(\.title)
         guard !busy else { return }
         busy = true; defer { busy = false }
         rooms.baseURL = serverURL
@@ -272,7 +351,7 @@ struct SoloGame {
         game.letterIndex = 0
         game.deadline = .now.addingTimeInterval(5)
         game.secondsLeft = 5
-        game.choices = TitleRules.choices(answer: game.answer[0], prefix: "", corpus: game.current.id.hasPrefix("spotify:") ? quizCorpus : game.songs.map(\.title))
+        game.choices = TitleRules.choices(answer: game.answer[0], prefix: "", corpus: game.current.id.hasPrefix("spotify:") || game.current.id.hasPrefix("applemusic:") ? quizCorpus : game.songs.map(\.title))
         stats.attempts += 1
         stats.totalPushSeconds += game.pushTime
         var genre = stats.genres[game.current.genre] ?? GenreRecord()
@@ -300,7 +379,7 @@ struct SoloGame {
             reveal(correct: true)
         } else {
             game.choices = TitleRules.choices(answer: game.answer[game.letterIndex], prefix: game.answered,
-                                              corpus: game.current.id.hasPrefix("spotify:") ? quizCorpus : game.songs.map(\.title))
+                                              corpus: game.current.id.hasPrefix("spotify:") || game.current.id.hasPrefix("applemusic:") ? quizCorpus : game.songs.map(\.title))
             game.deadline = .now.addingTimeInterval(5)
             game.secondsLeft = 5
             self.game = game
@@ -442,13 +521,37 @@ struct SoloGame {
                     }
                 }
             }
+        } else if song.id.hasPrefix("applemusic:") {
+            appleMusicPlaying = true
+            let pause = appleMusicPauseTask
+            musicTask = Task { [weak self] in
+                guard let self else { return }
+                await pause?.value
+                guard !Task.isCancelled else { return }
+                do { try await self.appleMusic.play(song, offsetMS: offsetMS) }
+                catch {
+                    guard !Task.isCancelled else { return }
+                    if var game = self.game, game.current.id == song.id {
+                        game.warning = error.localizedDescription
+                        self.game = game
+                    } else { self.alert = error.localizedDescription }
+                }
+            }
         } else if let url = song.previewURL {
             player.play(url, offset: Double(offsetMS) / 1000)
         }
     }
 
     private func pauseAudio() {
-        if spotifyPlaying {
+        if appleMusicPlaying {
+            let previous = appleMusicPauseTask
+            let play = musicTask
+            appleMusicPauseTask = Task { [weak self] in
+                await previous?.value
+                await play?.value
+                self?.appleMusic.pause()
+            }
+        } else if spotifyPlaying {
             let previous = spotifyPauseTask
             let play = musicTask
             spotifyPauseTask = Task { [weak self] in
@@ -463,12 +566,13 @@ struct SoloGame {
 
     private func stopAudio() {
         musicTask?.cancel(); musicTask = nil
+        appleMusic.stop(); appleMusicPlaying = false
         if spotifyPlaying { pauseAudio(); spotifyPlaying = false }
         player.stop()
     }
 
     private func revealAudio(_ song: Song) {
-        guard song.id.hasPrefix("spotify:") else { playAudio(song); return }
+        guard song.id.hasPrefix("spotify:") || song.id.hasPrefix("applemusic:") else { playAudio(song); return }
         let estimated = max(0, min(90_000, max(30_000, Int(Double(song.durationMS) * 0.32))) - 1500)
         playAudio(song, offsetMS: song.chorusMS ?? chorusPositions[song.id] ?? estimated)
     }
@@ -484,7 +588,17 @@ struct SoloGame {
         do {
             var songs: [Song] = []
             var corpus: [String] = []
-            if roomMode != "shared" {
+            if roomMode == "applemusic" {
+                guard appleMusicConnected, appleMusicPlayable else {
+                    throw AppError.message("Apple Music 対戦にはアクセス許可とサブスクリプションが必要です")
+                }
+                guard !appleMusicSongs.isEmpty else { throw AppError.message("先に Apple Music のプレイリストを選んでください") }
+                songs = await appleMusic.catalogSongs(for: Array(appleMusicSongs.shuffled().prefix(roomSettings.questionCount)))
+                guard !songs.isEmpty else {
+                    throw AppError.message("このプレイリストに対戦で共有できる Apple Music の曲がありません")
+                }
+                corpus = appleMusicSongs.map(\.title)
+            } else if roomMode != "shared" {
                 guard !spotifySongs.isEmpty else { throw AppError.message("先に Spotify プレイリストを選んでください") }
                 if roomMode == "spotify" && !spotifyPremium { throw AppError.message("Spotify 対戦には Premium が必要です") }
                 if roomMode == "sabitro" {
@@ -499,6 +613,10 @@ struct SoloGame {
             }
             let state = try await rooms.create(name: nickname, settings: roomSettings, mode: roomMode,
                                                songs: songs, corpus: corpus, badge: stats.selectedBadge)
+            guard state.mode == roomMode else {
+                _ = try? await rooms.action("leave", id: state.id)
+                throw AppError.message("対戦サーバーを更新してから、この音源でルームを作成してください")
+            }
             enterRoom(state)
         } catch { alert = error.localizedDescription }
     }
@@ -514,6 +632,11 @@ struct SoloGame {
                 guard spotifyConnected, (try await spotify.account()).isPremium else {
                     _ = try? await rooms.action("leave", id: state.id)
                     throw AppError.message("このルームには Spotify Premium の連携が必要です")
+                }
+            } else if state.mode == "applemusic" {
+                guard appleMusicConnected, try await appleMusic.canPlay() else {
+                    _ = try? await rooms.action("leave", id: state.id)
+                    throw AppError.message("このルームには Apple Music の接続とサブスクリプションが必要です")
                 }
             }
             enterRoom(state)
@@ -618,12 +741,16 @@ struct SoloGame {
                         guard !(try await self.spotify.devices()).isEmpty else {
                             throw AppError.message("Spotify アプリを開き、再生先を有効にしてください")
                         }
+                    } else if state.mode == "applemusic", let id = state.current?.id {
+                        try await self.appleMusic.prepare(id)
                     } else if let url = state.current?.previewURL {
                         try await self.player.prepare(url)
                     }
                     guard self.room?.round == state.round, self.room?.phase == "preparing" else { return }
                     self.receiveRoom(try await self.rooms.action("ready", id: state.id))
-                } catch { self.roomError = error.localizedDescription }
+                } catch {
+                    if self.room?.round == state.round { self.roomError = error.localizedDescription }
+                }
             }
         }
         if state.phase == "countdown" && !roomAudioStarted && scheduledRoomAudio == nil {
@@ -663,7 +790,7 @@ struct SoloGame {
     private func startRoomAudio(_ state: RoomState) {
         guard let current = state.current else { return }
         let elapsed = max(0, (state.serverNow - (state.startAt ?? state.serverNow)) / 1000)
-        if state.mode == "spotify" {
+        if state.mode == "spotify" || state.mode == "applemusic" {
             playAudio(Song(id: current.id, title: "", artist: "", artworkURL: nil,
                            previewURL: nil, trackURL: nil, durationMS: 180_000, genre: "その他"),
                       offsetMS: Int(elapsed * 1000))
