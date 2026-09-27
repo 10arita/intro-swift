@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import { randomUUID, randomInt } from 'node:crypto';
 import { createReadStream, readFileSync, statSync, existsSync, mkdirSync, writeFileSync, renameSync } from 'node:fs';
 import { resolve, join } from 'node:path';
+import WebSocket, { WebSocketServer } from 'ws';
 import { searchItunes, matchItunes, topSongs, chorusPosition } from './external.mjs';
 
 const rooms = new Map();
@@ -51,9 +52,12 @@ const PORT = Number(process.env.PORT ?? 3000);
 const MAX_BODY = 256_000;
 const GRACE = 5 * 60_000;
 const STREAM_HEARTBEAT_MS = 15_000;
-const MAX_STREAMS = 2_000; // 500 rooms x 4 players; one stream per player.
+const MAX_LIVE_CONNECTIONS = 2_000; // 500 rooms x 4 players; one connection per player.
 const streams = new Map();
+const sockets = new Map();
 const roomTimers = new Map();
+const socketServer = new WebSocketServer({ noServer: true, perMessageDeflate: false, maxPayload: 8_192, clientTracking: false });
+const socketActions = new Set(['assets-ready', 'assets-unready', 'ready', 'start', 'push', 'choose', 'skip', 'next', 'transfer']);
 const forbidden = new Set([...'っゃゅょぁぃぅぇぉゎッャュョァィゥェォヮー']);
 const pools = [
   [...'あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをん'],
@@ -501,12 +505,30 @@ function writeEvent(response, state) {
   if (!response.write(`data: ${JSON.stringify(state)}\n\n`)) waitForDrain(response);
 }
 
+function liveConnectionCount() {
+  let count = 0;
+  for (const clients of streams.values()) count += clients.size;
+  for (const clients of sockets.values()) count += clients.size;
+  return count;
+}
+
+function sendSocket(socket, message) {
+  if (socket.readyState !== WebSocket.OPEN) return;
+  if (socket.bufferedAmount > 256_000) { socket.terminate(); return; }
+  socket.send(JSON.stringify(message));
+}
+
 function publishRoom(room, exceptPlayerId = null) {
   refresh(room);
   for (const [playerId, response] of streams.get(room.id) || []) {
     if (!room.players.some(player => player.id === playerId)) { response.end(); continue; }
     if (playerId === exceptPlayerId) continue;
     writeEvent(response, snapshot(room, playerId));
+  }
+  for (const [playerId, socket] of sockets.get(room.id) || []) {
+    if (!room.players.some(player => player.id === playerId)) { socket.close(1000); continue; }
+    if (playerId === exceptPlayerId) continue;
+    sendSocket(socket, { type: 'state', state: snapshot(room, playerId) });
   }
 }
 
@@ -539,6 +561,16 @@ function closeRoomStreams(id) {
   roomTimers.delete(id);
   for (const response of streams.get(id)?.values() || []) response.end();
   streams.delete(id);
+  for (const socket of sockets.get(id)?.values() || []) socket.close(1000);
+  sockets.delete(id);
+}
+
+function enrichSpotifyChorus(id) {
+  const room = rooms.get(id);
+  const song = room && currentSong(room);
+  if (room?.mode === 'spotify' && song) {
+    chorusPosition(song).then(position => { song.chorusMS = position; persist(); }).catch(() => {});
+  }
 }
 
 export const server = createServer(async (request, response) => {
@@ -559,7 +591,8 @@ export const server = createServer(async (request, response) => {
     let clients = streams.get(id);
     if (!clients) { clients = new Map(); streams.set(id, clients); }
     const previous = clients.get(playerId);
-    if (!previous && [...streams.values()].reduce((count, group) => count + group.size, 0) >= MAX_STREAMS) {
+    const previousSocket = sockets.get(id)?.get(playerId);
+    if (!previous && !previousSocket && liveConnectionCount() >= MAX_LIVE_CONNECTIONS) {
       send(response, 503, { error: '接続数の上限に達しました' }); return;
     }
     response.writeHead(200, {
@@ -570,6 +603,7 @@ export const server = createServer(async (request, response) => {
     response.flushHeaders();
     clients.set(playerId, response);
     previous?.end();
+    previousSocket?.close(1000);
     response.on('close', () => {
       if (clients.get(playerId) === response) clients.delete(playerId);
       if (!clients.size) streams.delete(id);
@@ -667,14 +701,89 @@ export const server = createServer(async (request, response) => {
       })();
     }
     if (result.status === 200 && request.method === 'POST' && /\/rooms\/[A-Z]{6}\/(start|next)$/.test(url.pathname)) {
-      const room = rooms.get(url.pathname.split('/')[2]);
-      const song = room && currentSong(room);
-      if (room?.mode === 'spotify' && song) {
-        chorusPosition(song).then(position => { song.chorusMS = position; persist(); }).catch(() => {});
-      }
+      enrichSpotifyChorus(url.pathname.split('/')[2]);
     }
     if (request.method !== 'GET' || url.pathname.startsWith('/rooms/')) persist();
   } catch (error) { send(response, 400, { error: error instanceof Error ? error.message : 'Bad request' }); }
+});
+
+server.on('upgrade', (request, socket, head) => {
+  let url;
+  try { url = new URL(request.url, 'http://localhost'); }
+  catch { socket.destroy(); return; }
+  const match = /^\/rooms\/([A-Z]{6})\/socket$/.exec(url.pathname);
+  if (!match) { socket.destroy(); return; }
+  const id = match[1];
+  const playerId = url.searchParams.get('playerId');
+  const authorization = request.headers.authorization;
+  const result = handle('GET', `/rooms/${id}`, {}, url.searchParams, authorization);
+  if (result.status !== 200) {
+    socket.end(`HTTP/1.1 ${result.status} Forbidden\r\nConnection: close\r\n\r\n`);
+    return;
+  }
+  const previousSocket = sockets.get(id)?.get(playerId);
+  const previousStream = streams.get(id)?.get(playerId);
+  if (!previousSocket && !previousStream && liveConnectionCount() >= MAX_LIVE_CONNECTIONS) {
+    socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');
+    return;
+  }
+  socket.setNoDelay(true);
+  socketServer.handleUpgrade(request, socket, head, connection => {
+    let clients = sockets.get(id);
+    if (!clients) { clients = new Map(); sockets.set(id, clients); }
+    clients.set(playerId, connection);
+    previousSocket?.close(1000);
+    previousStream?.end();
+    connection.isAlive = true;
+    connection.on('error', () => {});
+    connection.on('close', () => {
+      if (clients.get(playerId) === connection) clients.delete(playerId);
+      if (!clients.size) sockets.delete(id);
+    });
+    connection.on('pong', () => {
+      connection.isAlive = true;
+      const player = rooms.get(id)?.players.find(item => item.id === playerId);
+      if (player) player.lastSeen = Date.now();
+    });
+    sendSocket(connection, { type: 'state', state: result.body });
+    publishRoom(rooms.get(id), playerId);
+    scheduleRoom(rooms.get(id));
+
+    connection.on('message', (raw, isBinary) => {
+      if (clients.get(playerId) !== connection) { connection.close(1000); return; }
+      if (isBinary) { connection.close(1003); return; }
+      let message;
+      try { message = JSON.parse(raw.toString()); }
+      catch { connection.close(1007); return; }
+      if (message?.type !== 'action' || typeof message.id !== 'string' || message.id.length > 64 ||
+          !socketActions.has(message.action) || !message.payload ||
+          typeof message.payload !== 'object' || Array.isArray(message.payload)) {
+        sendSocket(connection, { type: 'error', id: message?.id, status: 400, error: '操作が無効です' });
+        return;
+      }
+      try {
+        const room = rooms.get(id);
+        if (!room) { connection.close(1000); return; }
+        const before = roomSignature(room);
+        const answer = handle('POST', `/rooms/${id}/${message.action}`,
+          { ...message.payload, playerId }, new URLSearchParams(), authorization);
+        if (answer.status === 200) {
+          sendSocket(connection, { type: 'result', id: message.id, state: answer.body });
+        } else {
+          sendSocket(connection, { type: 'error', id: message.id, status: answer.status,
+            error: answer.body.error, state: answer.body.state });
+        }
+        if (rooms.get(id) !== room) { closeRoomStreams(id); return; }
+        const changed = roomSignature(room) !== before;
+        if (changed) publishRoom(room, answer.status === 200 || answer.body.state ? playerId : null);
+        scheduleRoom(room);
+        if (answer.status === 200 && ['start', 'next'].includes(message.action)) enrichSpotifyChorus(id);
+        if (answer.status === 200 || changed) persist();
+      } catch {
+        sendSocket(connection, { type: 'error', id: message.id, status: 400, error: '操作に失敗しました' });
+      }
+    });
+  });
 });
 
 if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
@@ -700,6 +809,20 @@ setInterval(() => {
       }
       player.lastSeen = now;
       if (!response.writableNeedDrain && !response.write(': keepalive\n\n')) waitForDrain(response);
+    }
+    refresh(room);
+    if (roomSignature(room) !== before) { publishRoom(room); scheduleRoom(room); persist(); }
+  }
+  for (const [id, clients] of sockets) {
+    const room = rooms.get(id);
+    if (!room) { closeRoomStreams(id); continue; }
+    const before = roomSignature(room);
+    for (const connection of clients.values()) {
+      if (connection.readyState !== WebSocket.OPEN || !connection.isAlive) {
+        connection.terminate(); continue;
+      }
+      connection.isAlive = false;
+      connection.ping();
     }
     refresh(room);
     if (roomSignature(room) !== before) { publishRoom(room); scheduleRoom(room); persist(); }

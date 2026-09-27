@@ -100,6 +100,17 @@ private struct ItunesMatch: Decodable { let song: Song? }
 private struct CorpusResponse: Decodable { let titles: [String] }
 private struct ChorusResponse: Decodable { let positionMS: Int }
 private struct RoomFailure: Decodable { let error: String; let state: RoomState? }
+private struct RoomSocketMessage: Decodable {
+    let type: String
+    let id: String?
+    let state: RoomState?
+    let status: Int?
+    let error: String?
+}
+private struct PendingRoomAction {
+    let continuation: CheckedContinuation<RoomState, Error>
+    let sentAt: Double
+}
 enum RoomStreamError: Error { case unsupported }
 struct RoomHTTPError: LocalizedError {
     let status: Int
@@ -127,6 +138,20 @@ struct SavedProfile: Decodable {
     var profileID: String
     private(set) var token: String?
     private var itunesMatches: [String: ItunesMatch] = [:]
+    private var roomSocket: URLSessionWebSocketTask?
+    private var socketRoomID: String?
+    private var socketReady = false
+    private var pendingSocketActions: [String: PendingRoomAction] = [:]
+
+    private func disconnectSocket() {
+        roomSocket?.cancel(with: .goingAway, reason: nil)
+        roomSocket = nil
+        socketRoomID = nil
+        socketReady = false
+        let waiting = Array(pendingSocketActions.values)
+        pendingSocketActions.removeAll()
+        for pending in waiting { pending.continuation.resume(throwing: URLError(.networkConnectionLost)) }
+    }
 
     init() {
         if let saved = UserDefaults.standard.string(forKey: "roomPlayerId") { playerId = saved }
@@ -205,6 +230,90 @@ struct SavedProfile: Decodable {
 
     func state(_ id: String) async throws -> RoomState { try await request("rooms/\(id)") }
 
+    func watchSocket(_ id: String, onState: (RoomState) -> Void) async throws {
+        disconnectSocket()
+        var components = URLComponents(url: try endpoint("rooms/\(id)/socket"), resolvingAgainstBaseURL: false)!
+        components.scheme = components.scheme == "https" ? "wss" : "ws"
+        components.queryItems = [URLQueryItem(name: "playerId", value: playerId)]
+        guard let url = components.url else { throw AppError.message("対戦サーバーに接続できません") }
+        var request = URLRequest(url: url)
+        if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        let task = URLSession.shared.webSocketTask(with: request)
+        let sentAt = Date.now.timeIntervalSince1970 * 1000
+        roomSocket = task
+        socketRoomID = id
+        socketReady = false
+        task.resume()
+        let openingTimeout = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            guard !Task.isCancelled, self?.roomSocket === task, self?.socketReady == false else { return }
+            task.cancel(with: .goingAway, reason: nil)
+        }
+        defer {
+            openingTimeout.cancel()
+            task.cancel(with: .goingAway, reason: nil)
+            if roomSocket === task { disconnectSocket() }
+        }
+        try await withTaskCancellationHandler {
+            while !Task.isCancelled {
+                let message = try await task.receive()
+                let data: Data
+                switch message {
+                case .string(let text): data = Data(text.utf8)
+                case .data(let bytes): data = bytes
+                @unknown default: continue
+                }
+                let envelope = try JSONDecoder().decode(RoomSocketMessage.self, from: data)
+                if envelope.type == "state", let state = envelope.state {
+                    if !socketReady {
+                        sampleClock(state, sentAt: sentAt, receivedAt: Date.now.timeIntervalSince1970 * 1000)
+                        socketReady = true
+                        openingTimeout.cancel()
+                    }
+                    onState(state)
+                } else if let messageID = envelope.id, let pending = pendingSocketActions.removeValue(forKey: messageID) {
+                    if envelope.type == "result", let state = envelope.state {
+                        sampleClock(state, sentAt: pending.sentAt,
+                                    receivedAt: Date.now.timeIntervalSince1970 * 1000)
+                        pending.continuation.resume(returning: state)
+                    } else {
+                        pending.continuation.resume(throwing: RoomHTTPError(
+                            status: envelope.status ?? 0,
+                            message: envelope.error ?? "操作に失敗しました", state: envelope.state))
+                    }
+                }
+            }
+            throw CancellationError()
+        } onCancel: {
+            task.cancel(with: .goingAway, reason: nil)
+        }
+    }
+
+    private func socketAction(_ action: String, payload: [String: Any], task: URLSessionWebSocketTask) async throws -> RoomState {
+        let messageID = UUID().uuidString
+        let body = try JSONSerialization.data(withJSONObject: ["type": "action", "id": messageID,
+                                                               "action": action, "payload": payload])
+        let message = String(decoding: body, as: UTF8.self)
+        return try await withCheckedThrowingContinuation { continuation in
+            pendingSocketActions[messageID] = PendingRoomAction(
+                continuation: continuation, sentAt: Date.now.timeIntervalSince1970 * 1000)
+            Task { [weak self] in
+                do { try await task.send(.string(message)) }
+                catch {
+                    self?.pendingSocketActions.removeValue(forKey: messageID)?.continuation.resume(throwing: error)
+                }
+            }
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(10))
+                guard !Task.isCancelled else { return }
+                if let pending = self?.pendingSocketActions.removeValue(forKey: messageID) {
+                    pending.continuation.resume(throwing: URLError(.timedOut))
+                    task.cancel(with: .goingAway, reason: nil)
+                }
+            }
+        }
+    }
+
     func watch(_ id: String, onState: (RoomState) -> Void) async throws {
         var url = try endpoint("rooms/\(id)/events")
         url.append(queryItems: [URLQueryItem(name: "playerId", value: playerId)])
@@ -218,8 +327,11 @@ struct SavedProfile: Decodable {
         if status == 404 { throw RoomStreamError.unsupported }
         guard status == 200 else { throw AppError.message("ルームに接続できません (\(status))") }
         var firstState = true
+        // The SSE heartbeat wakes this loop so a recovered WebSocket can be retried.
+        let socketRetryAt = Date.now.addingTimeInterval(60)
         for try await line in bytes.lines {
             try Task.checkCancellation()
+            if Date.now >= socketRetryAt { return }
             guard line.hasPrefix("data: ") else { continue }
             let data = Data(line.dropFirst(6).utf8)
             let state = try JSONDecoder().decode(RoomState.self, from: data)
@@ -278,9 +390,17 @@ struct SavedProfile: Decodable {
         max(0, min(90_000, max(30_000, Int(Double(song.durationMS) * 0.32))) - 1500)
     }
     func action(_ action: String, id: String, payload: [String: Any] = [:]) async throws -> RoomState {
-        try await request("rooms/\(id)/\(action)", method: "POST", payload: payload)
+        if action != "leave", socketReady, socketRoomID == id, let roomSocket {
+            return try await socketAction(action, payload: payload, task: roomSocket)
+        }
+        return try await request("rooms/\(id)/\(action)", method: "POST", payload: payload)
     }
-    func clear() { token = nil; Secrets.set(nil, for: "roomSessionToken"); UserDefaults.standard.removeObject(forKey: "roomSessionToken") }
+    func clear() {
+        disconnectSocket()
+        token = nil
+        Secrets.set(nil, for: "roomSessionToken")
+        UserDefaults.standard.removeObject(forKey: "roomSessionToken")
+    }
 
     private var profileKey: String { "profileToken:\(baseURL.trimmingCharacters(in: .whitespacesAndNewlines)):\(profileID)" }
     func linkSpotify(accessToken: String) async throws {

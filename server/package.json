@@ -5,8 +5,13 @@
   "type": "module",
   "scripts": {
     "start": "node index.mjs",
-    "test": "node --test"
+    "test": "node --test",
+    "test:socket": "node --test socket.integration.mjs"
   },
-  "engines": { "node": ">=22" }
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "ws": "8.22.0"
+  }
 }
-

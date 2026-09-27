@@ -827,6 +827,14 @@ struct SoloGame {
             var retrySeconds = 1
             while !Task.isCancelled {
                 guard let self, let id = self.roomID else { break }
+                do {
+                    try await self.rooms.watchSocket(id) { [weak self] state in
+                        guard let self, self.roomID == id else { return }
+                        self.receiveNetworkRoom(state)
+                        if self.roomError == "接続を確認しています…" { self.roomError = nil }
+                    }
+                } catch { /* SSE below keeps the room usable if WebSocket is unavailable. */ }
+                if Task.isCancelled || self.roomID != id { break }
                 if streamSupported {
                     do {
                         try await self.rooms.watch(id) { [weak self] state in
@@ -864,10 +872,6 @@ struct SoloGame {
     private func receiveRoom(_ state: RoomState) {
         let old = room
         room = state
-        if roomPushPending, old?.round == state.round,
-           !state.pushedIds.contains(rooms.playerId), !state.canPush(rooms.playerId) {
-            showRoomNotice("解答権は取れませんでした。ルームには残っています")
-        }
         if old?.round != state.round { roomNotice = nil }
         if state.phase == "lobby", preloadedRoomID != state.id,
            !(state.assetsReadyIds ?? []).contains(rooms.playerId) {
@@ -1062,14 +1066,20 @@ struct SoloGame {
         return max(0, ((state.roundDeadline ?? clock) - clock) / 1000)
     }
 
+    func beginRoomPush() {
+        guard let roomID, !roomPushPending, room?.canPush(rooms.playerId) == true else { return }
+        roomPushPending = true
+        Task { [weak self] in
+            guard let self, self.roomID == roomID else { return }
+            await self.roomAction("push")
+        }
+        playPushCue()
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+    }
+
     func roomAction(_ action: String, payload: [String: Any] = [:]) async {
         guard let roomID else { return }
-        if action == "push" {
-            guard !roomPushPending, room?.canPush(rooms.playerId) == true else { return }
-            roomPushPending = true
-            playPushCue()
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        }
+        if action == "push" && !roomPushPending { return }
         defer { if action == "push" { roomPushPending = false } }
         do {
             let state = try await rooms.action(action, id: roomID, payload: payload)

@@ -744,6 +744,7 @@ private struct CountdownBar: View {
 private struct PushButton: View {
     let action: () -> Void
     var size: CGFloat = 256
+    var pending = false
     var body: some View {
         Button(action: action) {
             ZStack {
@@ -751,14 +752,20 @@ private struct PushButton: View {
                 Circle().strokeBorder(Studio.accent.opacity(0.35), lineWidth: 1).frame(width: size * 0.875, height: size * 0.875)
                 Circle().fill(Studio.accent).frame(width: size * 0.742, height: size * 0.742)
                 VStack(spacing: 1) {
-                    Image(systemName: "hand.tap.fill").font(.system(size: size * 0.105))
-                    Text("PUSH").font(.system(size: size * 0.152, weight: .black, design: .rounded)).tracking(-2)
+                    if pending {
+                        ProgressView().tint(.white)
+                        Text("判定中").font(.system(size: size * 0.115, weight: .bold, design: .rounded))
+                    } else {
+                        Image(systemName: "hand.tap.fill").font(.system(size: size * 0.105))
+                        Text("PUSH").font(.system(size: size * 0.152, weight: .black, design: .rounded)).tracking(-2)
+                    }
                 }
                 .foregroundStyle(.white)
             }
         }
         .buttonStyle(ScaleButtonStyle())
-        .accessibilityLabel("PUSH、解答する")
+        .disabled(pending)
+        .accessibilityLabel(pending ? "PUSHを判定中" : "PUSH、解答する")
     }
 }
 
@@ -1343,6 +1350,12 @@ struct RoomGameView: View {
                     .font(.system(size: compact ? 26 : 30, weight: .bold, design: .rounded))
                     .foregroundStyle(Studio.primary)
                 CountdownBar(remaining: model.roomSecondsLeft, total: 30, compact: true)
+                if !room.activeAnswers.isEmpty {
+                    Text("\(room.activeAnswers.compactMap { room.player($0.playerId)?.name }.joined(separator: "・")) が解答中")
+                        .font(.headline)
+                        .foregroundStyle(Studio.accent)
+                        .lineLimit(1)
+                }
                 if room.settings.endless {
                     Text("エンドレスモード・誤答: \(room.pushedIds.count) / \(room.players.count)人")
                         .font(.caption).foregroundStyle(Studio.secondary)
@@ -1357,12 +1370,9 @@ struct RoomGameView: View {
                         .foregroundStyle(Studio.accent)
                 } else if room.pushedIds.contains(model.rooms.playerId) {
                     Text("この曲は解答済みです（再PUSH不可）").foregroundStyle(Studio.secondary)
-                } else if model.roomPushPending {
-                    ProgressView("PUSHを判定中…")
-                        .tint(Studio.accent)
-                        .font(.subheadline.weight(.semibold))
-                } else if room.canPush(model.rooms.playerId) {
-                    PushButton(action: { Task { await model.roomAction("push") } }, size: compact ? 142 : 180)
+                } else if model.roomPushPending || room.canPush(model.rooms.playerId) {
+                    PushButton(action: { model.beginRoomPush() }, size: compact ? 142 : 180,
+                               pending: model.roomPushPending)
                 }
             }
         }
@@ -1506,6 +1516,8 @@ struct RoomGameView: View {
         let players = room.phase == "finished" ? room.players.sorted { $0.score > $1.score } : room.players
         return LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
             ForEach(Array(players.enumerated()), id: \.element.id) { index, player in
+                let isAnswering = room.isAnswering(player.id)
+                let isPending = player.id == model.rooms.playerId && model.roomPushPending
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 3) {
                         if room.phase == "finished" {
@@ -1544,9 +1556,10 @@ struct RoomGameView: View {
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
                         Spacer(minLength: 0)
-                        Text("PUSH \(pushTime(player))")
+                        Text(isPending ? "PUSH 判定中" : isAnswering ? "解答中 \(pushTime(player))" : "PUSH \(pushTime(player))")
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
+                            .foregroundStyle(isAnswering || isPending ? Studio.accent : Studio.secondary)
                     }
                     .foregroundStyle(Studio.secondary)
                 }
@@ -1555,7 +1568,9 @@ struct RoomGameView: View {
                 .padding(7)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Studio.surface, in: RoundedRectangle(cornerRadius: 12))
-                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Studio.line))
+                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(
+                    isAnswering || isPending ? Studio.accent : Studio.line,
+                    lineWidth: isAnswering || isPending ? 2 : 1))
                 .opacity(player.connected ? 1 : 0.5)
             }
         }
