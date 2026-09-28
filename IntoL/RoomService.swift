@@ -56,10 +56,16 @@ struct RoomInvite: Decodable, Identifiable {
     let createdAt: Double
 }
 
+struct SentRoomInvite: Decodable {
+    let roomId: String
+    let targetId: String
+}
+
 struct FriendsState: Decodable {
     let friends: [FriendEntry]
     let requests: [FriendRequest]
     let invites: [RoomInvite]
+    let sentInvites: [SentRoomInvite]?
 }
 
 struct RoomCurrent: Decodable {

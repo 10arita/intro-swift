@@ -130,6 +130,10 @@ test('room friends require approval and invitations join without entering a code
   assert.equal(asAlice('invite', { targetProfileId: bob.id }).status, 409);
   assert.equal(asBob('leave').status, 200);
   assert.equal(asAlice('invite', { targetProfileId: bob.id }).status, 200);
+  assert.deepEqual(handle('GET', '/friends', {},
+    new URLSearchParams({ profileId: alice.id }), `Bearer ${alice.token}`).body.sentInvites,
+  [{ roomId: room.id, targetId: bob.id }]);
+  assert.equal(asAlice('invite', { targetProfileId: bob.id }).status, 409);
   const afterInvite = handle('GET', roomPath, {},
     new URLSearchParams({ playerId: 'friend-alice' }), `Bearer ${room.sessionToken}`);
   assert.ok(afterInvite.body.players.some(player => player.id === 'friend-alice'));
@@ -143,6 +147,8 @@ test('room friends require approval and invitations join without entering a code
   assert.equal(accepted.body.players.find(player => player.id === 'friend-alice').friendStatus, 'friend');
   assert.equal(accepted.body.players.find(player => player.id === 'friend-alice').friendProfileId, alice.id);
   assert.equal(handle('GET', '/friends', {}, new URLSearchParams({ profileId: bob.id }), `Bearer ${bob.token}`).body.invites.length, 0);
+  assert.deepEqual(handle('GET', '/friends', {},
+    new URLSearchParams({ profileId: alice.id }), `Bearer ${alice.token}`).body.sentInvites, []);
 });
 
 test('catalog exposes only configured original audio', () => {

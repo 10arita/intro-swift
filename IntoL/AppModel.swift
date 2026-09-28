@@ -68,6 +68,7 @@ struct SoloGame {
     @Published var roomNotice: String?
     @Published var friendsState: FriendsState?
     @Published var friendsLoading = false
+    @Published private(set) var locallyInvitedFriendIDs: Set<String> = []
     @Published var roomPushPending = false
     @Published var roomChoicePending = false
     @Published var roomPreparationStatus: String?
@@ -906,12 +907,22 @@ struct SoloGame {
     }
 
     func inviteFriend(_ profileID: String) async {
-        guard let id = roomID, !friendsLoading else { return }
+        guard let id = roomID, room?.phase == "lobby", !friendsLoading,
+              !hasInvitedFriend(profileID) else { return }
         friendsLoading = true; defer { friendsLoading = false }
         do {
             try await rooms.inviteFriend(roomID: id, profileID: profileID)
+            if roomID == id { locallyInvitedFriendIDs.insert(profileID) }
             roomNotice = "招待を送りました"
         } catch { alert = error.localizedDescription }
+    }
+
+    func hasInvitedFriend(_ profileID: String) -> Bool {
+        guard let roomID else { return false }
+        return locallyInvitedFriendIDs.contains(profileID) ||
+            friendsState?.sentInvites?.contains(where: {
+                $0.roomId == roomID && $0.targetId == profileID
+            }) == true
     }
 
     func joinInvite(_ inviteID: String) async {
@@ -976,6 +987,7 @@ struct SoloGame {
     }
 
     private func enterRoom(_ state: RoomState) {
+        locallyInvitedFriendIDs.removeAll()
         roomID = state.id
         UserDefaults.standard.set(state.id, forKey: "roomID")
         room = state
@@ -1383,6 +1395,7 @@ struct SoloGame {
         stopAudio()
         scheduledRoomAudio = nil
         room = nil; roomID = nil; rooms.clear()
+        locallyInvitedFriendIDs.removeAll()
         UserDefaults.standard.removeObject(forKey: "roomID")
         lastRoomPhase = nil; lastRoomRound = nil; preparedRoomRound = nil; roomAudioStarted = false; roomAudioStarting = false
     }

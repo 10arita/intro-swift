@@ -6,9 +6,7 @@ private enum MainTab { case play, review, friends, account }
 
 private struct SystemMusicVolumeSlider: UIViewRepresentable {
     func makeUIView(context: Context) -> MPVolumeView {
-        let view = MPVolumeView()
-        view.showsRouteButton = false
-        return view
+        MPVolumeView()
     }
 
     func updateUIView(_ view: MPVolumeView, context: Context) {}
@@ -1389,9 +1387,12 @@ struct FriendsView: View {
                                             if model.room?.players.contains(where: { $0.friendProfileId == friend.id }) == true {
                                                 Text("参加中").font(.caption).foregroundStyle(Studio.secondary)
                                             } else {
-                                                Button("招待") { Task { await model.inviteFriend(friend.id) } }
+                                                let invited = model.hasInvitedFriend(friend.id)
+                                                Button(invited ? "招待済み" : "招待") {
+                                                    Task { await model.inviteFriend(friend.id) }
+                                                }
                                                     .buttonStyle(SecondaryButtonStyle())
-                                                    .disabled(model.friendsLoading)
+                                                    .disabled(model.friendsLoading || invited)
                                             }
                                         }
                                     }

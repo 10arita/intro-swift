@@ -183,7 +183,13 @@ function publicFriends(profile) {
     invites: (profile.invites || []).filter(item => {
       const room = rooms.get(item.roomId);
       return room?.phase === 'lobby' && room.players.some(player => player.profileId === item.fromId);
-    }).map(item => ({ ...item, mode: rooms.get(item.roomId).mode }))
+    }).map(item => ({ ...item, mode: rooms.get(item.roomId).mode })),
+    sentInvites: (profile.friends || []).flatMap(targetId =>
+      (profiles.get(targetId)?.invites || []).filter(item => {
+        const room = rooms.get(item.roomId);
+        return item.fromId === profile.id && room?.phase === 'lobby' &&
+          room.players.some(player => player.profileId === profile.id);
+      }).map(item => ({ roomId: item.roomId, targetId })))
   };
 }
 function addPlayer(room, body, profileId) {
