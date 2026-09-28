@@ -6,6 +6,11 @@ import { handle, normalize, choices, server } from './index.mjs';
 test('title normalization and distractor priorities', () => {
   assert.equal(normalize('新時代 (ウタ from ONE PIECE) feat. A'), '新時代');
   assert.equal(normalize('Subtitle - Live Version'), 'SUBTITLE');
+  assert.equal(normalize('青い空♪- Live Version'), '青い空');
+  assert.equal(normalize('青い空（Live）'), '青い空');
+  assert.equal(normalize('青い空 feat. 歌手'), '青い空');
+  assert.equal(normalize('Defeat'), 'DEFEAT');
+  assert.equal(normalize('スーパー・スター☆'), 'スパスタ');
   const option = choices('花', '青', ['青花', '青空', '花火', '春風']);
   assert.equal(option.length, 4);
   assert.equal(new Set(option).size, 4);
@@ -32,6 +37,44 @@ test('title normalization and distractor priorities', () => {
   const fallback = choices('C', 'ZZ', []);
   assert.equal(fallback.length, 4);
   assert.ok(fallback.every(char => /^[A-Z]$/.test(char)));
+});
+
+test('room friends require approval and invitations join without entering a code', () => {
+  const query = new URLSearchParams();
+  const alice = handle('POST', '/profile', { id: 'friend-alice' }, query).body;
+  const bob = handle('POST', '/profile', { id: 'friend-bob' }, query).body;
+  const charlie = handle('POST', '/profile', { id: 'friend-charlie' }, query).body;
+  const room = handle('POST', '/rooms', { playerId: 'friend-alice', profileId: alice.id,
+    profileToken: alice.token, name: 'Alice', settings: { questionCount: 1 } }, query).body;
+  const roomPath = `/rooms/${room.id}`;
+  const guest = handle('POST', `${roomPath}/join`, { playerId: 'friend-bob', profileId: bob.id,
+    profileToken: bob.token, name: 'Bob' }, query).body;
+  const asAlice = (action, payload = {}) => handle('POST', `${roomPath}/${action}`,
+    { playerId: 'friend-alice', ...payload }, query, `Bearer ${room.sessionToken}`);
+  const asBob = (action, payload = {}) => handle('POST', `${roomPath}/${action}`,
+    { playerId: 'friend-bob', ...payload }, query, `Bearer ${guest.sessionToken}`);
+  assert.equal(asAlice('invite', { targetProfileId: bob.id }).status, 403);
+  assert.equal(asAlice('friend-request', { targetId: 'friend-charlie' }).status, 400);
+  assert.equal(asAlice('friend-request', { targetId: 'friend-bob' }).status, 200);
+  assert.equal(asAlice('friend-request', { targetId: 'friend-bob' }).status, 409);
+  const bobList = handle('GET', '/friends', {}, new URLSearchParams({ profileId: bob.id }), `Bearer ${bob.token}`);
+  assert.equal(bobList.body.requests.length, 1);
+  assert.equal(handle('GET', '/friends', {}, new URLSearchParams({ profileId: bob.id }), `Bearer ${charlie.token}`).status, 403);
+  assert.equal(handle('POST', '/friends/accept', { profileId: bob.id,
+    requestId: bobList.body.requests[0].id }, query, `Bearer ${bob.token}`).status, 200);
+  assert.equal(asAlice('invite', { targetProfileId: bob.id }).status, 409);
+  assert.equal(asBob('leave').status, 200);
+  assert.equal(asAlice('invite', { targetProfileId: bob.id }).status, 200);
+  const invitation = handle('GET', '/friends', {}, new URLSearchParams({ profileId: bob.id }), `Bearer ${bob.token}`).body.invites[0];
+  assert.ok(invitation.id);
+  const accepted = handle('POST', '/friends/invites/join', { profileId: bob.id,
+    inviteId: invitation.id, playerId: 'friend-bob', name: 'Bob' }, query, `Bearer ${bob.token}`);
+  assert.equal(accepted.status, 200);
+  assert.equal(accepted.body.id, room.id);
+  assert.ok(accepted.body.sessionToken);
+  assert.equal(accepted.body.players.find(player => player.id === 'friend-alice').friendStatus, 'friend');
+  assert.equal(accepted.body.players.find(player => player.id === 'friend-alice').friendProfileId, alice.id);
+  assert.equal(handle('GET', '/friends', {}, new URLSearchParams({ profileId: bob.id }), `Bearer ${bob.token}`).body.invites.length, 0);
 });
 
 test('catalog exposes only configured original audio', () => {

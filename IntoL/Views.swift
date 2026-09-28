@@ -2,7 +2,7 @@ import SwiftUI
 import PhotosUI
 import MediaPlayer
 
-private enum MainTab { case play, review, account }
+private enum MainTab { case play, review, friends, account }
 
 private struct SystemMusicVolumeSlider: UIViewRepresentable {
     func makeUIView(context: Context) -> MPVolumeView {
@@ -107,6 +107,7 @@ struct RootView: View {
             switch selectedTab {
             case .play: PlayView(homeToken: playHomeToken)
             case .review: ReviewView()
+            case .friends: FriendsView()
             case .account: AccountView()
             }
         }
@@ -165,6 +166,7 @@ struct RootView: View {
         HStack(spacing: spacing) {
             tabButton("プレイ", symbol: "waveform", tab: .play)
             tabButton("復習", symbol: "bookmark", tab: .review)
+            tabButton("フレンド", symbol: "person.2", tab: .friends)
             tabButton("アカウント", symbol: "person.crop.circle", tab: .account)
         }
     }
@@ -1288,6 +1290,144 @@ private struct ReviewSongRow: View {
     }
 }
 
+struct FriendsView: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+    var inRoomSheet = false
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    HStack {
+                        Text("フレンド")
+                            .font(.system(size: 36, weight: .bold, design: .rounded))
+                            .foregroundStyle(Studio.primary)
+                        Spacer()
+                        Button { Task { await model.refreshFriends() } } label: {
+                            Image(systemName: "arrow.clockwise").frame(width: 44, height: 44)
+                        }
+                        .accessibilityLabel("フレンド情報を更新")
+                        .disabled(!model.serverConfigured)
+                        if inRoomSheet {
+                            Button("閉じる") { dismiss() }
+                                .frame(minWidth: 44, minHeight: 44)
+                        }
+                    }
+                    if !model.serverConfigured {
+                        StudioCard {
+                            Text("フレンド機能には対戦サーバーへの接続が必要です")
+                                .foregroundStyle(Studio.secondary)
+                        }
+                    } else if let state = model.friendsState {
+                        StudioCard {
+                            VStack(alignment: .leading, spacing: 12) {
+                                SectionCaption(title: "ルーム招待")
+                                if state.invites.isEmpty {
+                                    Text("届いている招待はありません").foregroundStyle(Studio.secondary)
+                                }
+                                ForEach(state.invites) { invite in
+                                    HStack(spacing: 10) {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(invite.fromName).font(.subheadline.bold())
+                                            Text("\(invite.mode == "shared" ? "共有音源" : invite.mode == "applemusic" ? "Apple Music" : invite.mode == "spotify" ? "Spotify" : "サビトロ") のルーム")
+                                                .font(.caption).foregroundStyle(Studio.secondary)
+                                        }
+                                        Spacer()
+                                        Button("参加") { Task { await model.joinInvite(invite.id) } }
+                                            .buttonStyle(SecondaryButtonStyle())
+                                            .disabled(model.busy || model.room != nil)
+                                    }
+                                    .frame(minHeight: 44)
+                                    if invite.id != state.invites.last?.id { Divider() }
+                                }
+                                if model.room != nil && !state.invites.isEmpty {
+                                    Text("別のルームに参加するには、現在のルームを退出してください")
+                                        .font(.caption).foregroundStyle(Studio.secondary)
+                                }
+                            }
+                        }
+                        StudioCard {
+                            VStack(alignment: .leading, spacing: 12) {
+                                SectionCaption(title: "フレンド申請")
+                                if state.requests.isEmpty {
+                                    Text("届いている申請はありません").foregroundStyle(Studio.secondary)
+                                }
+                                ForEach(state.requests) { request in
+                                    HStack(spacing: 8) {
+                                        Text(request.fromName).font(.subheadline.bold())
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                        Button("承認") {
+                                            Task { await model.respondToFriendRequest(request.id, accept: true) }
+                                        }
+                                        .buttonStyle(SecondaryButtonStyle())
+                                        Button("拒否") {
+                                            Task { await model.respondToFriendRequest(request.id, accept: false) }
+                                        }
+                                        .font(.subheadline).foregroundStyle(Studio.secondary)
+                                    }
+                                    .frame(minHeight: 44)
+                                    .disabled(model.friendsLoading)
+                                    if request.id != state.requests.last?.id { Divider() }
+                                }
+                            }
+                        }
+                        StudioCard {
+                            VStack(alignment: .leading, spacing: 12) {
+                                SectionCaption(title: "フレンドリスト")
+                                if state.friends.isEmpty {
+                                    Text("同じルームのプレイヤーに申請を送ると、ここに表示されます")
+                                        .foregroundStyle(Studio.secondary)
+                                }
+                                ForEach(state.friends) { friend in
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "person.crop.circle")
+                                            .foregroundStyle(Studio.accent)
+                                        Text(friend.name).font(.subheadline.bold())
+                                        Spacer()
+                                        if model.room?.phase == "lobby" {
+                                            if model.room?.players.contains(where: { $0.friendProfileId == friend.id }) == true {
+                                                Text("参加中").font(.caption).foregroundStyle(Studio.secondary)
+                                            } else {
+                                                Button("招待") { Task { await model.inviteFriend(friend.id) } }
+                                                    .buttonStyle(SecondaryButtonStyle())
+                                                    .disabled(model.friendsLoading)
+                                            }
+                                        }
+                                    }
+                                    .frame(minHeight: 44)
+                                    if friend.id != state.friends.last?.id { Divider() }
+                                }
+                                if model.room == nil {
+                                    Text("ルームを作成するとフレンドを招待できます")
+                                        .font(.caption).foregroundStyle(Studio.secondary)
+                                }
+                            }
+                        }
+                    } else {
+                        ProgressView("フレンドを読み込み中")
+                            .frame(maxWidth: .infinity, minHeight: 120)
+                    }
+                }
+                .padding(20)
+                .frame(maxWidth: 640)
+                .frame(maxWidth: .infinity)
+            }
+            .background(Studio.background)
+            .toolbar(.hidden, for: .navigationBar)
+            .refreshable { await model.refreshFriends() }
+            .task {
+                await model.refreshFriends()
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(10))
+                    if Task.isCancelled { break }
+                    await model.refreshFriends(reportErrors: false)
+                }
+            }
+        }
+    }
+}
+
 struct AccountView: View {
     @EnvironmentObject private var model: AppModel
     @State private var showRecords = false
@@ -1580,6 +1720,7 @@ struct RoomGameView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showVolumeSettings = false
+    @State private var showFriends = false
 
     var body: some View {
         ZStack {
@@ -1600,6 +1741,14 @@ struct RoomGameView: View {
                                 .tracking(2)
                                 .foregroundStyle(Studio.accent)
                                 .textSelection(.enabled)
+                            Button { showFriends = true } label: {
+                                Image(systemName: "person.2")
+                                    .font(.system(size: 17, weight: .medium))
+                                    .foregroundStyle(Studio.primary)
+                                    .frame(width: 44, height: 44)
+                                    .background(Studio.surface, in: Circle())
+                            }
+                            .accessibilityLabel("フレンドと招待")
                             GameVolumeButton { showVolumeSettings = true }
                         }
                         .padding(.horizontal, 24)
@@ -1713,6 +1862,11 @@ struct RoomGameView: View {
         .sheet(isPresented: $showVolumeSettings) {
             GameVolumeSettingsSheet()
                 .environmentObject(model)
+        }
+        .sheet(isPresented: $showFriends) {
+            FriendsView(inRoomSheet: true)
+                .environmentObject(model)
+                .presentationDetents([.large])
         }
     }
 
@@ -1857,6 +2011,11 @@ struct RoomGameView: View {
                     .font(.subheadline.bold())
                     .foregroundStyle(Studio.accent)
             }
+            Button { showFriends = true } label: {
+                Label("フレンドを招待", systemImage: "person.crop.circle.badge.plus")
+                    .font(.subheadline.bold()).foregroundStyle(Studio.accent)
+                    .frame(minHeight: 44)
+            }
             Text("画像と音源の準備: \((room.assetsReadyIds ?? []).count) / \(room.players.count) 人")
                 .font(.subheadline).foregroundStyle(Studio.secondary)
             if let status = model.roomPreparationStatus {
@@ -1905,7 +2064,12 @@ struct RoomGameView: View {
 
     private func compactPlayers(_ room: RoomState) -> some View {
         let pushOrder = room.pushOrderIds ?? room.pushedIds
-        let players = room.phase == "finished" ? room.players.sorted { $0.score > $1.score } :
+        let players = room.phase == "finished" ? room.players.sorted {
+            if $0.disqualified != $1.disqualified { return !$0.disqualified }
+            if $0.score != $1.score { return $0.score > $1.score }
+            if $0.lives != $1.lives { return $0.lives > $1.lives }
+            return $0.id < $1.id
+        } :
             pushOrder.compactMap { room.player($0) } + room.players.filter { !pushOrder.contains($0.id) }
         return HStack(alignment: .top, spacing: 5) {
             ForEach(Array(players.enumerated()), id: \.element.id) { index, player in
@@ -1930,6 +2094,17 @@ struct RoomGameView: View {
                     HStack(spacing: 2) {
                         Menu {
                             Text(player.badge ?? "称号未設定")
+                            if player.friendStatus == "available" {
+                                Button("フレンド申請を送る", systemImage: "person.badge.plus") {
+                                    Task { await model.sendFriendRequest(to: player.id) }
+                                }
+                            } else if player.friendStatus == "incoming" {
+                                Button("フレンド申請を確認", systemImage: "person.2") { showFriends = true }
+                            } else if player.friendStatus == "outgoing" {
+                                Text("フレンド申請中")
+                            } else if player.friendStatus == "friend" {
+                                Text("フレンド")
+                            }
                         } label: {
                             HStack(spacing: 3) {
                                 PlayerAvatarView(data: localAvatar, size: 18, encoded: player.avatar)

@@ -59,7 +59,7 @@ const streams = new Map();
 const sockets = new Map();
 const roomTimers = new Map();
 const socketServer = new WebSocketServer({ noServer: true, perMessageDeflate: false, maxPayload: 8_192, clientTracking: false });
-const socketActions = new Set(['assets-ready', 'assets-unready', 'ready', 'start', 'push', 'choose', 'skip', 'next', 'transfer']);
+const socketActions = new Set(['assets-ready', 'assets-unready', 'ready', 'start', 'push', 'choose', 'skip', 'next', 'transfer', 'friend-request', 'invite']);
 const forbidden = new Set([...'っゃゅょぁぃぅぇぉゎッャュョァィゥェォヮー']);
 const pools = [
   [...'あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをん'],
@@ -68,11 +68,8 @@ const pools = [
   [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'], [...'0123456789']
 ];
 export function normalize(title) {
-  return String(title).replace(/\([^)]*\)|（[^）]*）/g, '')
-    .replace(/\s+(?:feat\.?|featuring)\s+.*$/i, '')
-    .replace(/\s+-\s+.*$/, '')
-    .normalize('NFKC').toUpperCase()
-    .replace(/[^0-9A-Z\u3040-\u30ff\u3400-\u9fff\u3005\u3006]/g, '');
+  return String(title).normalize('NFKC').split(/(?:-|\(|(?<![A-Za-z])feat(?![A-Za-z]))/i, 1)[0]
+    .toUpperCase().replace(/[^0-9A-Z\u3040-\u30fa\u30fd-\u30ff\u3400-\u9fff\u3005\u3006]/g, '');
 }
 function kind(char) {
   const n = char.codePointAt(0);
@@ -146,9 +143,15 @@ function playerAvatar(value) {
   return bytes.length <= 12_000 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
     ? value : null;
 }
-function publicPlayer(player, room) {
+function publicPlayer(player, room, viewer) {
   const attempt = room.answers.find(answer => answer.playerId === player.id);
   const push = room.pushAttempts.find(item => item.playerId === player.id);
+  const owner = profiles.get(viewer?.profileId);
+  const target = profiles.get(player.profileId);
+  const friendStatus = !owner || !target || owner.id === target.id ? null :
+    (owner.friends || []).includes(target.id) ? 'friend' :
+    (owner.friendRequests || []).some(item => item.fromId === target.id) ? 'incoming' :
+    (target.friendRequests || []).some(item => item.fromId === owner.id) ? 'outgoing' : 'available';
   return { id: player.id, name: player.name, score: player.score, lives: player.lives,
     correctCount: player.correctCount ?? 0, wrongCount: player.wrongCount ?? 0,
     roundResults: player.roundResults || [],
@@ -157,9 +160,41 @@ function publicPlayer(player, room) {
     pushTimeMS: attempt?.pushTimeMS ?? push?.pushTimeMS ?? null,
     disqualified: player.disqualified, connected: Date.now() - player.lastSeen < GRACE,
     isHost: player.id === room.hostId, joinedAt: player.joinedAt, badge: player.badge || null,
-    avatar: player.avatar || null };
+    avatar: player.avatar || null, friendStatus,
+    friendProfileId: friendStatus === 'friend' ? target.id : null };
 }
 function currentSong(room) { return room.songs[room.round]; }
+function profileFrom(id, secret) {
+  const profile = profiles.get(String(id || ''));
+  return profile && profile.secret === secret ? profile : null;
+}
+function authorizedProfile(body, authorization) {
+  return profileFrom(body.profileId, authorization?.replace(/^Bearer /, ''));
+}
+function profileIdentity(body) {
+  return profileFrom(body.profileId, body.profileToken)?.id || null;
+}
+function publicFriends(profile) {
+  return {
+    friends: (profile.friends || []).map(id => profiles.get(id)).filter(Boolean)
+      .map(friend => ({ id: friend.id, name: friend.name || friend.id })),
+    requests: (profile.friendRequests || []).filter(item => profiles.has(item.fromId)),
+    invites: (profile.invites || []).filter(item => {
+      const room = rooms.get(item.roomId);
+      return room?.phase === 'lobby' && room.players.some(player => player.profileId === item.fromId);
+    }).map(item => ({ ...item, mode: rooms.get(item.roomId).mode }))
+  };
+}
+function addPlayer(room, body, profileId) {
+  const player = { id: String(body.playerId), secret: randomUUID(), profileId,
+    name: String(body.name || 'プレイヤー').trim().slice(0, 24),
+    badge: String(body.badge || '').slice(0, 24), avatar: playerAvatar(body.avatar), score: 0,
+    correctCount: 0, wrongCount: 0, roundResults: [], lives: room.settings.lives,
+    disqualified: false, joinedAt: Date.now(), lastSeen: Date.now() };
+  room.players.push(player);
+  if (profileId) profiles.get(profileId).name = player.name;
+  return player;
+}
 function reveal(room) {
   if (room.phase === 'reveal') return;
   const correct = new Set(room.correctPlayerIDs);
@@ -294,7 +329,7 @@ function snapshot(room, playerId) {
     supportsChoiceRetry: true,
     sequence: room.snapshotSequence,
     totalRounds: room.songs.length,
-    settings: room.settings, players: room.players.map(p => publicPlayer(p, room)),
+    settings: room.settings, players: room.players.map(p => publicPlayer(p, room, room.players.find(item => item.id === playerId))),
     serverNow: Date.now(), startAt: room.startAt, roundDeadline: room.roundDeadline,
     pausedAt: room.pausedAt, pausedPositionMS: room.pausedPositionMS,
     pushClosed: room.pushClosed, audioStoppedAt: room.audioStoppedAt,
@@ -346,6 +381,42 @@ export function handle(method, path, body, query, authorization, origin = 'https
     const { secret, ...safe } = profile;
     return { status: 200, body: safe };
   }
+  if (path === '/friends' && method === 'GET') {
+    const profile = profileFrom(query.get('profileId'), authorization?.replace(/^Bearer /, ''));
+    return profile ? { status: 200, body: publicFriends(profile) } : fail(403, 'プロフィールを確認できません');
+  }
+  if (path === '/friends/accept' && method === 'POST') {
+    const profile = authorizedProfile(body, authorization);
+    if (!profile) return fail(403, 'プロフィールを確認できません');
+    const request = (profile.friendRequests || []).find(item => item.id === body.requestId);
+    const sender = request && profiles.get(request.fromId);
+    if (!sender) return fail(404, 'フレンド申請が見つかりません');
+    profile.friendRequests = profile.friendRequests.filter(item => item.id !== request.id);
+    profile.friends = [...new Set([...(profile.friends || []), sender.id])];
+    sender.friends = [...new Set([...(sender.friends || []), profile.id])];
+    return { status: 200, body: publicFriends(profile) };
+  }
+  if (path === '/friends/decline' && method === 'POST') {
+    const profile = authorizedProfile(body, authorization);
+    if (!profile) return fail(403, 'プロフィールを確認できません');
+    profile.friendRequests = (profile.friendRequests || []).filter(item => item.id !== body.requestId);
+    return { status: 200, body: publicFriends(profile) };
+  }
+  if (path === '/friends/invites/join' && method === 'POST') {
+    const profile = authorizedProfile(body, authorization);
+    if (!profile) return fail(403, 'プロフィールを確認できません');
+    const invite = (profile.invites || []).find(item => item.id === body.inviteId);
+    const room = invite && rooms.get(invite.roomId);
+    if (!room || room.phase !== 'lobby' || !room.players.some(player => player.profileId === invite.fromId))
+      return fail(409, '招待されたルームには参加できません');
+    if (room.players.length >= 4) return fail(409, '満員です');
+    const id = String(body.playerId || '');
+    if (!/^[A-Za-z0-9-]{1,64}$/.test(id)) return fail(400, 'プレイヤー情報が無効です');
+    if (room.players.some(player => player.id === id)) return fail(409, '既に参加しています');
+    const player = addPlayer(room, body, profile.id);
+    profile.invites = profile.invites.filter(item => item.id !== invite.id);
+    return { status: 200, body: { ...snapshot(room, id), sessionToken: player.secret } };
+  }
   if (method === 'GET' && path === '/catalog') {
     return { status: 200, body: { songs: catalogSongs(origin) } };
   }
@@ -372,16 +443,17 @@ export function handle(method, path, body, query, authorization, origin = 'https
     const s = settings(body.settings);
     if (songs.length < s.questionCount) return fail(400, `問題数分の曲がありません（利用可能: ${songs.length}曲）`);
     const room = { id, mode, settings: s, songs: shuffled(songs).slice(0, s.questionCount), corpus: [...new Set([...songs.map(song => song.title), ...seedTitles, ...(Array.isArray(body.corpus) ? body.corpus.filter(s => typeof s === 'string').slice(0, 500) : [])])], phase: 'lobby', round: -1,
-      hostId: String(body.playerId), players: [{ id: String(body.playerId), secret: randomUUID(), name: String(body.name).trim().slice(0, 24),
+      hostId: String(body.playerId), players: [{ id: String(body.playerId), secret: randomUUID(), profileId: profileIdentity(body), name: String(body.name).trim().slice(0, 24),
         badge: String(body.badge || '').slice(0, 24), avatar: playerAvatar(body.avatar), score: 0, correctCount: 0, wrongCount: 0,
         roundResults: [], lives: s.lives, disqualified: false, joinedAt: Date.now(), lastSeen: Date.now() }],
       pushed: new Set(), pushAttempts: [], skipped: new Set(), readyIds: new Set(), assetsReadyIds: new Set(), startAt: null, roundDeadline: null,
       pausedAt: null, pausedPositionMS: null, pushClosed: false, audioStoppedAt: null,
       answers: [], correctPlayerID: null, correctPlayerIDs: [], firstWrongDone: false };
     rooms.set(id, room);
+    if (room.players[0].profileId) profiles.get(room.players[0].profileId).name = room.players[0].name;
     return { status: 201, body: { ...snapshot(room, String(body.playerId)), sessionToken: room.players[0].secret } };
   }
-  const match = path.match(/^\/rooms\/([A-Z]{6})(?:\/(join|heartbeat|assets-ready|assets-unready|ready|start|push|choose|skip|next|leave|transfer))?$/);
+  const match = path.match(/^\/rooms\/([A-Z]{6})(?:\/(join|heartbeat|assets-ready|assets-unready|ready|start|push|choose|skip|next|leave|transfer|bind-profile|friend-request|invite))?$/);
   if (!match) return fail(404, '見つかりません');
   const room = rooms.get(match[1]); if (!room) return fail(404, 'ルームが見つかりません');
   refresh(room);
@@ -394,17 +466,42 @@ export function handle(method, path, body, query, authorization, origin = 'https
       if (room.phase !== 'lobby') return fail(409, '開始後は参加できません');
       if (room.players.length >= 4) return fail(409, '満員です');
       if (!/^[A-Za-z0-9-]{1,64}$/.test(playerId)) return fail(400, 'プレイヤー情報が無効です');
-      player = { id: playerId, secret: randomUUID(), name: String(body.name || 'プレイヤー').trim().slice(0, 24),
-        badge: String(body.badge || '').slice(0, 24), avatar: playerAvatar(body.avatar), score: 0, correctCount: 0, wrongCount: 0,
-        roundResults: [], lives: room.settings.lives, disqualified: false, joinedAt: Date.now(), lastSeen: Date.now() };
-      room.players.push(player);
+      player = addPlayer(room, body, profileIdentity(body));
       newlyJoined = true;
     }
   }
   if (!player) return fail(403, '参加していません');
   if (!newlyJoined && player.secret !== authorization?.replace(/^Bearer /, '')) return fail(403, 'セッションを確認できません');
   player.lastSeen = Date.now();
-  if (action === 'start') {
+  if (action === 'bind-profile') {
+    const profile = profileFrom(body.profileId, body.profileToken);
+    if (!profile) return fail(403, 'プロフィールを確認できません');
+    player.profileId = profile.id;
+    profile.name = player.name;
+  } else if (action === 'friend-request') {
+    const sender = profiles.get(player.profileId);
+    const targetPlayer = room.players.find(item => item.id === body.targetId);
+    const target = profiles.get(targetPlayer?.profileId);
+    if (!sender || !target || sender.id === target.id) return fail(400, '申請先を確認できません');
+    if ((sender.friends || []).includes(target.id)) return fail(409, '既にフレンドです');
+    if ((target.friendRequests || []).some(item => item.fromId === sender.id)) return fail(409, '申請済みです');
+    target.friendRequests ||= [];
+    target.friendRequests.push({ id: randomUUID(), fromId: sender.id, fromName: player.name,
+      roomId: room.id, createdAt: Date.now() });
+    target.friendRequests = target.friendRequests.slice(-50);
+  } else if (action === 'invite') {
+    const sender = profiles.get(player.profileId);
+    const target = profiles.get(String(body.targetProfileId || ''));
+    if (!sender || !target || !(sender.friends || []).includes(target.id)) return fail(403, 'フレンドのみ招待できます');
+    if (room.phase !== 'lobby') return fail(409, 'ルーム作成後、開始前に招待できます');
+    if (room.players.length >= 4) return fail(409, '満員です');
+    if (room.players.some(item => item.profileId === target.id)) return fail(409, '既に同じルームにいます');
+    target.invites ||= [];
+    if (target.invites.some(item => item.fromId === sender.id && item.roomId === room.id)) return fail(409, '招待済みです');
+    target.invites.push({ id: randomUUID(), fromId: sender.id, fromName: player.name,
+      roomId: room.id, createdAt: Date.now() });
+    target.invites = target.invites.slice(-50);
+  } else if (action === 'start') {
     if (room.hostId !== playerId || room.phase !== 'lobby') return fail(403, 'ホストのみ開始できます');
     if (room.players.some(p => !room.assetsReadyIds?.has(p.id))) return fail(409, '全員の画像と音源の準備が終わるまでお待ちください');
     beginRound(room);
@@ -513,6 +610,8 @@ function send(response, status, body) {
 function roomSignature(room) {
   return JSON.stringify({
     phase: room.phase, round: room.round, hostId: room.hostId,
+    friendship: room.players.map(({ profileId }) => [profileId,
+      profiles.get(profileId)?.friends, profiles.get(profileId)?.friendRequests?.map(item => item.id)]),
     players: room.players.map(({ id, score, lives, disqualified, correctCount, wrongCount, roundResults }) =>
       [id, score, lives, disqualified, correctCount, wrongCount, roundResults]),
     ready: [...room.readyIds], assetsReady: [...room.assetsReadyIds],
@@ -726,6 +825,15 @@ export const server = createServer(async (request, response) => {
       else {
         if (roomSignature(room) !== before) publishRoom(room);
         scheduleRoom(room);
+      }
+    }
+    if (request.method === 'POST' && url.pathname === '/friends/invites/join' && result.status === 200) {
+      const room = rooms.get(result.body.id);
+      if (room) { publishRoom(room); scheduleRoom(room); }
+    }
+    if (request.method === 'POST' && url.pathname === '/friends/accept' && result.status === 200) {
+      for (const room of rooms.values()) {
+        if (room.players.some(player => player.profileId === body.profileId)) publishRoom(room);
       }
     }
     if (result.status === 201 && request.method === 'POST' && url.pathname === '/rooms' && result.body.mode === 'spotify') {

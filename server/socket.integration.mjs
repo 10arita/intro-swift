@@ -42,9 +42,13 @@ test('WebSocket actions and state broadcasts share one authenticated connection'
     return response.json();
   };
   try {
+    const hostProfile = await post('/profile', { id: 'socket-host' });
+    const guestProfile = await post('/profile', { id: 'socket-guest' });
     const room = await post('/rooms', { playerId: 'socket-host', name: 'Host',
+      profileId: hostProfile.id, profileToken: hostProfile.token,
       settings: { questionCount: 1, answerSlots: 1, targetScore: 0 } });
-    const guest = await post(`/rooms/${room.id}/join`, { playerId: 'socket-guest', name: 'Guest' });
+    const guest = await post(`/rooms/${room.id}/join`, { playerId: 'socket-guest', name: 'Guest',
+      profileId: guestProfile.id, profileToken: guestProfile.token });
     const denied = new WebSocket(`${base.replace('http:', 'ws:')}/rooms/${room.id}/socket?playerId=socket-guest`,
       { headers: { Authorization: `Bearer ${room.sessionToken}` } });
     denied.on('error', () => {});
@@ -71,6 +75,17 @@ test('WebSocket actions and state broadcasts share one authenticated connection'
       client.socket.send(JSON.stringify({ type: 'action', id, action: name, payload }));
       return client.next(message => message.id === id && ['result', 'error'].includes(message.type));
     };
+
+    const request = await action(host, 'friend-request', { targetId: 'socket-guest' });
+    assert.equal(request.type, 'result');
+    const pending = await fetch(`${base}/friends?profileId=${guestProfile.id}`, {
+      headers: { Authorization: `Bearer ${guestProfile.token}` }
+    }).then(response => response.json());
+    assert.equal(pending.requests.length, 1);
+    await post('/friends/accept', { profileId: guestProfile.id,
+      requestId: pending.requests[0].id }, guestProfile.token);
+    const invite = await action(host, 'invite', { targetProfileId: guestProfile.id });
+    assert.equal(invite.status, 409); // This friend is already in the room.
 
     const ready = await action(host, 'assets-ready');
     assert.equal(ready.type, 'result');

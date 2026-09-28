@@ -66,6 +66,8 @@ struct SoloGame {
     @Published var roomSecondsLeft = 30.0
     @Published var roomError: String?
     @Published var roomNotice: String?
+    @Published var friendsState: FriendsState?
+    @Published var friendsLoading = false
     @Published var roomPushPending = false
     @Published var roomChoicePending = false
     @Published var roomPreparationStatus: String?
@@ -876,6 +878,73 @@ struct SoloGame {
                 }
             }
             enterRoom(state)
+        } catch { alert = error.localizedDescription }
+    }
+
+    func refreshFriends(reportErrors: Bool = true) async {
+        guard serverConfigured else { return }
+        rooms.baseURL = serverURL
+        do { friendsState = try await rooms.friends() }
+        catch { if reportErrors { alert = error.localizedDescription } }
+    }
+
+    func respondToFriendRequest(_ id: String, accept: Bool) async {
+        guard !friendsLoading else { return }
+        friendsLoading = true; defer { friendsLoading = false }
+        do { friendsState = try await rooms.respondToFriendRequest(id, accept: accept) }
+        catch { alert = error.localizedDescription }
+    }
+
+    func sendFriendRequest(to playerID: String) async {
+        guard let id = roomID, !friendsLoading else { return }
+        friendsLoading = true; defer { friendsLoading = false }
+        do {
+            receiveNetworkRoom(try await rooms.sendFriendRequest(roomID: id, targetID: playerID))
+            roomNotice = "フレンド申請を送りました"
+        }
+        catch { alert = error.localizedDescription }
+    }
+
+    func inviteFriend(_ profileID: String) async {
+        guard let id = roomID, !friendsLoading else { return }
+        friendsLoading = true; defer { friendsLoading = false }
+        do {
+            try await rooms.inviteFriend(roomID: id, profileID: profileID)
+            roomNotice = "招待を送りました"
+        } catch { alert = error.localizedDescription }
+    }
+
+    func joinInvite(_ inviteID: String) async {
+        guard !busy, room == nil else { return }
+        busy = true; defer { busy = false }
+        rooms.baseURL = serverURL
+        do {
+            if let mode = friendsState?.invites.first(where: { $0.id == inviteID })?.mode {
+                if mode == "spotify" {
+                    guard spotifyConnected, (try await spotify.account()).isPremium else {
+                        throw AppError.message("このルームには Spotify Premium の連携が必要です")
+                    }
+                } else if mode == "applemusic" {
+                    guard appleMusicConnected, try await appleMusic.canPlay() else {
+                        throw AppError.message("このルームには Apple Music の接続とサブスクリプションが必要です")
+                    }
+                }
+            }
+            let state = try await rooms.joinInvite(inviteID, name: nickname,
+                                                    badge: stats.selectedBadge, avatar: roomAvatar)
+            if state.mode == "spotify" {
+                guard spotifyConnected, (try await spotify.account()).isPremium else {
+                    _ = try? await rooms.action("leave", id: state.id)
+                    throw AppError.message("このルームには Spotify Premium の連携が必要です")
+                }
+            } else if state.mode == "applemusic" {
+                guard appleMusicConnected, try await appleMusic.canPlay() else {
+                    _ = try? await rooms.action("leave", id: state.id)
+                    throw AppError.message("このルームには Apple Music の接続とサブスクリプションが必要です")
+                }
+            }
+            enterRoom(state)
+            await refreshFriends()
         } catch { alert = error.localizedDescription }
     }
 

@@ -32,3 +32,39 @@ test('profile and active room are restored from DATA_DIR', () => {
     assert.deepEqual(second, { profile: 200, room: 200, roomID: first.roomID });
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
+
+test('approved friends and room invitations survive a server restart', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'intol-friends-'));
+  try {
+    const first = run(`
+      import { handle, saveStateNow } from './index.mjs';
+      const q = new URLSearchParams();
+      const a = handle('POST', '/profile', { id: 'saved-friend-a' }, q).body;
+      const b = handle('POST', '/profile', { id: 'saved-friend-b' }, q).body;
+      const room = handle('POST', '/rooms', { playerId: 'saved-friend-a', name: 'A',
+        profileId: a.id, profileToken: a.token, settings: { questionCount: 1 } }, q).body;
+      const guest = handle('POST', '/rooms/' + room.id + '/join', { playerId: 'saved-friend-b',
+        name: 'B', profileId: b.id, profileToken: b.token }, q).body;
+      handle('POST', '/rooms/' + room.id + '/friend-request', { playerId: a.id,
+        targetId: b.id }, q, 'Bearer ' + room.sessionToken);
+      const request = handle('GET', '/friends', {}, new URLSearchParams({ profileId: b.id }),
+        'Bearer ' + b.token).body.requests[0];
+      handle('POST', '/friends/accept', { profileId: b.id, requestId: request.id }, q,
+        'Bearer ' + b.token);
+      handle('POST', '/rooms/' + room.id + '/leave', { playerId: b.id }, q,
+        'Bearer ' + guest.sessionToken);
+      handle('POST', '/rooms/' + room.id + '/invite', { playerId: a.id,
+        targetProfileId: b.id }, q, 'Bearer ' + room.sessionToken);
+      saveStateNow();
+      console.log(JSON.stringify({ token: b.token }));
+    `, directory);
+    const second = run(`
+      import { handle } from './index.mjs';
+      const result = handle('GET', '/friends', {}, new URLSearchParams({ profileId: 'saved-friend-b' }),
+        'Bearer ${first.token}');
+      console.log(JSON.stringify({ status: result.status, friends: result.body.friends.length,
+        invites: result.body.invites.length }));
+    `, directory);
+    assert.deepEqual(second, { status: 200, friends: 1, invites: 1 });
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});

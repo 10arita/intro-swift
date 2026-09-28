@@ -27,6 +27,36 @@ struct RoomPlayer: Decodable, Identifiable {
     let isHost: Bool
     let badge: String?
     let avatar: String?
+    let friendStatus: String?
+    let friendProfileId: String?
+}
+
+struct FriendEntry: Decodable, Identifiable {
+    let id: String
+    let name: String
+}
+
+struct FriendRequest: Decodable, Identifiable {
+    let id: String
+    let fromId: String
+    let fromName: String
+    let roomId: String
+    let createdAt: Double
+}
+
+struct RoomInvite: Decodable, Identifiable {
+    let id: String
+    let fromId: String
+    let fromName: String
+    let roomId: String
+    let mode: String
+    let createdAt: Double
+}
+
+struct FriendsState: Decodable {
+    let friends: [FriendEntry]
+    let requests: [FriendRequest]
+    let invites: [RoomInvite]
 }
 
 struct RoomCurrent: Decodable {
@@ -206,13 +236,13 @@ struct SavedProfile: Decodable {
         }
     }
 
-    private func request(_ path: String, method: String = "GET", payload: [String: Any] = [:]) async throws -> RoomState {
+    private func request(_ path: String, method: String = "GET", payload: [String: Any] = [:], authentication: String? = nil) async throws -> RoomState {
         var url = try endpoint(path)
         if method == "GET" { url.append(queryItems: [URLQueryItem(name: "playerId", value: playerId)]) }
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.timeoutInterval = path.hasSuffix("/choose") ? 2.5 : 10
-        if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        if let authentication = authentication ?? token { request.setValue("Bearer \(authentication)", forHTTPHeaderField: "Authorization") }
         if method != "GET" {
             var body = payload
             body["playerId"] = playerId
@@ -239,6 +269,7 @@ struct SavedProfile: Decodable {
     }
 
     func create(name: String, settings: RoomSettings, mode: String = "shared", songs: [Song] = [], corpus: [String] = [], badge: String? = nil, avatar: String? = nil) async throws -> RoomState {
+        let identity = try? await profileCredentials()
         supportsChoiceRetry = false
         token = nil
         Secrets.set(nil, for: "roomSessionToken")
@@ -247,16 +278,17 @@ struct SavedProfile: Decodable {
         let rule = try JSONSerialization.jsonObject(with: settingsData)
         let songData = try JSONEncoder().encode(songs)
         let songList = try JSONSerialization.jsonObject(with: songData)
-        return try await request("rooms", method: "POST", payload: ["name": name, "badge": badge ?? "", "avatar": avatar ?? "", "settings": rule,
+        return try await request("rooms", method: "POST", payload: ["name": name, "badge": badge ?? "", "avatar": avatar ?? "", "profileId": profileID, "profileToken": identity ?? "", "settings": rule,
                                                                   "mode": mode, "songs": songList, "corpus": corpus])
     }
 
     func join(_ id: String, name: String, badge: String? = nil, avatar: String? = nil) async throws -> RoomState {
+        let identity = try? await profileCredentials()
         supportsChoiceRetry = false
         token = nil
         Secrets.set(nil, for: "roomSessionToken")
         UserDefaults.standard.removeObject(forKey: "roomSessionToken")
-        return try await request("rooms/\(id.uppercased())/join", method: "POST", payload: ["name": name, "badge": badge ?? "", "avatar": avatar ?? ""])
+        return try await request("rooms/\(id.uppercased())/join", method: "POST", payload: ["name": name, "badge": badge ?? "", "avatar": avatar ?? "", "profileId": profileID, "profileToken": identity ?? ""])
     }
 
     func state(_ id: String) async throws -> RoomState { try await request("rooms/\(id)") }
@@ -508,6 +540,67 @@ struct SavedProfile: Decodable {
     }
 
     private var profileKey: String { "profileToken:\(baseURL.trimmingCharacters(in: .whitespacesAndNewlines)):\(profileID)" }
+    private func profileCredentials() async throws -> String {
+        if let existing = Secrets.get(profileKey) { return existing }
+        _ = try await profile()
+        guard let created = Secrets.get(profileKey) else { throw AppError.message("プロフィールを確認できません") }
+        return created
+    }
+
+    private func friendRequest(_ path: String, payload: [String: Any]? = nil) async throws -> Data {
+        let credential = try await profileCredentials()
+        var url = try endpoint(path)
+        if payload == nil { url.append(queryItems: [URLQueryItem(name: "profileId", value: profileID)]) }
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(credential)", forHTTPHeaderField: "Authorization")
+        if let payload {
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONSerialization.data(withJSONObject: payload.merging(["profileId": profileID]) { current, _ in current })
+        }
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200...299).contains(status) else {
+            let failure = try? JSONDecoder().decode(RoomFailure.self, from: data)
+            throw AppError.message(failure?.error ?? "フレンド情報を取得できません (\(status))")
+        }
+        return data
+    }
+
+    func friends() async throws -> FriendsState {
+        try JSONDecoder().decode(FriendsState.self, from: await friendRequest("friends"))
+    }
+
+    func respondToFriendRequest(_ id: String, accept: Bool) async throws -> FriendsState {
+        let path = accept ? "friends/accept" : "friends/decline"
+        return try JSONDecoder().decode(FriendsState.self,
+            from: await friendRequest(path, payload: ["requestId": id]))
+    }
+
+    func sendFriendRequest(roomID: String, targetID: String) async throws -> RoomState {
+        let credential = try await profileCredentials()
+        _ = try await request("rooms/\(roomID)/bind-profile", method: "POST",
+                              payload: ["profileId": profileID, "profileToken": credential])
+        return try await action("friend-request", id: roomID, payload: ["targetId": targetID])
+    }
+
+    func inviteFriend(roomID: String, profileID targetID: String) async throws {
+        let credential = try await profileCredentials()
+        _ = try await request("rooms/\(roomID)/bind-profile", method: "POST",
+                              payload: ["profileId": profileID, "profileToken": credential])
+        _ = try await action("invite", id: roomID, payload: ["targetProfileId": targetID])
+    }
+
+    func joinInvite(_ inviteID: String, name: String, badge: String?, avatar: String?) async throws -> RoomState {
+        let credential = try await profileCredentials()
+        supportsChoiceRetry = false
+        token = nil
+        Secrets.set(nil, for: "roomSessionToken")
+        return try await request("friends/invites/join", method: "POST", payload: [
+            "profileId": profileID, "inviteId": inviteID, "name": name,
+            "badge": badge ?? "", "avatar": avatar ?? ""
+        ], authentication: credential)
+    }
     func linkSpotify(accessToken: String) async throws {
         var request = URLRequest(url: try endpoint("profile/link"))
         request.httpMethod = "POST"

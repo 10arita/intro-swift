@@ -28,15 +28,13 @@ enum TitleRules {
     }()
 
     static func normalized(_ title: String) -> String {
-        var value = title.replacingOccurrences(of: #"\([^)]*\)|（[^）]*）"#, with: "", options: .regularExpression)
-        value = value.replacingOccurrences(of: #"(?i)\s+(feat\.?|featuring)\s+.*$"#, with: "", options: .regularExpression)
-        value = value.replacingOccurrences(of: #"\s+-\s+.*$"#, with: "", options: .regularExpression)
-        value = value.precomposedStringWithCompatibilityMapping.uppercased()
+        let mapped = title.precomposedStringWithCompatibilityMapping
+        let value = mapped.replacingOccurrences(of: #"(?i)(-|\(|(?<![A-Za-z])feat(?![A-Za-z])).*$"#, with: "", options: .regularExpression).uppercased()
         return String(value.unicodeScalars.filter { scalar in
             let code = scalar.value
             return (code >= 0x30 && code <= 0x39) || (code >= 0x41 && code <= 0x5A)
-                || (code >= 0x3040 && code <= 0x30FF) || (code >= 0x3400 && code <= 0x9FFF)
-                || code == 0x3005 || code == 0x3006 || code == 0x30FC
+                || (code >= 0x3040 && code <= 0x30FA) || (code >= 0x30FD && code <= 0x30FF)
+                || (code >= 0x3400 && code <= 0x9FFF) || code == 0x3005 || code == 0x3006
         }.map(Character.init))
     }
 
