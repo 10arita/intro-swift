@@ -28,6 +28,9 @@ enum AppError: LocalizedError {
     private var filePlayer: AVAudioPlayer?
     private var preparedURL: URL?
     @Published private(set) var playing = false
+    var volume: Float = 1 {
+        didSet { player?.volume = volume; filePlayer?.volume = volume }
+    }
 
     func play(_ url: URL, offset: Double = 0) {
         let source = GameAssets.shared.audioURL(for: url)
@@ -35,8 +38,12 @@ enum AppError: LocalizedError {
             stop()
             if source.isFileURL {
                 filePlayer = try? AVAudioPlayer(contentsOf: source)
+                filePlayer?.volume = volume
                 filePlayer?.prepareToPlay()
-            } else { player = AVPlayer(url: source) }
+            } else {
+                player = AVPlayer(url: source)
+                player?.volume = volume
+            }
         }
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.duckOthers])
         try? AVAudioSession.sharedInstance().setActive(true)
@@ -57,9 +64,13 @@ enum AppError: LocalizedError {
         stop()
         if asset.url.isFileURL {
             let local = try AVAudioPlayer(contentsOf: asset.url)
+            local.volume = volume
             guard local.prepareToPlay() else { throw AppError.message("音源を準備できません") }
             filePlayer = local
-        } else { player = AVPlayer(playerItem: AVPlayerItem(asset: asset)) }
+        } else {
+            player = AVPlayer(playerItem: AVPlayerItem(asset: asset))
+            player?.volume = volume
+        }
         preparedURL = url
     }
 
@@ -83,6 +94,56 @@ enum AppError: LocalizedError {
     func pause() { player?.pause(); filePlayer?.pause(); playing = false }
     func resume() { player?.play(); filePlayer?.play(); playing = true }
     func stop() { player?.pause(); filePlayer?.stop(); player = nil; filePlayer = nil; preparedURL = nil; playing = false }
+}
+
+@MainActor final class GameSoundPlayer {
+    enum Cue: String { case push, correct, incorrect, question }
+
+    private let bgm: AVAudioPlayer?
+    private var effects: [AVAudioPlayer] = []
+    var bgmVolume: Float = 0.35 {
+        didSet { bgm?.volume = bgmVolume }
+    }
+    var effectsVolume: Float = 0.8 {
+        didSet { effects.forEach { $0.volume = effectsVolume } }
+    }
+
+    init() {
+        if let url = Bundle.main.url(forResource: "bgm", withExtension: "mp3", subdirectory: "Audio") {
+            bgm = try? AVAudioPlayer(contentsOf: url)
+            bgm?.numberOfLoops = -1
+            bgm?.volume = bgmVolume
+            bgm?.prepareToPlay()
+        } else { bgm = nil }
+    }
+
+    private func activate() {
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.mixWithOthers])
+        try? AVAudioSession.sharedInstance().setActive(true)
+    }
+
+    func playBGM() {
+        guard let bgm, bgmVolume > 0, !bgm.isPlaying else { return }
+        activate()
+        bgm.volume = bgmVolume
+        bgm.play()
+    }
+
+    func pauseBGM() {
+        if bgm?.isPlaying == true { bgm?.pause() }
+    }
+
+    func play(_ cue: Cue) {
+        guard effectsVolume > 0,
+              let url = Bundle.main.url(forResource: cue.rawValue, withExtension: "mp3", subdirectory: "Audio"),
+              let player = try? AVAudioPlayer(contentsOf: url) else { return }
+        activate()
+        effects.removeAll { !$0.isPlaying }
+        player.volume = effectsVolume
+        player.prepareToPlay()
+        effects.append(player)
+        player.play()
+    }
 }
 
 @MainActor final class ArtistTopSongsService {

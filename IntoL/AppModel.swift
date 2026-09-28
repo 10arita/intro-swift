@@ -34,7 +34,7 @@ struct SoloGame {
     @Published var searchTerm = ""
     @Published var searchSongs: [Song] = []
     @Published var sharedSongs: [Song] = []
-    @Published var game: SoloGame?
+    @Published var game: SoloGame? { didSet { updateBGM() } }
     @Published var lastResult: SoloResult?
     @Published var reviews: [ReviewSong] = []
     @Published var history: [SoloResult] = []
@@ -58,7 +58,7 @@ struct SoloGame {
         try PlayerAvatar.remove()
         avatarData = nil
     }
-    @Published var room: RoomState?
+    @Published var room: RoomState? { didSet { updateBGM() } }
     @Published var roomID: String? = UserDefaults.standard.string(forKey: "roomID")
     @Published var roomSettings = RoomSettings()
     @Published var roomAnswer = ""
@@ -92,8 +92,28 @@ struct SoloGame {
     @Published var itunesTerm = ""
     @Published var itunesSongs: [Song] = []
     @Published var profileSyncStatus: String?
+    @Published var bgmVolume = UserDefaults.standard.object(forKey: "bgmVolume") as? Double ?? 0.35 {
+        didSet {
+            UserDefaults.standard.set(bgmVolume, forKey: "bgmVolume")
+            sound.bgmVolume = Float(bgmVolume)
+            updateBGM()
+        }
+    }
+    @Published var effectsVolume = UserDefaults.standard.object(forKey: "effectsVolume") as? Double ?? 0.8 {
+        didSet {
+            UserDefaults.standard.set(effectsVolume, forKey: "effectsVolume")
+            sound.effectsVolume = Float(effectsVolume)
+        }
+    }
+    @Published var songVolume = UserDefaults.standard.object(forKey: "songVolume") as? Double ?? 1.0 {
+        didSet {
+            UserDefaults.standard.set(songVolume, forKey: "songVolume")
+            player.volume = Float(songVolume)
+        }
+    }
 
     let player = PreviewPlayer()
+    let sound = GameSoundPlayer()
     let rooms = RoomService()
     let spotify = SpotifyService()
     let appleMusic = AppleMusicService()
@@ -110,7 +130,7 @@ struct SoloGame {
     private var preparedRoomRound: Int?
     private var roomPreloadTask: Task<Void, Never>?
     private var preloadedRoomID: String?
-    private var pushCue: AVAudioPlayer?
+    private var appIsActive = false
     private var musicTask: Task<Void, Never>?
     private var spotifyPlaying = false
     private var spotifyPauseTask: Task<Void, Never>?
@@ -133,10 +153,21 @@ struct SoloGame {
         if UserDefaults.standard.string(forKey: "musicAccountProvider") == nil && spotifyConnected {
             selectedMusicProvider = .spotify
         }
-        if let url = Bundle.main.url(forResource: "push", withExtension: "wav", subdirectory: "Audio") {
-            pushCue = try? AVAudioPlayer(contentsOf: url)
-            pushCue?.prepareToPlay()
-        }
+        sound.bgmVolume = Float(bgmVolume)
+        sound.effectsVolume = Float(effectsVolume)
+        player.volume = Float(songVolume)
+    }
+
+    func setAppActive(_ active: Bool) {
+        appIsActive = active
+        updateBGM()
+    }
+
+    private func updateBGM() {
+        let soloAllowsBGM = game.map { [.preparing, .countdown, .finished].contains($0.stage) } ?? true
+        let roomAllowsBGM = room.map { ["lobby", "preparing", "countdown", "finished"].contains($0.phase) } ?? true
+        if appIsActive && bgmVolume > 0 && soloAllowsBGM && roomAllowsBGM { sound.playBGM() }
+        else { sound.pauseBGM() }
     }
 
     func search() async {
@@ -376,6 +407,7 @@ struct SoloGame {
                 current.deadline = .now.addingTimeInterval(2)
                 current.secondsLeft = 2
                 self.game = current
+                self.sound.play(.question)
                 try await Task.sleep(for: .seconds(2))
                 try Task.checkCancellation()
                 guard self.soloRoundToken == token, var starting = self.game else { return }
@@ -459,7 +491,7 @@ struct SoloGame {
         persist()
         self.game = game
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        playPushCue()
+        sound.play(.push)
         pauseAudio()
     }
 
@@ -503,6 +535,7 @@ struct SoloGame {
         persist()
         self.game = game
         stopAudio()
+        sound.play(correct ? .correct : .incorrect)
         revealAudio(game.current)
     }
 
@@ -888,6 +921,23 @@ struct SoloGame {
 
     private func receiveRoom(_ state: RoomState) {
         let old = room
+        if state.phase == "countdown" &&
+            (old?.id != state.id || old?.round != state.round || old?.phase != "countdown") {
+            sound.play(.question)
+        }
+        if let old, old.id == state.id, old.round == state.round {
+            let previousPushes = Set(old.pushedIds)
+            for id in state.pushedIds where !previousPushes.contains(id) && id != rooms.playerId {
+                sound.play(.push)
+            }
+            for player in state.players {
+                let previous = old.player(player.id)?.currentResult
+                if previous != player.currentResult {
+                    if player.currentResult == "correct" { sound.play(.correct) }
+                    if player.currentResult == "wrong" { sound.play(.incorrect) }
+                }
+            }
+        }
         room = state
         if old?.round != state.round { roomNotice = nil }
         if state.phase == "lobby", preloadedRoomID != state.id,
@@ -1090,7 +1140,7 @@ struct SoloGame {
             guard let self, self.roomID == roomID else { return }
             await self.roomAction("push")
         }
-        playPushCue()
+        sound.play(.push)
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
     }
 
@@ -1146,11 +1196,6 @@ struct SoloGame {
         scheduledRoomAudio = nil
         roomError = nil
         receiveRoom(room)
-    }
-
-    private func playPushCue() {
-        pushCue?.currentTime = 0
-        pushCue?.play()
     }
 
     func leaveRoom() async {

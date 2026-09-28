@@ -1,10 +1,22 @@
 import SwiftUI
 import PhotosUI
+import MediaPlayer
 
 private enum MainTab { case play, review, account }
 
+private struct SystemMusicVolumeSlider: UIViewRepresentable {
+    func makeUIView(context: Context) -> MPVolumeView {
+        let view = MPVolumeView()
+        view.showsRouteButton = false
+        return view
+    }
+
+    func updateUIView(_ view: MPVolumeView, context: Context) {}
+}
+
 struct RootView: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var shortcut = PracticeShortcutRoute.shared
     @State private var openingPractice = false
     @State private var selectedTab: MainTab = .play
@@ -35,6 +47,7 @@ struct RootView: View {
             Text(model.alert ?? "")
         }
         .task {
+            model.setAppActive(scenePhase == .active)
             Task { await model.restoreRoom() }
             if model.searchSongs.isEmpty { await model.search() }
             await openRequestedPractice()
@@ -44,6 +57,9 @@ struct RootView: View {
         }
         .onChange(of: shortcut.practiceRequest) { _, _ in
             Task { await openRequestedPractice() }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            model.setAppActive(phase == .active)
         }
     }
 
@@ -963,7 +979,7 @@ struct SoloGameView: View {
                             Spacer(minLength: 24)
                             SectionCaption(title: "ROUND \(game.index + 1) / \(game.songs.count)")
                             WaveMark()
-                            Text("第\(game.index + 1)曲目")
+                            Text("第\(game.index + 1)問目")
                                 .font(.system(size: 30, weight: .bold, design: .rounded))
                                 .foregroundStyle(Studio.primary)
                             Text("\(max(1, Int(ceil(game.secondsLeft))))")
@@ -1303,6 +1319,29 @@ struct AccountView: View {
                             }
                         }
                     }
+                    StudioCard {
+                        VStack(alignment: .leading, spacing: 14) {
+                            SectionCaption(title: "音量")
+                            volumeSlider("BGM", value: $model.bgmVolume)
+                            volumeSlider("効果音", value: $model.effectsVolume)
+                            volumeSlider("曲（アプリ音源）", value: $model.songVolume)
+                            Text("曲の音量はデモ曲・共有音源・試聴曲に適用されます。")
+                                .font(.caption)
+                                .foregroundStyle(Studio.secondary)
+                            if model.appleMusicConnected || model.spotifyConnected {
+                                Divider()
+                                Text("Apple Music・Spotify の曲（端末音量）")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(Studio.primary)
+                                SystemMusicVolumeSlider()
+                                    .frame(height: 30)
+                                    .accessibilityLabel("端末の音楽音量")
+                                Text("サービスの曲は端末音量で調整します。BGMと効果音にも影響します。")
+                                    .font(.caption)
+                                    .foregroundStyle(Studio.secondary)
+                            }
+                        }
+                    }
                     }
                 }
                 .padding(20)
@@ -1316,6 +1355,20 @@ struct AccountView: View {
         .sheet(isPresented: $showAvatarSettings) {
             AvatarSettingsView()
                 .environmentObject(model)
+        }
+    }
+
+    private func volumeSlider(_ title: String, value: Binding<Double>) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(Studio.primary)
+                Spacer()
+                Text("\(Int((value.wrappedValue * 100).rounded()))%")
+                    .font(.caption.monospacedDigit()).foregroundStyle(Studio.secondary)
+            }
+            Slider(value: value, in: 0...1)
+                .tint(Studio.accent)
+                .accessibilityLabel("\(title)の音量")
         }
     }
 
@@ -1496,7 +1549,7 @@ struct RoomGameView: View {
                             } else if room.phase == "countdown" {
                                 roundTitle(room)
                                 WaveMark()
-                                Text("第\(room.round + 1)曲目")
+                                Text("第\(room.round + 1)問目")
                                     .font(.system(size: 32, weight: .bold, design: .rounded))
                                     .foregroundStyle(Studio.primary)
                                 Text("\(max(1, Int(ceil(model.roomSecondsLeft - 30))))")

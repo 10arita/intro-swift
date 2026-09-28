@@ -21,11 +21,11 @@
 		A00000000000000000000011 /* SpotifyRemote.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000011 /* SpotifyRemote.swift */; };
 		A00000000000000000000012 /* SpotifyiOS in Frameworks */ = {isa = PBXBuildFile; productRef = P00000000000000000000001 /* SpotifyiOS */; };
 		A00000000000000000000013 /* GameAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000013 /* GameAssets.swift */; };
-		A00000000000000000000018 /* PlayerAvatar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000018 /* PlayerAvatar.swift */; };
 		A00000000000000000000014 /* server/corpus/famousSongs.json in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000014 /* server/corpus/famousSongs.json */; };
 		A00000000000000000000015 /* server/corpus/famousSongsJapaneseExpansion.json in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000015 /* server/corpus/famousSongsJapaneseExpansion.json */; };
 		A00000000000000000000016 /* server/corpus/famousSongsJpop2015Plus.json in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000016 /* server/corpus/famousSongsJpop2015Plus.json */; };
 		A00000000000000000000017 /* server/corpus/famousSongsChart2015Plus.json in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000017 /* server/corpus/famousSongsChart2015Plus.json */; };
+		A00000000000000000000018 /* PlayerAvatar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000018 /* PlayerAvatar.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -44,11 +44,11 @@
 		B00000000000000000000010 /* MusicServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicServices.swift; sourceTree = "<group>"; };
 		B00000000000000000000011 /* SpotifyRemote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotifyRemote.swift; sourceTree = "<group>"; };
 		B00000000000000000000013 /* GameAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameAssets.swift; sourceTree = "<group>"; };
-		B00000000000000000000018 /* PlayerAvatar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerAvatar.swift; sourceTree = "<group>"; };
 		B00000000000000000000014 /* server/corpus/famousSongs.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = server/corpus/famousSongs.json; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000015 /* server/corpus/famousSongsJapaneseExpansion.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = server/corpus/famousSongsJapaneseExpansion.json; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000016 /* server/corpus/famousSongsJpop2015Plus.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = server/corpus/famousSongsJpop2015Plus.json; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000017 /* server/corpus/famousSongsChart2015Plus.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = server/corpus/famousSongsChart2015Plus.json; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000018 /* PlayerAvatar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerAvatar.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -331,7 +331,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.3;
+				MARKETING_VERSION = 2.4;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -360,7 +360,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.3;
+				MARKETING_VERSION = 2.4;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
