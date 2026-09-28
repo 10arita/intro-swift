@@ -324,7 +324,7 @@ test('room API arbitrates PUSH, validates answers, scores, and protects sessions
     const answer2 = normalize(songs.find(song => song.id === second.value.current.id).title);
     for (const char of answer2) await call(`/rooms/${id}/choose`, { playerId: 'p2', choice: char }, guestToken);
     const final = (await call(`/rooms/${id}?playerId=p2`, null, guestToken, 'GET')).value;
-    assert.equal(final.players.find(p => p.id === 'p2').score, 20);
+    assert.equal(final.players.find(p => p.id === 'p2').score, 10);
     assert.equal(final.players.find(p => p.id === 'p2').correctCount, 1);
     assert.deepEqual(final.players.find(p => p.id === 'p1').roundResults, ['correct', 'wrong']);
     assert.deepEqual(final.players.find(p => p.id === 'p2').roundResults, ['wrong', 'correct']);
@@ -335,8 +335,9 @@ test('room API arbitrates PUSH, validates answers, scores, and protects sessions
 });
 
 function startedThreePlayerRoom(endless, settings = {}, extraGuestIDs = []) {
-  const song = { id: 'spotify:ABCDEFGHIJKLMNOPQRSTUV', title: '花火', artist: 'Artist' };
-  const host = handle('POST', '/rooms', { playerId: 'relayA', name: 'A', mode: 'spotify', songs: [song],
+  const songs = Array.from({ length: settings.questionCount ?? 1 }, (_, index) => ({
+    id: `spotify:${String.fromCharCode(65 + index).repeat(22)}`, title: '花火', artist: 'Artist' }));
+  const host = handle('POST', '/rooms', { playerId: 'relayA', name: 'A', mode: 'spotify', songs,
     settings: { questionCount: 1, answerSlots: 2, endless, targetScore: 0, ...settings } }, new URLSearchParams()).body;
   const guestIDs = ['relayB', 'relayC', ...extraGuestIDs];
   const guests = guestIDs.map(id => handle('POST', `/rooms/${host.id}/join`,
@@ -521,6 +522,59 @@ test('normal mode ranks correct answers by PUSH order even when completion order
     assert.deepEqual(state('relayC').correctPlayerIDs, ['relayA', 'relayB']);
     assert.equal(state('relayC').players.find(p => p.id === 'relayA').score, 20);
     assert.equal(state('relayC').players.find(p => p.id === 'relayB').score, 10);
+  } finally { Date.now = realNow; }
+});
+
+test('1st score adjustments follow the first PUSH even when another player finishes first', () => {
+  const realNow = Date.now;
+  let now = realNow();
+  Date.now = () => now;
+  try {
+    const { action, state } = startedThreePlayerRoom(false, {
+      questionCount: 4, answerSlots: 2, targetScore: 0, wrongPenalty: 5, firstWrongPenalty: 10
+    });
+    const startNextRound = () => {
+      action('next', 'relayA');
+      for (const id of ['relayA', 'relayB', 'relayC']) action('ready', id);
+      now += 6000;
+    };
+    const answerCorrectly = id => {
+      action('choose', id, { choice: '花' });
+      action('choose', id, { choice: '火' });
+    };
+
+    now += 6000;
+    action('push', 'relayB');
+    action('push', 'relayA');
+    answerCorrectly('relayB');
+    answerCorrectly('relayA');
+    assert.equal(state('relayC').players.find(p => p.id === 'relayB').score, 20);
+    assert.equal(state('relayC').players.find(p => p.id === 'relayA').score, 10);
+
+    startNextRound();
+    action('push', 'relayA');
+    action('push', 'relayB');
+    action('choose', 'relayB', { choice: 'X' });
+    assert.equal(state('relayC').players.find(p => p.id === 'relayB').score, 15);
+    answerCorrectly('relayA');
+    assert.equal(state('relayC').players.find(p => p.id === 'relayA').score, 30);
+
+    startNextRound();
+    action('push', 'relayB');
+    action('push', 'relayA');
+    answerCorrectly('relayB');
+    action('choose', 'relayA', { choice: 'X' });
+    const revealed = state('relayC');
+    assert.equal(revealed.players.find(p => p.id === 'relayB').score, 35);
+    assert.equal(revealed.players.find(p => p.id === 'relayA').score, 25);
+
+    startNextRound();
+    action('push', 'relayA');
+    action('push', 'relayB');
+    action('choose', 'relayB', { choice: 'X' });
+    assert.equal(state('relayC').players.find(p => p.id === 'relayB').score, 30);
+    action('choose', 'relayA', { choice: 'X' });
+    assert.equal(state('relayC').players.find(p => p.id === 'relayA').score, 10);
   } finally { Date.now = realNow; }
 });
 

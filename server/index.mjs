@@ -197,6 +197,7 @@ function addPlayer(room, body, profileId) {
 }
 function reveal(room) {
   if (room.phase === 'reveal') return;
+  const firstPusherID = room.pushed.values().next().value;
   const correct = new Set(room.correctPlayerIDs);
   room.correctPlayerIDs = [...room.pushed].filter(id => correct.has(id));
   room.correctPlayerID = room.correctPlayerIDs[0] ?? null;
@@ -205,10 +206,10 @@ function reveal(room) {
     player.roundResults[room.round] = correct.has(player.id) ? 'correct' :
       room.answers.some(answer => answer.playerId === player.id && answer.status === 'wrong') ? 'wrong' : null;
   }
-  room.correctPlayerIDs.forEach((id, index) => {
+  room.correctPlayerIDs.forEach(id => {
     const player = room.players.find(item => item.id === id);
     if (player) {
-      player.score += room.settings.correctPoints + (index === 0 ? room.settings.firstBonus : 0);
+      player.score += room.settings.correctPoints + (id === firstPusherID ? room.settings.firstBonus : 0);
       player.correctCount = (player.correctCount ?? 0) + 1;
     }
   });
@@ -252,13 +253,13 @@ function beginRound(room) {
   room.skipped = new Set();
   room.correctPlayerID = null;
   room.correctPlayerIDs = [];
-  room.firstWrongDone = false;
 }
 function wrong(room, player, answer) {
   const s = room.settings;
-  player.score = Math.max(0, player.score - s.wrongPenalty - (room.firstWrongDone ? 0 : s.firstWrongPenalty));
+  const firstPusherID = room.pushed.values().next().value;
+  player.score = Math.max(0, player.score - s.wrongPenalty -
+    (player.id === firstPusherID ? s.firstWrongPenalty : 0));
   player.wrongCount = (player.wrongCount ?? 0) + 1;
-  room.firstWrongDone = true;
   if (s.lives > 0) {
     player.lives = Math.max(0, player.lives - 1);
     player.disqualified = player.lives === 0;
@@ -448,7 +449,7 @@ export function handle(method, path, body, query, authorization, origin = 'https
         roundResults: [], lives: s.lives, disqualified: false, joinedAt: Date.now(), lastSeen: Date.now() }],
       pushed: new Set(), pushAttempts: [], skipped: new Set(), readyIds: new Set(), assetsReadyIds: new Set(), startAt: null, roundDeadline: null,
       pausedAt: null, pausedPositionMS: null, pushClosed: false, audioStoppedAt: null,
-      answers: [], correctPlayerID: null, correctPlayerIDs: [], firstWrongDone: false };
+      answers: [], correctPlayerID: null, correctPlayerIDs: [] };
     rooms.set(id, room);
     if (room.players[0].profileId) profiles.get(room.players[0].profileId).name = room.players[0].name;
     return { status: 201, body: { ...snapshot(room, String(body.playerId)), sessionToken: room.players[0].secret } };
