@@ -1292,8 +1292,8 @@ private struct ReviewSongRow: View {
 
 struct FriendsView: View {
     @EnvironmentObject private var model: AppModel
-    @Environment(\.dismiss) private var dismiss
-    var inRoomSheet = false
+    var inRoom = false
+    var onClose: (() -> Void)? = nil
 
     var body: some View {
         NavigationStack {
@@ -1309,8 +1309,8 @@ struct FriendsView: View {
                         }
                         .accessibilityLabel("フレンド情報を更新")
                         .disabled(!model.serverConfigured)
-                        if inRoomSheet {
-                            Button("閉じる") { dismiss() }
+                        if inRoom {
+                            Button("閉じる") { onClose?() }
                                 .frame(minWidth: 44, minHeight: 44)
                         }
                     }
@@ -1871,14 +1871,16 @@ struct RoomGameView: View {
                 }
             }
         }
+        .overlay {
+            if showFriends {
+                FriendsView(inRoom: true, onClose: { showFriends = false })
+                    .environmentObject(model)
+                    .background(Studio.background.ignoresSafeArea())
+            }
+        }
         .sheet(isPresented: $showVolumeSettings) {
             GameVolumeSettingsSheet()
                 .environmentObject(model)
-        }
-        .sheet(isPresented: $showFriends) {
-            FriendsView(inRoomSheet: true)
-                .environmentObject(model)
-                .presentationDetents([.large])
         }
         .sheet(isPresented: $showHandicapSettings) {
             RoomHandicapSettingsView()

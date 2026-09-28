@@ -69,8 +69,8 @@ const pools = [
   [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'], [...'0123456789']
 ];
 export function normalize(title) {
-  return String(title).normalize('NFKC').split(/(?:-|\(|(?<![A-Za-z])feat(?![A-Za-z]))/i, 1)[0]
-    .toUpperCase().replace(/[^0-9A-Z\u3040-\u30fa\u30fc-\u30ff\u3400-\u9fff\u3005\u3006]/g, '');
+  return String(title).normalize('NFKC').split(/(?:(?<![A-Za-z])-|-(?![A-Za-z])|\(|(?<![A-Za-z])feat(?![A-Za-z]))/i, 1)[0]
+    .toUpperCase().replace(/[^0-9A-Z\u3040-\u30fa\u30fc-\u30ff\u3400-\u9fff\u3005\u3006-]/g, '');
 }
 function kind(char) {
   const n = char.codePointAt(0);
@@ -198,7 +198,6 @@ function addPlayer(room, body, profileId) {
 }
 function reveal(room) {
   if (room.phase === 'reveal') return;
-  const firstPusherID = room.pushed.values().next().value;
   const correct = new Set(room.correctPlayerIDs);
   room.correctPlayerIDs = [...room.pushed].filter(id => correct.has(id));
   room.correctPlayerID = room.correctPlayerIDs[0] ?? null;
@@ -210,7 +209,7 @@ function reveal(room) {
   room.correctPlayerIDs.forEach(id => {
     const player = room.players.find(item => item.id === id);
     if (player) {
-      player.score += room.settings.correctPoints + (id === firstPusherID ? room.settings.firstBonus : 0);
+      player.score += room.settings.correctPoints + (id === room.correctPlayerID ? room.settings.firstBonus : 0);
       player.correctCount = (player.correctCount ?? 0) + 1;
     }
   });

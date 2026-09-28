@@ -6,6 +6,8 @@ import { handle, normalize, choices, server } from './index.mjs';
 test('title normalization and distractor priorities', () => {
   assert.equal(normalize('新時代 (ウタ from ONE PIECE) feat. A'), '新時代');
   assert.equal(normalize('Subtitle - Live Version'), 'SUBTITLE');
+  assert.equal(normalize('Bling-Bang-Bang-Born'), 'BLING-BANG-BANG-BORN');
+  assert.equal(normalize('さよーならまたいつか！-Sayonara'), 'さよーならまたいつか');
   assert.equal(normalize('青い空♪- Live Version'), '青い空');
   assert.equal(normalize('青い空（Live）'), '青い空');
   assert.equal(normalize('青い空 feat. 歌手'), '青い空');
@@ -72,6 +74,36 @@ test('a long vowel mark is required in the answer', () => {
   }
 });
 
+test('a hyphen within an English song title is required in the answer', () => {
+  const created = handle('POST', '/rooms', {
+    playerId: 'hyphen-host', name: 'Host', mode: 'spotify',
+    songs: [{ id: `spotify:${'H'.repeat(22)}`, title: 'Bling-Bang-Bang-Born', artist: 'Artist' }],
+    settings: { questionCount: 1 }
+  }, new URLSearchParams());
+  assert.equal(created.status, 201);
+  const path = `/rooms/${created.body.id}`;
+  const auth = `Bearer ${created.body.sessionToken}`;
+  const send = (action, payload = {}) => handle('POST', `${path}/${action}`,
+    { playerId: 'hyphen-host', ...payload }, new URLSearchParams(), auth);
+  send('assets-ready');
+  send('start');
+  send('ready');
+  const originalNow = Date.now;
+  const now = Date.now() + 5100;
+  Date.now = () => now;
+  try {
+    assert.equal(send('push').status, 200);
+    for (const character of normalize('Bling-Bang-Bang-Born')) {
+      const result = send('choose', { choice: character });
+      assert.equal(result.status, 200);
+    }
+    const state = handle('GET', path, {},
+      new URLSearchParams({ playerId: 'hyphen-host' }), auth);
+    assert.equal(state.body.phase, 'reveal');
+    assert.equal(state.body.players[0].currentResult, 'correct');
+  } finally { Date.now = originalNow; }
+});
+
 test('room friends require approval and invitations join without entering a code', () => {
   const query = new URLSearchParams();
   const alice = handle('POST', '/profile', { id: 'friend-alice' }, query).body;
@@ -98,6 +130,9 @@ test('room friends require approval and invitations join without entering a code
   assert.equal(asAlice('invite', { targetProfileId: bob.id }).status, 409);
   assert.equal(asBob('leave').status, 200);
   assert.equal(asAlice('invite', { targetProfileId: bob.id }).status, 200);
+  const afterInvite = handle('GET', roomPath, {},
+    new URLSearchParams({ playerId: 'friend-alice' }), `Bearer ${room.sessionToken}`);
+  assert.ok(afterInvite.body.players.some(player => player.id === 'friend-alice'));
   const invitation = handle('GET', '/friends', {}, new URLSearchParams({ profileId: bob.id }), `Bearer ${bob.token}`).body.invites[0];
   assert.ok(invitation.id);
   const accepted = handle('POST', '/friends/invites/join', { profileId: bob.id,
@@ -357,7 +392,7 @@ test('room API arbitrates PUSH, validates answers, scores, and protects sessions
     const answer2 = normalize(songs.find(song => song.id === second.value.current.id).title);
     for (const char of answer2) await call(`/rooms/${id}/choose`, { playerId: 'p2', choice: char }, guestToken);
     const final = (await call(`/rooms/${id}?playerId=p2`, null, guestToken, 'GET')).value;
-    assert.equal(final.players.find(p => p.id === 'p2').score, 10);
+    assert.equal(final.players.find(p => p.id === 'p2').score, 20);
     assert.equal(final.players.find(p => p.id === 'p2').correctCount, 1);
     assert.deepEqual(final.players.find(p => p.id === 'p1').roundResults, ['correct', 'wrong']);
     assert.deepEqual(final.players.find(p => p.id === 'p2').roundResults, ['wrong', 'correct']);
@@ -606,13 +641,13 @@ test('normal mode ranks correct answers by PUSH order even when completion order
   } finally { Date.now = realNow; }
 });
 
-test('1st score adjustments follow the first PUSH even when another player finishes first', () => {
+test('1st correct follows the earliest correct PUSH while 1st wrong stays with the first PUSH', () => {
   const realNow = Date.now;
   let now = realNow();
   Date.now = () => now;
   try {
     const { action, state } = startedThreePlayerRoom(false, {
-      questionCount: 4, answerSlots: 2, targetScore: 0, wrongPenalty: 5, firstWrongPenalty: 10
+      questionCount: 5, answerSlots: 2, targetScore: 0, wrongPenalty: 5, firstWrongPenalty: 10
     });
     const startNextRound = () => {
       action('next', 'relayA');
@@ -652,10 +687,19 @@ test('1st score adjustments follow the first PUSH even when another player finis
     startNextRound();
     action('push', 'relayA');
     action('push', 'relayB');
-    action('choose', 'relayB', { choice: 'X' });
-    assert.equal(state('relayC').players.find(p => p.id === 'relayB').score, 30);
     action('choose', 'relayA', { choice: 'X' });
     assert.equal(state('relayC').players.find(p => p.id === 'relayA').score, 10);
+    answerCorrectly('relayB');
+    assert.deepEqual(state('relayC').correctPlayerIDs, ['relayB']);
+    assert.equal(state('relayC').players.find(p => p.id === 'relayB').score, 55);
+
+    startNextRound();
+    action('push', 'relayA');
+    action('push', 'relayB');
+    action('choose', 'relayB', { choice: 'X' });
+    assert.equal(state('relayC').players.find(p => p.id === 'relayB').score, 50);
+    action('choose', 'relayA', { choice: 'X' });
+    assert.equal(state('relayC').players.find(p => p.id === 'relayA').score, 0);
   } finally { Date.now = realNow; }
 });
 
