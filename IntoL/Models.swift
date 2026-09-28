@@ -33,7 +33,7 @@ enum TitleRules {
         return String(value.unicodeScalars.filter { scalar in
             let code = scalar.value
             return (code >= 0x30 && code <= 0x39) || (code >= 0x41 && code <= 0x5A)
-                || (code >= 0x3040 && code <= 0x30FA) || (code >= 0x30FD && code <= 0x30FF)
+                || (code >= 0x3040 && code <= 0x30FA) || (code >= 0x30FC && code <= 0x30FF)
                 || (code >= 0x3400 && code <= 0x9FFF) || code == 0x3005 || code == 0x3006
         }.map(Character.init))
     }

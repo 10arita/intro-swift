@@ -69,7 +69,7 @@ const pools = [
 ];
 export function normalize(title) {
   return String(title).normalize('NFKC').split(/(?:-|\(|(?<![A-Za-z])feat(?![A-Za-z]))/i, 1)[0]
-    .toUpperCase().replace(/[^0-9A-Z\u3040-\u30fa\u30fd-\u30ff\u3400-\u9fff\u3005\u3006]/g, '');
+    .toUpperCase().replace(/[^0-9A-Z\u3040-\u30fa\u30fc-\u30ff\u3400-\u9fff\u3005\u3006]/g, '');
 }
 function kind(char) {
   const n = char.codePointAt(0);

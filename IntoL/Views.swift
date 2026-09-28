@@ -1719,7 +1719,6 @@ private struct AvatarSettingsView: View {
 struct RoomGameView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @AppStorage("roomPlayerOrder") private var playerOrder = "score"
     @State private var showVolumeSettings = false
     @State private var showFriends = false
 
@@ -1759,18 +1758,10 @@ struct RoomGameView: View {
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(Studio.secondary)
                             Spacer()
-                            Menu {
-                                Picker("プレイヤーの並び順", selection: $playerOrder) {
-                                    Text("点数順").tag("score")
-                                    Text("PUSH順").tag("push")
-                                }
-                            } label: {
-                                Label(playerOrder == "push" ? "PUSH順" : "点数順", systemImage: "arrow.left.arrow.right")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(Studio.accent)
-                                    .frame(minHeight: 28)
-                            }
-                            .accessibilityLabel("プレイヤーの並び順: \(playerOrder == "push" ? "PUSH順" : "点数順")")
+                            Text((room.pushOrderIds ?? room.pushedIds).isEmpty ? "点数順" : "PUSH順")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(Studio.accent)
+                                .frame(minHeight: 28)
                         }
                         .padding(.horizontal, 20)
                         compactPlayers(room)
@@ -2096,9 +2087,8 @@ struct RoomGameView: View {
             if $0.lives != $1.lives { return $0.lives > $1.lives }
             return $0.id < $1.id
         }
-        let players = playerOrder == "push" ?
-            pushOrder.compactMap { room.player($0) } + room.players.filter { !pushOrder.contains($0.id) } :
-            scoreOrder
+        let players = pushOrder.isEmpty ? scoreOrder :
+            pushOrder.compactMap { room.player($0) } + scoreOrder.filter { !pushOrder.contains($0.id) }
         return HStack(alignment: .top, spacing: 5) {
             ForEach(players) { player in
                 let isAnswering = room.isAnswering(player.id)

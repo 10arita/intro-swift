@@ -10,7 +10,8 @@ test('title normalization and distractor priorities', () => {
   assert.equal(normalize('青い空（Live）'), '青い空');
   assert.equal(normalize('青い空 feat. 歌手'), '青い空');
   assert.equal(normalize('Defeat'), 'DEFEAT');
-  assert.equal(normalize('スーパー・スター☆'), 'スパスタ');
+  assert.equal(normalize('スーパー・スター☆'), 'スーパースター');
+  assert.equal(normalize('ﾏｰ'), 'マー');
   const option = choices('花', '青', ['青花', '青空', '花火', '春風']);
   assert.equal(option.length, 4);
   assert.equal(new Set(option).size, 4);
@@ -37,6 +38,38 @@ test('title normalization and distractor priorities', () => {
   const fallback = choices('C', 'ZZ', []);
   assert.equal(fallback.length, 4);
   assert.ok(fallback.every(char => /^[A-Z]$/.test(char)));
+});
+
+test('a long vowel mark is required in the answer', () => {
+  const originalNow = Date.now;
+  let now = originalNow();
+  Date.now = () => now;
+  try {
+    const created = handle('POST', '/rooms', {
+      playerId: 'long-vowel-host', name: 'Host', mode: 'spotify',
+      songs: [{ id: `spotify:${'M'.repeat(22)}`, title: 'マー', artist: 'Artist' }],
+      settings: { questionCount: 1 }
+    }, new URLSearchParams());
+    assert.equal(created.status, 201);
+    const path = `/rooms/${created.body.id}`;
+    const auth = `Bearer ${created.body.sessionToken}`;
+    const send = (action, payload = {}) => handle('POST', `${path}/${action}`,
+      { playerId: 'long-vowel-host', ...payload }, new URLSearchParams(), auth);
+    send('assets-ready');
+    send('start');
+    send('ready');
+    now += 5100;
+    assert.equal(send('push').status, 200);
+    const first = send('choose', { choice: 'マ' });
+    assert.equal(first.body.answerProgress, 'マ');
+    assert.ok(first.body.options.includes('ー'));
+    const completed = send('choose', { choice: 'ー' });
+    assert.equal(completed.body.phase, 'reveal');
+    assert.equal(completed.body.current.title, 'マー');
+    assert.equal(completed.body.players[0].currentResult, 'correct');
+  } finally {
+    Date.now = originalNow;
+  }
 });
 
 test('room friends require approval and invitations join without entering a code', () => {
