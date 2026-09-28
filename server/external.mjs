@@ -45,7 +45,9 @@ export async function topSongs() {
   return (feed.feed?.results || []).map(item => item.name).filter(Boolean);
 }
 export function fallbackChorus(durationMS) {
-  return Math.max(0, Math.min(90_000, Math.max(30_000, Number(durationMS || 180_000) * .32)) - 1500);
+  const duration = Number(durationMS);
+  const playableDuration = Number.isFinite(duration) && duration > 0 ? duration : 180_000;
+  return Math.max(0, Math.round(Math.min(90_000, Math.max(30_000, playableDuration * .32)) - 1500));
 }
 export async function chorusPosition(song) {
   if (!song?.songleURL && song?.title) {

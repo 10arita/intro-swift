@@ -39,14 +39,19 @@ struct RoomCurrent: Decodable {
     let durationMS: Int?
     let genre: String?
     let songleURL: URL?
-    let chorusMS: Int?
+    let chorusMS: Double?
 
     var song: Song? {
         guard let title, let artist else { return nil }
+        let chorusPosition = chorusMS.flatMap { value -> Int? in
+            guard value.isFinite else { return nil }
+            let maximum = min(Double(max(0, durationMS ?? 180_000)), 86_400_000)
+            return Int(max(0, min(maximum, value)).rounded())
+        }
         return Song(id: id, title: title, artist: artist, artworkURL: artworkURL, previewURL: previewURL,
                     trackURL: trackURL,
                     durationMS: durationMS ?? 180_000, genre: genre ?? "その他", songleURL: songleURL,
-                    chorusMS: chorusMS)
+                    chorusMS: chorusPosition)
     }
 }
 

@@ -24,6 +24,7 @@ test('iTunes matching requires the title and artist, and Songle starts before th
     assert.deepEqual(await topSongs(), ['群青']);
     assert.equal(await chorusPosition({ durationMS: 220000, songleURL: 'https://www.youtube.com/watch?v=abc' }), 63626);
     assert.equal(fallbackChorus(180000), 56100);
+    assert.equal(fallbackChorus(181234), 56495);
   } finally { globalThis.fetch = original; }
 });
 

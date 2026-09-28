@@ -313,7 +313,8 @@ function snapshot(room, playerId) {
       id: song.id, previewURL: song.previewURL,
       ...(disclosed ? { title: song.title, artist: song.artist, artworkURL: song.artworkURL,
         trackURL: song.trackURL, durationMS: song.durationMS, genre: song.genre,
-        songleURL: song.songleURL || null, chorusMS: song.chorusMS ?? null } : {})
+        songleURL: song.songleURL || null,
+        chorusMS: Number.isFinite(song.chorusMS) ? Math.round(song.chorusMS) : null } : {})
     } : null
   };
 }

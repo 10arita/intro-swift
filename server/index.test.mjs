@@ -104,14 +104,15 @@ test('Apple Music rooms accept catalog IDs and keep answers hidden until reveal'
   assert.equal(invalid.status, 400);
 });
 
-test('a retried choice is applied only once', () => {
+test('a retried Apple Music choice is applied once and its reveal has an integral chorus', () => {
   const originalNow = Date.now;
   let now = originalNow();
   Date.now = () => now;
   try {
     const created = handle('POST', '/rooms', {
       playerId: 'retry-host', name: 'Host', mode: 'applemusic',
-      songs: [{ id: 'applemusic:1234567890', title: '青い空', artist: 'Artist' }],
+      songs: [{ id: 'applemusic:1234567890', title: '青い空', artist: 'Artist',
+        durationMS: 181234, chorusMS: 56494.88 }],
       settings: { questionCount: 1 }
     }, new URLSearchParams());
     const path = `/rooms/${created.body.id}`;
@@ -131,6 +132,9 @@ test('a retried choice is applied only once', () => {
     assert.equal(duplicate.body.answerProgress, '青');
     assert.equal(duplicate.body.players[0].wrongCount, 0);
     assert.equal(send('choose', { choice: 'い', actionId: 'second-letter' }).body.answerProgress, '青い');
+    const completed = send('choose', { choice: '空', actionId: 'final-letter' });
+    assert.equal(completed.body.phase, 'reveal');
+    assert.equal(completed.body.current.chorusMS, 56495);
   } finally {
     Date.now = originalNow;
   }
