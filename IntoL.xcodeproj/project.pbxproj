@@ -21,6 +21,7 @@
 		A00000000000000000000011 /* SpotifyRemote.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000011 /* SpotifyRemote.swift */; };
 		A00000000000000000000012 /* SpotifyiOS in Frameworks */ = {isa = PBXBuildFile; productRef = P00000000000000000000001 /* SpotifyiOS */; };
 		A00000000000000000000013 /* GameAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000013 /* GameAssets.swift */; };
+		A00000000000000000000018 /* PlayerAvatar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000018 /* PlayerAvatar.swift */; };
 		A00000000000000000000014 /* server/corpus/famousSongs.json in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000014 /* server/corpus/famousSongs.json */; };
 		A00000000000000000000015 /* server/corpus/famousSongsJapaneseExpansion.json in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000015 /* server/corpus/famousSongsJapaneseExpansion.json */; };
 		A00000000000000000000016 /* server/corpus/famousSongsJpop2015Plus.json in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000016 /* server/corpus/famousSongsJpop2015Plus.json */; };
@@ -43,6 +44,7 @@
 		B00000000000000000000010 /* MusicServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicServices.swift; sourceTree = "<group>"; };
 		B00000000000000000000011 /* SpotifyRemote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotifyRemote.swift; sourceTree = "<group>"; };
 		B00000000000000000000013 /* GameAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameAssets.swift; sourceTree = "<group>"; };
+		B00000000000000000000018 /* PlayerAvatar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerAvatar.swift; sourceTree = "<group>"; };
 		B00000000000000000000014 /* server/corpus/famousSongs.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = server/corpus/famousSongs.json; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000015 /* server/corpus/famousSongsJapaneseExpansion.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = server/corpus/famousSongsJapaneseExpansion.json; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000016 /* server/corpus/famousSongsJpop2015Plus.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = server/corpus/famousSongsJpop2015Plus.json; sourceTree = SOURCE_ROOT; };
@@ -79,6 +81,7 @@
 				B00000000000000000000010 /* MusicServices.swift */,
 				B00000000000000000000011 /* SpotifyRemote.swift */,
 				B00000000000000000000013 /* GameAssets.swift */,
+				B00000000000000000000018 /* PlayerAvatar.swift */,
 				B00000000000000000000005 /* AppModel.swift */,
 				B00000000000000000000006 /* RoomService.swift */,
 				B00000000000000000000007 /* Views.swift */,
@@ -211,6 +214,7 @@
 				A0000000000000000000000E /* MusicServices.swift in Sources */,
 				A00000000000000000000011 /* SpotifyRemote.swift in Sources */,
 				A00000000000000000000013 /* GameAssets.swift in Sources */,
+				A00000000000000000000018 /* PlayerAvatar.swift in Sources */,
 				A00000000000000000000005 /* AppModel.swift in Sources */,
 				A00000000000000000000006 /* RoomService.swift in Sources */,
 				A00000000000000000000007 /* Views.swift in Sources */,
@@ -318,7 +322,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = 846DPLLG2V;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = IntoL/Info.plist;
@@ -327,7 +331,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.2;
+				MARKETING_VERSION = 2.3;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -347,7 +351,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = 846DPLLG2V;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = IntoL/Info.plist;
@@ -356,7 +360,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.2;
+				MARKETING_VERSION = 2.3;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",

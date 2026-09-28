@@ -145,6 +145,12 @@ function catalogSongs(origin) {
 function artistTopTitles(value) {
   return Array.isArray(value) ? value.filter(t => typeof t === 'string' && normalize(t)).slice(0, 7).map(t => t.slice(0, 150)) : [];
 }
+function playerAvatar(value) {
+  if (typeof value !== 'string' || value.length > 16_000 || !/^[A-Za-z0-9+/]+={0,2}$/.test(value)) return null;
+  const bytes = Buffer.from(value, 'base64');
+  return bytes.length <= 12_000 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
+    ? value : null;
+}
 function publicPlayer(player, room) {
   const attempt = room.answers.find(answer => answer.playerId === player.id);
   const push = room.pushAttempts.find(item => item.playerId === player.id);
@@ -155,7 +161,8 @@ function publicPlayer(player, room) {
       player.roundResults?.[room.round] ?? null,
     pushTimeMS: attempt?.pushTimeMS ?? push?.pushTimeMS ?? null,
     disqualified: player.disqualified, connected: Date.now() - player.lastSeen < GRACE,
-    isHost: player.id === room.hostId, joinedAt: player.joinedAt, badge: player.badge || null };
+    isHost: player.id === room.hostId, joinedAt: player.joinedAt, badge: player.badge || null,
+    avatar: player.avatar || null };
 }
 function currentSong(room) { return room.songs[room.round]; }
 function reveal(room) {
@@ -369,7 +376,7 @@ export function handle(method, path, body, query, authorization, origin = 'https
     if (songs.length < s.questionCount) return fail(400, `問題数分の曲がありません（利用可能: ${songs.length}曲）`);
     const room = { id, mode, settings: s, songs: shuffled(songs).slice(0, s.questionCount), corpus: [...new Set([...songs.map(song => song.title), ...seedTitles, ...(Array.isArray(body.corpus) ? body.corpus.filter(s => typeof s === 'string').slice(0, 500) : [])])], phase: 'lobby', round: -1,
       hostId: String(body.playerId), players: [{ id: String(body.playerId), secret: randomUUID(), name: String(body.name).trim().slice(0, 24),
-        badge: String(body.badge || '').slice(0, 24), score: 0, correctCount: 0, wrongCount: 0,
+        badge: String(body.badge || '').slice(0, 24), avatar: playerAvatar(body.avatar), score: 0, correctCount: 0, wrongCount: 0,
         roundResults: [], lives: s.lives, disqualified: false, joinedAt: Date.now(), lastSeen: Date.now() }],
       pushed: new Set(), pushAttempts: [], skipped: new Set(), readyIds: new Set(), assetsReadyIds: new Set(), startAt: null, roundDeadline: null,
       pausedAt: null, pausedPositionMS: null, pushClosed: false, audioStoppedAt: null,
@@ -391,7 +398,7 @@ export function handle(method, path, body, query, authorization, origin = 'https
       if (room.players.length >= 4) return fail(409, '満員です');
       if (!/^[A-Za-z0-9-]{1,64}$/.test(playerId)) return fail(400, 'プレイヤー情報が無効です');
       player = { id: playerId, secret: randomUUID(), name: String(body.name || 'プレイヤー').trim().slice(0, 24),
-        badge: String(body.badge || '').slice(0, 24), score: 0, correctCount: 0, wrongCount: 0,
+        badge: String(body.badge || '').slice(0, 24), avatar: playerAvatar(body.avatar), score: 0, correctCount: 0, wrongCount: 0,
         roundResults: [], lives: room.settings.lives, disqualified: false, joinedAt: Date.now(), lastSeen: Date.now() };
       room.players.push(player);
       newlyJoined = true;

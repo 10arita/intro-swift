@@ -47,6 +47,17 @@ struct SoloGame {
     @Published var nickname = UserDefaults.standard.string(forKey: "nickname") ?? "プレイヤー" {
         didSet { UserDefaults.standard.set(nickname, forKey: "nickname") }
     }
+    @Published private(set) var avatarData: Data? = PlayerAvatar.load()
+    var roomAvatar: String? { avatarData?.base64EncodedString() }
+
+    func setAvatar(_ data: Data) throws {
+        avatarData = try PlayerAvatar.save(data)
+    }
+
+    func removeAvatar() throws {
+        try PlayerAvatar.remove()
+        avatarData = nil
+    }
     @Published var room: RoomState?
     @Published var roomID: String? = UserDefaults.standard.string(forKey: "roomID")
     @Published var roomSettings = RoomSettings()
@@ -745,7 +756,8 @@ struct SoloGame {
             preparationStatus = "選択肢を準備中"
             songs = await withArtistTopTitles(songs)
             let state = try await rooms.create(name: nickname, settings: roomSettings, mode: roomMode,
-                                               songs: songs, corpus: corpus, badge: stats.selectedBadge)
+                                               songs: songs, corpus: corpus, badge: stats.selectedBadge,
+                                               avatar: roomAvatar)
             guard state.mode == roomMode else {
                 _ = try? await rooms.action("leave", id: state.id)
                 throw AppError.message("対戦サーバーを更新してから、この音源でルームを作成してください")
@@ -760,7 +772,7 @@ struct SoloGame {
         rooms.baseURL = serverURL
         do {
             let state = try await rooms.join(code.trimmingCharacters(in: .whitespacesAndNewlines), name: nickname,
-                                             badge: stats.selectedBadge)
+                                             badge: stats.selectedBadge, avatar: roomAvatar)
             if state.mode == "spotify" {
                 guard spotifyConnected, (try await spotify.account()).isPremium else {
                     _ = try? await rooms.action("leave", id: state.id)

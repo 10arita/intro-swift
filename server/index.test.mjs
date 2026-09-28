@@ -28,6 +28,22 @@ test('catalog exposes only configured original audio', () => {
   assert.ok(response.body.songs.every(song => song.previewURL.startsWith('https://quiz.example.com/media/')));
 });
 
+test('room snapshots share bounded player icons with other players', () => {
+  const avatar = Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString('base64');
+  const created = handle('POST', '/rooms', { playerId: 'avatar-host', name: 'Host', avatar,
+    settings: { questionCount: 1 } }, new URLSearchParams());
+  assert.equal(created.status, 201);
+  const joined = handle('POST', `/rooms/${created.body.id}/join`,
+    { playerId: 'avatar-guest', name: 'Guest', avatar: 'not-an-image' }, new URLSearchParams());
+  assert.equal(joined.status, 200);
+  assert.equal(joined.body.players.find(player => player.id === 'avatar-host').avatar, avatar);
+  assert.equal(joined.body.players.find(player => player.id === 'avatar-guest').avatar, null);
+  const oversized = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(12_001)]).toString('base64');
+  const another = handle('POST', `/rooms/${created.body.id}/join`,
+    { playerId: 'avatar-third', name: 'Third', avatar: oversized }, new URLSearchParams());
+  assert.equal(another.body.players.find(player => player.id === 'avatar-third').avatar, null);
+});
+
 test('Spotify room creation does not wait for external metadata services', async () => {
   const originalFetch = globalThis.fetch;
   let externalCalls = 0;

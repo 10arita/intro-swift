@@ -26,6 +26,7 @@ struct RoomPlayer: Decodable, Identifiable {
     let connected: Bool
     let isHost: Bool
     let badge: String?
+    let avatar: String?
 }
 
 struct RoomCurrent: Decodable {
@@ -211,7 +212,7 @@ struct SavedProfile: Decodable {
         return state
     }
 
-    func create(name: String, settings: RoomSettings, mode: String = "shared", songs: [Song] = [], corpus: [String] = [], badge: String? = nil) async throws -> RoomState {
+    func create(name: String, settings: RoomSettings, mode: String = "shared", songs: [Song] = [], corpus: [String] = [], badge: String? = nil, avatar: String? = nil) async throws -> RoomState {
         token = nil
         Secrets.set(nil, for: "roomSessionToken")
         UserDefaults.standard.removeObject(forKey: "roomSessionToken")
@@ -219,15 +220,15 @@ struct SavedProfile: Decodable {
         let rule = try JSONSerialization.jsonObject(with: settingsData)
         let songData = try JSONEncoder().encode(songs)
         let songList = try JSONSerialization.jsonObject(with: songData)
-        return try await request("rooms", method: "POST", payload: ["name": name, "badge": badge ?? "", "settings": rule,
+        return try await request("rooms", method: "POST", payload: ["name": name, "badge": badge ?? "", "avatar": avatar ?? "", "settings": rule,
                                                                   "mode": mode, "songs": songList, "corpus": corpus])
     }
 
-    func join(_ id: String, name: String, badge: String? = nil) async throws -> RoomState {
+    func join(_ id: String, name: String, badge: String? = nil, avatar: String? = nil) async throws -> RoomState {
         token = nil
         Secrets.set(nil, for: "roomSessionToken")
         UserDefaults.standard.removeObject(forKey: "roomSessionToken")
-        return try await request("rooms/\(id.uppercased())/join", method: "POST", payload: ["name": name, "badge": badge ?? ""])
+        return try await request("rooms/\(id.uppercased())/join", method: "POST", payload: ["name": name, "badge": badge ?? "", "avatar": avatar ?? ""])
     }
 
     func state(_ id: String) async throws -> RoomState { try await request("rooms/\(id)") }

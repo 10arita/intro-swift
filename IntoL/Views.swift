@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 
 private enum MainTab { case play, review, account }
 
@@ -47,26 +48,45 @@ struct RootView: View {
     }
 
     private var tabBar: some View {
-        HStack(spacing: 0) {
+        Group {
+            if #available(iOS 26, *) {
+                GlassEffectContainer(spacing: 4) {
+                    tabButtons(spacing: 8)
+                }
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+                .padding(.bottom, 4)
+            } else {
+                tabButtons(spacing: 0)
+                    .padding(.top, 9)
+                    .padding(.bottom, 4)
+                    .background(Studio.surface.ignoresSafeArea(edges: .bottom))
+                    .overlay(alignment: .top) { Studio.line.frame(height: 1) }
+            }
+        }
+    }
+
+    private func tabButtons(spacing: CGFloat) -> some View {
+        HStack(spacing: spacing) {
             tabButton("プレイ", symbol: "waveform", tab: .play)
             tabButton("復習", symbol: "bookmark", tab: .review)
             tabButton("アカウント", symbol: "person.crop.circle", tab: .account)
         }
-        .padding(.top, 9)
-        .padding(.bottom, 4)
-        .background(Studio.surface.ignoresSafeArea(edges: .bottom))
-        .overlay(alignment: .top) { Studio.line.frame(height: 1) }
     }
 
-    private func tabButton(_ title: String, symbol: String, tab: MainTab) -> some View {
-        Button {
+    @ViewBuilder private func tabButton(_ title: String, symbol: String, tab: MainTab) -> some View {
+        let button = Button {
             if tab == .play { playHomeToken += 1 }
             selectedTab = tab
         } label: {
             VStack(spacing: 4) {
                 Image(systemName: symbol).font(.system(size: 21, weight: .medium))
                     .frame(width: 60, height: 30)
-                    .background(selectedTab == tab ? Studio.raised : .clear, in: Capsule())
+                    .background {
+                        if #unavailable(iOS 26), selectedTab == tab {
+                            Capsule().fill(Studio.raised)
+                        }
+                    }
                 Text(title).font(.caption2)
             }
             .foregroundStyle(selectedTab == tab ? Studio.accent : Studio.secondary)
@@ -76,6 +96,15 @@ struct RootView: View {
         .buttonStyle(.plain)
         .accessibilityLabel(title)
         .accessibilityValue(selectedTab == tab ? "選択中" : "")
+
+        if #available(iOS 26, *) {
+            button.glassEffect(
+                .regular.tint(selectedTab == tab ? Studio.accent.opacity(0.22) : nil).interactive(),
+                in: Capsule()
+            )
+        } else {
+            button
+        }
     }
 
     @MainActor
@@ -182,48 +211,56 @@ struct PlayView: View {
     }
 
     private var selectionFlow: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack {
-                Button(action: goBack) {
-                    Label("戻る", systemImage: "chevron.left")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Studio.accent)
-                        .frame(minHeight: 44)
-                }
-                .buttonStyle(StudioPressStyle())
-                Spacer()
-                Text("IntoL").font(.title3.bold()).foregroundStyle(Studio.primary)
-                }
-                HStack(spacing: 6) {
-                    ForEach(0..<3) { index in
-                        Capsule().fill(index <= (source != nil ? 2 : kind != nil ? 1 : 0) ? Studio.accent : Studio.line).frame(height: 3)
+        ScrollViewReader { scrollProxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack {
+                        Button(action: goBack) {
+                            Label("戻る", systemImage: "chevron.left")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(Studio.accent)
+                                .frame(minHeight: 44)
+                        }
+                        .buttonStyle(StudioPressStyle())
+                        Spacer()
+                        Text("IntoL").font(.title3.bold()).foregroundStyle(Studio.primary)
                     }
-                }.accessibilityLabel("ステップ \(source != nil ? 3 : kind != nil ? 2 : 1) / 3")
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(selectionPath)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Studio.accent)
-                    Text(pageTitle)
-                        .font(.system(.largeTitle, design: .rounded, weight: .bold))
-                        .foregroundStyle(Studio.primary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(pageDescription)
-                        .font(.subheadline)
-                        .foregroundStyle(Studio.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 6) {
+                        ForEach(0..<3) { index in
+                            Capsule().fill(index <= (source != nil ? 2 : kind != nil ? 1 : 0) ? Studio.accent : Studio.line).frame(height: 3)
+                        }
+                    }.accessibilityLabel("ステップ \(source != nil ? 3 : kind != nil ? 2 : 1) / 3")
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(selectionPath)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Studio.accent)
+                        Text(pageTitle)
+                            .font(.system(.largeTitle, design: .rounded, weight: .bold))
+                            .foregroundStyle(Studio.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text(pageDescription)
+                            .font(.subheadline)
+                            .foregroundStyle(Studio.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    stepContent
                 }
-                stepContent
+                .padding(.horizontal, 20)
+                .padding(.bottom, party == .together && source != .join ? 88 : 20)
+                .frame(maxWidth: 640)
+                .frame(maxWidth: .infinity)
+                .animation(reduceMotion ? .none : Studio.spring, value: kind)
+                .animation(reduceMotion ? .none : Studio.spring, value: source)
             }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 20)
-            .frame(maxWidth: 640)
-            .frame(maxWidth: .infinity)
-            .animation(reduceMotion ? .none : Studio.spring, value: kind)
-            .animation(reduceMotion ? .none : Studio.spring, value: source)
+            .scrollDismissesKeyboard(.interactively)
+            .scrollBounceBehavior(.basedOnSize)
+            .onChange(of: model.preparationStatus) { _, status in
+                guard status != nil, party == .together, source != .join else { return }
+                withAnimation(reduceMotion ? nil : Studio.spring) {
+                    scrollProxy.scrollTo("roomPreparationStatus", anchor: .bottom)
+                }
+            }
         }
-        .scrollDismissesKeyboard(.interactively)
-        .scrollBounceBehavior(.basedOnSize)
     }
 
     private var selectionPath: String {
@@ -526,11 +563,11 @@ struct PlayView: View {
                         .disabled(model.roomSettings.endless)
                     DisclosureGroup("ルール詳細") {
                         VStack(spacing: 12) {
-                            Stepper("勝利目標 \(model.roomSettings.targetScore)点", value: $model.roomSettings.targetScore, in: 0...500)
-                            Stepper("正解 \(model.roomSettings.correctPoints)点", value: $model.roomSettings.correctPoints, in: 1...50)
-                            Stepper("1st正解 +\(model.roomSettings.firstBonus)点", value: $model.roomSettings.firstBonus, in: 0...50)
-                            Stepper("誤答 −\(model.roomSettings.wrongPenalty)点", value: $model.roomSettings.wrongPenalty, in: 0...50)
-                            Stepper("1st誤答 −\(model.roomSettings.firstWrongPenalty)点", value: $model.roomSettings.firstWrongPenalty, in: 0...50)
+                            Stepper("勝利目標 \(model.roomSettings.targetScore)点", value: $model.roomSettings.targetScore, in: 0...500, step: 10)
+                            Stepper("正解 \(model.roomSettings.correctPoints)点", value: $model.roomSettings.correctPoints, in: 10...50, step: 10)
+                            Stepper("1st正解 +\(model.roomSettings.firstBonus)点", value: $model.roomSettings.firstBonus, in: 0...50, step: 10)
+                            Stepper("誤答 −\(model.roomSettings.wrongPenalty)点", value: $model.roomSettings.wrongPenalty, in: 0...50, step: 10)
+                            Stepper("1st誤答 −\(model.roomSettings.firstWrongPenalty)点", value: $model.roomSettings.firstWrongPenalty, in: 0...50, step: 10)
                             Stepper("ライフ \(model.roomSettings.lives)", value: $model.roomSettings.lives, in: 0...10)
                             Toggle("エンドレスモード", isOn: $model.roomSettings.endless)
                             Text("エンドレスモードでは解答権人数に関係なく、全員で曲を止めて1人ずつ解答します。")
@@ -551,6 +588,7 @@ struct PlayView: View {
                             ProgressView().tint(Studio.accent)
                             Text(status).font(.caption).foregroundStyle(Studio.secondary)
                         }
+                        .id("roomPreparationStatus")
                     }
                     if source == .spotify && !model.spotifyPremium {
                         Text("Spotify 対戦には全員の Premium が必要です")
@@ -896,6 +934,14 @@ struct SoloGameView: View {
                                     .frame(width: 44, height: 44).background(Studio.surface, in: Circle())
                             }
                             .accessibilityLabel("ゲームを閉じる")
+                            HStack(spacing: 5) {
+                                PlayerAvatarView(data: model.avatarData, size: 18)
+                                Text(model.nickname)
+                                    .font(.caption.weight(.semibold))
+                                    .lineLimit(1)
+                                    .foregroundStyle(Studio.primary)
+                            }
+                            .padding(.leading, 6)
                             Spacer()
                             Text(game.stage == .finished ? "RESULT" : "ROUND \(game.index + 1) / \(game.songs.count)")
                                 .font(.system(size: 12, weight: .bold, design: .monospaced))
@@ -1123,6 +1169,7 @@ private struct ReviewSongRow: View {
 struct AccountView: View {
     @EnvironmentObject private var model: AppModel
     @State private var showRecords = false
+    @State private var showAvatarSettings = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -1209,6 +1256,26 @@ struct AccountView: View {
                     StudioCard {
                         VStack(alignment: .leading, spacing: 14) {
                             SectionCaption(title: "プロフィール・音楽サービス")
+                            Button { showAvatarSettings = true } label: {
+                                HStack(spacing: 12) {
+                                    PlayerAvatarView(data: model.avatarData, size: 48)
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text("アイコンを設定")
+                                            .font(.subheadline.weight(.semibold))
+                                            .foregroundStyle(Studio.primary)
+                                        Text("フォトライブラリから選択")
+                                            .font(.caption)
+                                            .foregroundStyle(Studio.secondary)
+                                    }
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(Studio.secondary)
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("アイコンを設定")
                             field("プレイヤー名", text: $model.nickname, prompt: "プレイヤー")
                             Picker("音楽サービス", selection: $model.selectedMusicProvider) {
                                 ForEach(MusicAccountProvider.allCases) { provider in
@@ -1245,6 +1312,10 @@ struct AccountView: View {
             }
             .background(Studio.background)
             .toolbar(.hidden, for: .navigationBar)
+        }
+        .sheet(isPresented: $showAvatarSettings) {
+            AvatarSettingsView()
+                .environmentObject(model)
         }
     }
 
@@ -1307,6 +1378,72 @@ struct AccountView: View {
                 .frame(height: 48)
                 .background(Studio.raised, in: RoundedRectangle(cornerRadius: 12))
                 .foregroundStyle(Studio.primary)
+        }
+    }
+}
+
+private struct AvatarSettingsView: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedPhoto: PhotosPickerItem?
+    @State private var loading = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 24) {
+                Spacer(minLength: 20)
+                PlayerAvatarView(data: model.avatarData, size: 128)
+                    .overlay(Circle().strokeBorder(Studio.line, lineWidth: 1))
+                    .accessibilityLabel(model.avatarData == nil ? "アイコン未設定" : "現在のアイコン")
+                Text(model.nickname)
+                    .font(.title3.bold())
+                    .foregroundStyle(Studio.primary)
+                Text("選んだ写真はゲーム中、名前の横に表示されます。")
+                    .font(.subheadline)
+                    .foregroundStyle(Studio.secondary)
+                    .multilineTextAlignment(.center)
+                PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                    Label("写真を選ぶ・変更", systemImage: "photo.on.rectangle")
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, minHeight: 52)
+                        .background(Studio.accent, in: RoundedRectangle(cornerRadius: 14))
+                }
+                .disabled(loading)
+                if loading { ProgressView("画像を読み込み中").tint(Studio.accent) }
+                if model.avatarData != nil {
+                    Button("アイコンを削除", role: .destructive) {
+                        do { try model.removeAvatar() }
+                        catch { errorMessage = error.localizedDescription }
+                    }
+                    .frame(minHeight: 44)
+                    .disabled(loading)
+                }
+                Spacer()
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Studio.background)
+            .navigationTitle("アイコン設定")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("完了") { dismiss() } } }
+            .alert("アイコンを設定できません", isPresented: Binding(
+                get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+                    Button("OK", role: .cancel) { errorMessage = nil }
+                } message: { Text(errorMessage ?? "") }
+            .task(id: selectedPhoto) {
+                guard let selectedPhoto else { return }
+                loading = true
+                defer { loading = false; self.selectedPhoto = nil }
+                do {
+                    guard let data = try await selectedPhoto.loadTransferable(type: Data.self),
+                          !Task.isCancelled else { return }
+                    try model.setAvatar(data)
+                } catch {
+                    if !Task.isCancelled { errorMessage = error.localizedDescription }
+                }
+            }
         }
     }
 }
@@ -1627,9 +1764,11 @@ struct RoomGameView: View {
                 let isAnswering = room.isAnswering(player.id)
                 let isPending = player.id == model.rooms.playerId && model.roomPushPending
                 let pushRank = pushOrder.firstIndex(of: player.id)
+                let rankLabel = room.phase == "finished" ? "\(index + 1)位" :
+                    pushRank.map { pushRankLabel($0) } ?? (isPending ? "判定中" : "—")
+                let localAvatar = player.id == model.rooms.playerId ? model.avatarData : nil
                 VStack(spacing: 4) {
-                    Text(room.phase == "finished" ? "\(index + 1)位" :
-                         pushRank.map { pushRankLabel($0) } ?? (isPending ? "判定中" : "—"))
+                    Text(rankLabel)
                         .font(.system(size: 16, weight: .black, design: .rounded))
                         .minimumScaleFactor(0.65)
                         .lineLimit(1)
@@ -1641,11 +1780,14 @@ struct RoomGameView: View {
                         Menu {
                             Text(player.badge ?? "称号未設定")
                         } label: {
-                            Text(player.name)
-                                .font(.caption.weight(.bold))
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.65)
-                                .foregroundStyle(Studio.primary)
+                            HStack(spacing: 3) {
+                                PlayerAvatarView(data: localAvatar, size: 18, encoded: player.avatar)
+                                Text(player.name)
+                                    .font(.caption.weight(.bold))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.65)
+                                    .foregroundStyle(Studio.primary)
+                            }
                         }
                         if player.isHost {
                             Image(systemName: "crown.fill")
@@ -1665,8 +1807,9 @@ struct RoomGameView: View {
                                          player.currentResult == "wrong" ? Studio.warning : Studio.secondary)
                         .frame(height: 35)
                         .accessibilityLabel("第\(room.round + 1)問、\(player.currentResult == "correct" ? "正解" : player.currentResult == "wrong" ? "不正解" : "未判定")")
-                    Text(room.settings.lives == 0 ? "ライフ ∞" : "ライフ \(player.lives)")
+                    Text(room.settings.lives == 0 ? "♡×∞" : "♡×\(player.lives)")
                         .foregroundStyle(player.disqualified ? Studio.warning : Studio.secondary)
+                        .accessibilityLabel(room.settings.lives == 0 ? "ライフ無制限" : "ライフ \(player.lives)")
                     Text(isAnswering ? "解答中" : isPending ? "PUSH判定中" : "PUSH")
                         .foregroundStyle(isAnswering || isPending ? Studio.accent : Studio.secondary)
                     Text(pushTime(player))
@@ -1684,7 +1827,21 @@ struct RoomGameView: View {
                 .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(
                     isAnswering || isPending ? Studio.accent : Studio.line,
                     lineWidth: isAnswering || isPending ? 2 : 1))
-                .opacity(player.connected ? 1 : 0.5)
+                .grayscale(player.disqualified ? 1 : 0)
+                .opacity(player.disqualified ? 0.35 : player.connected ? 1 : 0.5)
+                .overlay {
+                    if player.disqualified {
+                        Text("失格")
+                            .font(.system(size: 27, weight: .black, design: .rounded))
+                            .foregroundStyle(Studio.secondary)
+                            .minimumScaleFactor(0.7)
+                            .lineLimit(1)
+                            .padding(.horizontal, 4)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(Studio.surface.opacity(0.35), in: RoundedRectangle(cornerRadius: 12))
+                            .allowsHitTesting(false)
+                    }
+                }
             }
         }
         .frame(maxWidth: 560)
