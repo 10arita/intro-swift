@@ -350,19 +350,44 @@ test('normal mode admits two parallel answers and reveals progress only after sl
     const { action, state } = startedThreePlayerRoom(false);
     now += 6000;
     assert.equal(action('push', 'relayA').body.phase, 'answering');
+    assert.equal(state('relayC').pushClosed, false);
     assert.equal(state('relayB').activeAnswers[0].progress, '');
     action('choose', 'relayA', { choice: '花' });
     assert.equal(state('relayB').activeAnswers[0].progress, '');
     assert.equal(action('push', 'relayB').status, 200);
+    assert.equal(state('relayC').pushClosed, true);
+    assert.equal(state('relayC').audioStoppedAt, null);
     assert.equal(action('push', 'relayC').status, 409);
     assert.deepEqual(state('relayC').activeAnswers.map(a => a.progress), ['花', '']);
     action('choose', 'relayA', { choice: 'X' });
     assert.equal(state('relayC').phase, 'answering');
+    assert.equal(state('relayC').pushClosed, true);
     assert.equal(action('push', 'relayA').status, 409);
     action('choose', 'relayB', { choice: '花' });
     action('choose', 'relayB', { choice: '火' });
     assert.equal(state('relayC').phase, 'reveal');
     assert.equal(state('relayC').correctPlayerID, 'relayB');
+  } finally { Date.now = realNow; }
+});
+
+test('normal mode closes PUSH when the last unpushed players leave', () => {
+  const realNow = Date.now;
+  let now = realNow();
+  Date.now = () => now;
+  try {
+    const { action, state } = startedThreePlayerRoom(false, { answerSlots: 4 });
+    now += 6000;
+    action('push', 'relayA');
+    assert.equal(state('relayA').pushClosed, false);
+    action('leave', 'relayB');
+    assert.equal(state('relayA').pushClosed, false);
+    action('leave', 'relayC');
+    const closed = state('relayA');
+    assert.equal(closed.phase, 'answering');
+    assert.equal(closed.pushClosed, true);
+    assert.equal(closed.audioStoppedAt, null);
+    action('choose', 'relayA', { choice: 'X' });
+    assert.equal(state('relayA').phase, 'reveal');
   } finally { Date.now = realNow; }
 });
 

@@ -1087,13 +1087,13 @@ struct SoloGame {
                     guard let self, !Task.isCancelled, !self.roomAudioStarted,
                           self.room?.round == state.round,
                           ["countdown", "listening", "answering"].contains(self.room?.phase ?? ""),
-                          self.room?.pausedAt == nil, self.room?.audioStoppedAt == nil else { return }
+                          self.room?.pausedAt == nil, self.room?.questionAudioClosed == false else { return }
                     await self.startRoomAudio(state)
                     if self.room?.isAnswering(self.rooms.playerId) == true { self.pauseAudio() }
                 }
             }
         }
-        if ["listening", "answering"].contains(state.phase) && state.pausedAt == nil && state.audioStoppedAt == nil &&
+        if ["listening", "answering"].contains(state.phase) && state.pausedAt == nil && !state.questionAudioClosed &&
            !state.isAnswering(rooms.playerId) && !roomAudioStarted && scheduledRoomAudio == nil {
             scheduledRoomAudio = Task { [weak self] in
                 await self?.startRoomAudio(state)
@@ -1106,15 +1106,18 @@ struct SoloGame {
             }
             pauseAudio()
         }
-        if !state.settings.endless && state.isAnswering(rooms.playerId) && old?.isAnswering(rooms.playerId) != true {
+        if !state.settings.endless && !state.questionAudioClosed &&
+           state.isAnswering(rooms.playerId) && old?.isAnswering(rooms.playerId) != true {
             pauseAudio()
         }
-        if state.audioStoppedAt != nil && old?.audioStoppedAt == nil && state.phase == "answering" {
+        if state.questionAudioClosed && old?.questionAudioClosed != true {
             pauseAudio()
+            scheduledRoomAudio?.cancel()
+            scheduledRoomAudio = nil
         }
         let resumedFromRelay = old?.pausedAt != nil && state.pausedAt == nil
         let finishedOwnAnswer = !state.settings.endless && old?.isAnswering(rooms.playerId) == true && !state.isAnswering(rooms.playerId)
-        if (resumedFromRelay || finishedOwnAnswer) && state.audioStoppedAt == nil &&
+        if (resumedFromRelay || finishedOwnAnswer) && !state.questionAudioClosed &&
            ["listening", "answering"].contains(state.phase) {
             Task { [weak self] in await self?.startRoomAudio(state) }
         }
@@ -1138,7 +1141,7 @@ struct SoloGame {
         }
         guard let playbackState = room, playbackState.round == state.round,
               ["countdown", "listening", "answering"].contains(playbackState.phase),
-              playbackState.pausedAt == nil, playbackState.audioStoppedAt == nil,
+              playbackState.pausedAt == nil, !playbackState.questionAudioClosed,
               !playbackState.isAnswering(rooms.playerId),
               let current = playbackState.current else { return }
         roomAudioStarting = true
@@ -1158,7 +1161,7 @@ struct SoloGame {
             guard room?.round == state.round else { return }
             roomAudioStarted = true
             roomError = nil
-            if room?.pausedAt != nil || room?.audioStoppedAt != nil || room?.isAnswering(rooms.playerId) == true { pauseAudio() }
+            if room?.pausedAt != nil || room?.questionAudioClosed == true || room?.isAnswering(rooms.playerId) == true { pauseAudio() }
             if room?.phase == "reveal" || room?.phase == "finished" { stopAudio() }
         } catch {
             guard room?.round == state.round, !Task.isCancelled else { return }
@@ -1232,7 +1235,7 @@ struct SoloGame {
 
     func retryRoomAudio() {
         guard let room, ["countdown", "listening", "answering"].contains(room.phase),
-              room.pausedAt == nil, room.audioStoppedAt == nil, !room.isAnswering(rooms.playerId) else { return }
+              room.pausedAt == nil, !room.questionAudioClosed, !room.isAnswering(rooms.playerId) else { return }
         scheduledRoomAudio?.cancel()
         scheduledRoomAudio = nil
         roomError = nil

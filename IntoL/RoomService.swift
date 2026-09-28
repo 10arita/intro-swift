@@ -89,6 +89,8 @@ struct RoomState: Decodable, Identifiable {
     let current: RoomCurrent?
     let sessionToken: String?
 
+    var questionAudioClosed: Bool { !settings.endless && (pushClosed || audioStoppedAt != nil) }
+
     func player(_ id: String) -> RoomPlayer? { players.first { $0.id == id } }
     func isAnswering(_ id: String) -> Bool { activeAnswers.contains { $0.playerId == id } }
     func canPush(_ id: String) -> Bool {
