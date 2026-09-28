@@ -1719,6 +1719,7 @@ private struct AvatarSettingsView: View {
 struct RoomGameView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage("roomPlayerOrder") private var playerOrder = "score"
     @State private var showVolumeSettings = false
     @State private var showFriends = false
 
@@ -1753,9 +1754,28 @@ struct RoomGameView: View {
                         }
                         .padding(.horizontal, 24)
                         .padding(.top, 12)
+                        HStack {
+                            Text("プレイヤー")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(Studio.secondary)
+                            Spacer()
+                            Menu {
+                                Picker("プレイヤーの並び順", selection: $playerOrder) {
+                                    Text("点数順").tag("score")
+                                    Text("PUSH順").tag("push")
+                                }
+                            } label: {
+                                Label(playerOrder == "push" ? "PUSH順" : "点数順", systemImage: "arrow.left.arrow.right")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(Studio.accent)
+                                    .frame(minHeight: 28)
+                            }
+                            .accessibilityLabel("プレイヤーの並び順: \(playerOrder == "push" ? "PUSH順" : "点数順")")
+                        }
+                        .padding(.horizontal, 20)
                         compactPlayers(room)
                             .padding(.horizontal, 16)
-                            .padding(.top, 8)
+                            .padding(.top, 4)
                             .padding(.bottom, 12)
                         VStack(spacing: compact ? 8 : 12) {
                             if room.phase == "lobby" {
@@ -2064,19 +2084,28 @@ struct RoomGameView: View {
 
     private func compactPlayers(_ room: RoomState) -> some View {
         let pushOrder = room.pushOrderIds ?? room.pushedIds
-        let players = room.phase == "finished" ? room.players.sorted {
+        let scoreOrder = room.players.sorted {
+            if $0.score != $1.score { return $0.score > $1.score }
+            if $0.disqualified != $1.disqualified { return !$0.disqualified }
+            if $0.lives != $1.lives { return $0.lives > $1.lives }
+            return $0.id < $1.id
+        }
+        let finalRankOrder = room.players.sorted {
             if $0.disqualified != $1.disqualified { return !$0.disqualified }
             if $0.score != $1.score { return $0.score > $1.score }
             if $0.lives != $1.lives { return $0.lives > $1.lives }
             return $0.id < $1.id
-        } :
-            pushOrder.compactMap { room.player($0) } + room.players.filter { !pushOrder.contains($0.id) }
+        }
+        let players = playerOrder == "push" ?
+            pushOrder.compactMap { room.player($0) } + room.players.filter { !pushOrder.contains($0.id) } :
+            scoreOrder
         return HStack(alignment: .top, spacing: 5) {
-            ForEach(Array(players.enumerated()), id: \.element.id) { index, player in
+            ForEach(players) { player in
                 let isAnswering = room.isAnswering(player.id)
                 let isPending = player.id == model.rooms.playerId && model.roomPushPending
                 let pushRank = pushOrder.firstIndex(of: player.id)
-                let rankLabel = room.phase == "finished" ? "\(index + 1)位" :
+                let finalRank = finalRankOrder.firstIndex { $0.id == player.id }.map { $0 + 1 } ?? 0
+                let rankLabel = room.phase == "finished" ? "\(finalRank)位" :
                     pushRank.map { pushRankLabel($0) } ?? (isPending ? "判定中" : "—")
                 let rankColor = room.phase == "finished" || isPending ? Studio.accent :
                     pushRank.map { pushRankColor($0) } ?? Studio.raised
@@ -2172,7 +2201,7 @@ struct RoomGameView: View {
         }
         .frame(maxWidth: 560)
         .frame(maxWidth: .infinity)
-        .animation(reduceMotion ? nil : Studio.spring, value: pushOrder)
+        .animation(reduceMotion ? nil : Studio.spring, value: players.map(\.id))
     }
 
     private func pushRankLabel(_ index: Int) -> String {
