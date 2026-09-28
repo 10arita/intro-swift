@@ -67,6 +67,7 @@ struct SoloGame {
     @Published var roomError: String?
     @Published var roomNotice: String?
     @Published var roomPushPending = false
+    @Published var roomChoicePending = false
     @Published var roomPreparationStatus: String?
     @Published var roomAudioStarting = false
     @Published private(set) var roomAudioStarted = false
@@ -466,9 +467,19 @@ struct SoloGame {
             await appleMusicPauseTask?.value
             try Task.checkCancellation()
             appleMusicPlaying = true
-            try await appleMusic.play(song, offsetMS: offsetMS)
+            try await playAppleMusicWithRetry(song, offsetMS: offsetMS)
         } else if let url = song.previewURL {
             try player.startPrepared(url, offset: Double(offsetMS) / 1000)
+        }
+    }
+
+    private func playAppleMusicWithRetry(_ song: Song, offsetMS: Int) async throws {
+        do { try await appleMusic.play(song, offsetMS: offsetMS) }
+        catch {
+            guard RoomService.isConnectionError(error), !Task.isCancelled else { throw error }
+            try await Task.sleep(for: .milliseconds(300))
+            try Task.checkCancellation()
+            try await appleMusic.play(song, offsetMS: offsetMS)
         }
     }
 
@@ -677,9 +688,15 @@ struct SoloGame {
                 guard let self else { return }
                 await pause?.value
                 guard !Task.isCancelled else { return }
-                do { try await self.appleMusic.play(song, offsetMS: offsetMS) }
+                do { try await self.playAppleMusicWithRetry(song, offsetMS: offsetMS) }
                 catch {
                     guard !Task.isCancelled else { return }
+                    if self.room?.phase == "reveal", self.room?.current?.id == song.id {
+                        self.roomError = RoomService.isConnectionError(error)
+                            ? "Apple Music との通信が途切れました。再生を再試行してください"
+                            : error.localizedDescription
+                        return
+                    }
                     if var game = self.game, game.current.id == song.id {
                         game.warning = error.localizedDescription
                         self.game = game
@@ -897,6 +914,7 @@ struct SoloGame {
         roomNoticeTask?.cancel(); roomNoticeTask = nil
         roomNotice = nil
         roomPushPending = false
+        roomChoicePending = false
         preloadedRoomID = nil
         roomPreloadTask?.cancel()
         roomSyncTask?.cancel()
@@ -1125,6 +1143,7 @@ struct SoloGame {
             scheduledRoomAudio?.cancel()
             stopAudio()
             scheduledRoomAudio = nil
+            roomError = nil
             if let song = state.current?.song { revealAudio(song) }
             UINotificationFeedbackGenerator().notificationOccurred(state.correctPlayerIDs.contains(rooms.playerId) ? .success : .warning)
         }
@@ -1165,7 +1184,10 @@ struct SoloGame {
             if room?.phase == "reveal" || room?.phase == "finished" { stopAudio() }
         } catch {
             guard room?.round == state.round, !Task.isCancelled else { return }
-            roomError = error.localizedDescription
+            roomAudioStarted = false
+            roomError = state.mode == "applemusic" && RoomService.isConnectionError(error)
+                ? "Apple Music との通信が途切れました。再生を再試行してください"
+                : error.localizedDescription
         }
     }
 
@@ -1191,7 +1213,16 @@ struct SoloGame {
     func roomAction(_ action: String, payload: [String: Any] = [:]) async {
         guard let roomID else { return }
         if action == "push" && !roomPushPending { return }
-        defer { if action == "push" { roomPushPending = false } }
+        if action == "choose" {
+            guard !roomChoicePending, room?.isAnswering(rooms.playerId) == true else { return }
+            roomChoicePending = true
+        }
+        let previousAnswer = roomAnswer
+        let previousRound = room?.round
+        defer {
+            if action == "push" { roomPushPending = false }
+            if action == "choose", self.roomID == roomID { roomChoicePending = false }
+        }
         do {
             let state = try await rooms.action(action, id: roomID, payload: payload)
             guard self.roomID == roomID else { return }
@@ -1203,6 +1234,13 @@ struct SoloGame {
                 if let state = failure.state { receiveNetworkRoom(state) }
                 else if let state = try? await rooms.state(roomID), self.roomID == roomID { receiveNetworkRoom(state) }
                 showRoomNotice("解答権は取れませんでした。ルームには残っています")
+            } else if action == "choose", RoomService.isConnectionError(error) {
+                if let state = try? await rooms.state(roomID), self.roomID == roomID {
+                    receiveNetworkRoom(state)
+                    if state.round != previousRound || !state.isAnswering(rooms.playerId) ||
+                        state.answerProgress != previousAnswer { return }
+                }
+                showRoomNotice("通信が途切れました。接続を確認して選び直してください")
             } else {
                 showRoomNotice(error.localizedDescription)
             }
@@ -1242,9 +1280,17 @@ struct SoloGame {
         receiveRoom(room)
     }
 
+    func retryRoomRevealAudio() {
+        guard let room, room.phase == "reveal", let song = room.current?.song else { return }
+        roomError = nil
+        stopAudio()
+        revealAudio(song)
+    }
+
     func leaveRoom() async {
         roomNoticeTask?.cancel(); roomNoticeTask = nil
         roomNotice = nil; roomPushPending = false
+        roomChoicePending = false
         roomPreloadTask?.cancel(); roomPreloadTask = nil
         preloadedRoomID = nil; roomPreparationStatus = nil
         roomSyncTask?.cancel(); roomSyncTask = nil

@@ -1652,6 +1652,7 @@ struct RoomGameView: View {
                                     ChoiceGrid(choices: model.roomOptions, action: { choice in
                                         Task { await model.roomAction("choose", payload: ["choice": choice]) }
                                     }, compact: true)
+                                    .disabled(model.roomChoicePending)
                                 } else if room.phase == "answering" &&
                                             (room.settings.endless || room.pushClosed) {
                                     watchingStage(room, compact: compact)
@@ -1659,8 +1660,17 @@ struct RoomGameView: View {
                                     listeningStage(room, compact: compact)
                                 }
                                 skipButton(room)
+                                if model.roomError != nil && room.pausedAt == nil &&
+                                    !room.questionAudioClosed && !room.isAnswering(model.rooms.playerId) {
+                                    Button("再生を再試行") { model.retryRoomAudio() }
+                                        .buttonStyle(SecondaryButtonStyle())
+                                }
                             } else if room.phase == "reveal" {
                                 roomReveal(room)
+                                if model.roomError != nil {
+                                    Button("再生を再試行") { model.retryRoomRevealAudio() }
+                                        .buttonStyle(SecondaryButtonStyle())
+                                }
                                 if room.hostId == model.rooms.playerId {
                                     PrimaryButton(title: "次の曲へ", symbol: "arrow.right") {
                                         Task { await model.roomAction("next") }

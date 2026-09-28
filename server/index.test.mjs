@@ -104,6 +104,38 @@ test('Apple Music rooms accept catalog IDs and keep answers hidden until reveal'
   assert.equal(invalid.status, 400);
 });
 
+test('a retried choice is applied only once', () => {
+  const originalNow = Date.now;
+  let now = originalNow();
+  Date.now = () => now;
+  try {
+    const created = handle('POST', '/rooms', {
+      playerId: 'retry-host', name: 'Host', mode: 'applemusic',
+      songs: [{ id: 'applemusic:1234567890', title: '青い空', artist: 'Artist' }],
+      settings: { questionCount: 1 }
+    }, new URLSearchParams());
+    const path = `/rooms/${created.body.id}`;
+    const auth = `Bearer ${created.body.sessionToken}`;
+    const send = (action, payload = {}) => handle('POST', `${path}/${action}`,
+      { playerId: 'retry-host', ...payload }, new URLSearchParams(), auth);
+    send('assets-ready');
+    send('start');
+    send('ready');
+    now += 5100;
+    assert.equal(send('push').status, 200);
+    const actionId = 'first-letter-retry';
+    const first = send('choose', { choice: '青', actionId });
+    assert.equal(first.body.answerProgress, '青');
+    const duplicate = send('choose', { choice: '青', actionId });
+    assert.equal(duplicate.status, 200);
+    assert.equal(duplicate.body.answerProgress, '青');
+    assert.equal(duplicate.body.players[0].wrongCount, 0);
+    assert.equal(send('choose', { choice: 'い', actionId: 'second-letter' }).body.answerProgress, '青い');
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
 test('Apple Music room reveals the Songle chorus position', async () => {
   const originalFetch = globalThis.fetch;
   const originalNow = Date.now;

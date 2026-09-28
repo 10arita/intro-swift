@@ -291,6 +291,7 @@ function snapshot(room, playerId) {
     room.pushed.has(playerId) || room.players.find(player => player.id === playerId)?.disqualified;
   return {
     id: room.id, mode: room.mode, hostId: room.hostId, phase: room.phase, round: room.round,
+    supportsChoiceRetry: true,
     sequence: room.snapshotSequence,
     totalRounds: room.songs.length,
     settings: room.settings, players: room.players.map(p => publicPlayer(p, room)),
@@ -446,6 +447,17 @@ export function handle(method, path, body, query, authorization, origin = 'https
     room.phase = 'answering';
     if (!room.settings.endless) settleNormal(room);
   } else if (action === 'choose') {
+    const actionId = body.actionId;
+    if (actionId !== undefined && (typeof actionId !== 'string' || !/^[A-Za-z0-9-]{1,64}$/.test(actionId))) {
+      return fail(400, '回答IDが無効です');
+    }
+    if (actionId && (typeof body.choice !== 'string' || body.choice.length > 8)) return fail(400, '選択肢が無効です');
+    room.processedChoices ||= [];
+    const previous = actionId && room.processedChoices.find(item => item.playerId === playerId && item.actionId === actionId);
+    if (previous) {
+      if (previous.choice !== body.choice) return fail(400, '回答IDが重複しています');
+      return { status: 200, body: snapshot(room, playerId) };
+    }
     const attempt = room.answers.find(answer => answer.playerId === playerId && answer.status === 'active');
     if (room.phase !== 'answering' || !attempt) return fail(409, '解答権がありません');
     if (Date.now() >= attempt.deadline) wrong(room, player, attempt);
@@ -465,6 +477,10 @@ export function handle(method, path, body, query, authorization, origin = 'https
           attempt.deadline = Date.now() + 5000;
         }
       }
+    }
+    if (actionId) {
+      room.processedChoices.push({ playerId, actionId, choice: body.choice });
+      if (room.processedChoices.length > 32) room.processedChoices.shift();
     }
   } else if (action === 'skip') {
     if (!['listening','answering'].includes(room.phase) || player.disqualified) return fail(409, '今はスキップできません');

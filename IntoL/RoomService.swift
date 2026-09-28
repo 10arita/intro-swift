@@ -88,6 +88,7 @@ struct RoomState: Decodable, Identifiable {
     let correctPlayerIDs: [String]
     let current: RoomCurrent?
     let sessionToken: String?
+    let supportsChoiceRetry: Bool?
 
     var questionAudioClosed: Bool { !settings.endless && (pushClosed || audioStoppedAt != nil) }
 
@@ -162,6 +163,7 @@ struct SavedProfile: Decodable {
     private var roomSocket: URLSessionWebSocketTask?
     private var socketRoomID: String?
     private var socketReady = false
+    private var supportsChoiceRetry = false
     private var pendingSocketActions: [String: PendingRoomAction] = [:]
 
     private func disconnectSocket() {
@@ -190,6 +192,7 @@ struct SavedProfile: Decodable {
     }
 
     private func sampleClock(_ state: RoomState, sentAt: Double, receivedAt: Double) {
+        supportsChoiceRetry = state.supportsChoiceRetry == true
         let roundTrip = receivedAt - sentAt
         if roundTrip < bestClockRTTMS || Date.now.timeIntervalSince(clockSampleAt) > 30 {
             serverClockOffsetMS = state.serverNow - (sentAt + receivedAt) / 2
@@ -203,7 +206,7 @@ struct SavedProfile: Decodable {
         if method == "GET" { url.append(queryItems: [URLQueryItem(name: "playerId", value: playerId)]) }
         var request = URLRequest(url: url)
         request.httpMethod = method
-        request.timeoutInterval = 10
+        request.timeoutInterval = path.hasSuffix("/choose") ? 2.5 : 10
         if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         if method != "GET" {
             var body = payload
@@ -231,6 +234,7 @@ struct SavedProfile: Decodable {
     }
 
     func create(name: String, settings: RoomSettings, mode: String = "shared", songs: [Song] = [], corpus: [String] = [], badge: String? = nil, avatar: String? = nil) async throws -> RoomState {
+        supportsChoiceRetry = false
         token = nil
         Secrets.set(nil, for: "roomSessionToken")
         UserDefaults.standard.removeObject(forKey: "roomSessionToken")
@@ -243,6 +247,7 @@ struct SavedProfile: Decodable {
     }
 
     func join(_ id: String, name: String, badge: String? = nil, avatar: String? = nil) async throws -> RoomState {
+        supportsChoiceRetry = false
         token = nil
         Secrets.set(nil, for: "roomSessionToken")
         UserDefaults.standard.removeObject(forKey: "roomSessionToken")
@@ -325,7 +330,7 @@ struct SavedProfile: Decodable {
                 }
             }
             Task { [weak self] in
-                try? await Task.sleep(for: .seconds(10))
+                try? await Task.sleep(for: .seconds(action == "choose" ? 2 : 10))
                 guard !Task.isCancelled else { return }
                 if let pending = self?.pendingSocketActions.removeValue(forKey: messageID) {
                     pending.continuation.resume(throwing: URLError(.timedOut))
@@ -460,13 +465,38 @@ struct SavedProfile: Decodable {
         max(0, min(90_000, max(30_000, Int(Double(song.durationMS) * 0.32))) - 1500)
     }
     func action(_ action: String, id: String, payload: [String: Any] = [:]) async throws -> RoomState {
+        var payload = payload
+        if action == "choose" { payload["actionId"] = UUID().uuidString }
         if action != "leave", socketReady, socketRoomID == id, let roomSocket {
-            return try await socketAction(action, payload: payload, task: roomSocket)
+            do { return try await socketAction(action, payload: payload, task: roomSocket) }
+            catch {
+                guard action == "choose", supportsChoiceRetry, Self.isConnectionError(error),
+                      !Task.isCancelled else { throw error }
+                // The server uses actionId to return the current state if the socket
+                // processed this answer before its acknowledgement was lost.
+                return try await request("rooms/\(id)/\(action)", method: "POST", payload: payload)
+            }
         }
-        return try await request("rooms/\(id)/\(action)", method: "POST", payload: payload)
+        do { return try await request("rooms/\(id)/\(action)", method: "POST", payload: payload) }
+        catch {
+            guard action == "choose", supportsChoiceRetry, Self.isConnectionError(error),
+                  !Task.isCancelled else { throw error }
+            return try await request("rooms/\(id)/\(action)", method: "POST", payload: payload)
+        }
+    }
+
+    static func isConnectionError(_ error: Error) -> Bool {
+        let error = error as NSError
+        if error.domain == NSURLErrorDomain &&
+            [URLError.networkConnectionLost.rawValue, URLError.timedOut.rawValue,
+             URLError.notConnectedToInternet.rawValue].contains(error.code) { return true }
+        if let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError,
+           underlying !== error { return isConnectionError(underlying) }
+        return false
     }
     func clear() {
         disconnectSocket()
+        supportsChoiceRetry = false
         token = nil
         Secrets.set(nil, for: "roomSessionToken")
         UserDefaults.standard.removeObject(forKey: "roomSessionToken")

@@ -299,7 +299,7 @@ private struct AppleMusicLibrarySongResponse: Decodable {
     private var playlistsByID: [String: MusicKit.Playlist] = [:]
     private var songsByID: [String: MusicKit.Song] = [:]
     private var playRequest = 0
-    private var preparedSongID: String?
+    private var queuedSongID: String?
     private var topTitlesByArtist: [String: [String]] = [:]
 
     var isAuthorized: Bool { MusicAuthorization.currentStatus == .authorized }
@@ -448,10 +448,12 @@ private struct AppleMusicLibrarySongResponse: Decodable {
         guard initialRequest == playRequest, !Task.isCancelled else { throw CancellationError() }
         playRequest += 1
         let currentRequest = playRequest
+        queuedSongID = nil
         player.stop()
         player.queue = [item]
         try await player.prepareToPlay()
-        if currentRequest == playRequest { preparedSongID = songID }
+        guard currentRequest == playRequest, !Task.isCancelled else { throw CancellationError() }
+        queuedSongID = songID
     }
 
     private func catalogSong(for songID: String) async throws -> MusicKit.Song {
@@ -482,12 +484,14 @@ private struct AppleMusicLibrarySongResponse: Decodable {
         guard initialRequest == playRequest, !Task.isCancelled else { throw CancellationError() }
         playRequest += 1
         let request = playRequest
-        if preparedSongID != song.id {
+        if queuedSongID != song.id {
+            queuedSongID = nil
             player.stop()
             player.queue = [item]
             try await player.prepareToPlay()
+            guard request == playRequest, !Task.isCancelled else { throw CancellationError() }
+            queuedSongID = song.id
         }
-        preparedSongID = nil
         guard request == playRequest, !Task.isCancelled else { return }
         player.playbackTime = TimeInterval(max(0, offsetMS)) / 1000
         try await player.play()
@@ -505,7 +509,7 @@ private struct AppleMusicLibrarySongResponse: Decodable {
 
     func stop() {
         playRequest += 1
-        preparedSongID = nil
+        queuedSongID = nil
         player.stop()
     }
 }

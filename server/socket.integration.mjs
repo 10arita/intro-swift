@@ -104,8 +104,13 @@ test('WebSocket actions and state broadcasts share one authenticated connection'
     assert.ok(recorded.state.pushOrderIds.includes(rejectedPlayerID));
     const malformedChoice = await action(winner, 'choose', { choice: { toString: 'invalid' } });
     assert.equal(malformedChoice.status, 400);
-    const stillConnected = await action(winner, 'choose', { choice: '間違い' });
+    const actionId = randomUUID();
+    const stillConnected = await action(winner, 'choose', { choice: '間違い', actionId });
     assert.equal(stillConnected.type, 'result');
+    const winnerToken = winner === host ? room.sessionToken : guest.sessionToken;
+    const duplicate = await post(`/rooms/${room.id}/choose`,
+      { playerId: winnerID, choice: '間違い', actionId }, winnerToken);
+    assert.equal(duplicate.players.find(player => player.id === winnerID).wrongCount, 1);
   } finally {
     for (const socket of sockets) socket.terminate();
     await new Promise(resolve => server.close(resolve));
