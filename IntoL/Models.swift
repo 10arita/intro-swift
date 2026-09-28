@@ -54,64 +54,44 @@ enum TitleRules {
     }
 
     private static let forbidden = Set("っゃゅょぁぃぅぇぉゎッャュョァィゥェォヮー".map(String.init))
-    private static let similar: [String: [String]] = {
-        let groups = [
-            "日目白田", "未末朱本", "大犬太天", "土士王工", "人入八", "青清晴静", "花華芽草", "歌唄謡語", "空突穹室", "夜液衣夢",
-            "木本末未", "口日目四", "山出岳岩", "川州順", "水永氷泉", "火灯炎災", "金針銀鉄", "月用明朋", "雨雪雲雷", "心必思忘",
-            "春奏泰", "夏復憂", "秋愁愈", "冬寒終", "朝潮嘲", "風鳳凰", "海毎梅", "光先元", "星屋室", "恋変愛",
-            "道導首", "音暗韻", "声聖聞", "新親薪", "時待持", "間問門", "夢薫募", "愛受優", "君群郡", "花化華",
-            "高髙亮", "島鳥嶋", "楽薬栗", "白自百", "赤赦赫", "青責清", "黒墨黙", "深探採", "遠運達", "近折所",
-            "笑咲啖", "泣涙流", "走起赴", "飛非悲", "舞無夢", "知和矢", "手毛才", "足是定", "目貝見", "耳取聞",
-            "思恩忠", "空室窓", "石右岩", "林森木", "糸系紫", "魚漁鮮", "言計詩", "女好妥", "子字学", "力刀功",
-            "夜液掖", "友反双", "雪雲雷", "花草葉", "地池他", "声唄歌", "虹紅江", "春椿秋", "時詩持", "道運遠"
-        ]
-        var result: [String: [String]] = [:]
-        for group in groups {
-            let characters = group.map(String.init)
-            for value in characters { result[value, default: []].append(contentsOf: characters.filter { $0 != value }) }
-        }
-        return result
-    }()
-
-    static func choices(answer: String, prefix: String, corpus: [String], artistTopTitles: [String] = []) -> [String] {
+    static func choices(answer: String, prefix: String, corpus: [String], artistTopTitles: [String] = [], currentTitle: String = "") -> [String] {
         let type = kind(answer)
-        var candidates: [String] = []
-        var preferred: [String] = []
-        let corpus = corpus + famousTitles
+        var distractors: [String] = []
+        func add(_ candidates: [String]) {
+            for char in candidates where char != answer && !forbidden.contains(char) && !distractors.contains(char) {
+                distractors.append(char)
+                if distractors.count == 3 { return }
+            }
+        }
         if prefix.isEmpty {
-            for char in artistTopTitles.prefix(7).compactMap({ characters($0).first }).shuffled()
-                where char != answer && !forbidden.contains(char) && !preferred.contains(char) {
-                preferred.append(char)
-                if preferred.count == 3 { break }
-            }
-            candidates += corpus.compactMap { characters($0).first }
+            add(artistTopTitles.prefix(6).filter { normalized($0) != normalized(currentTitle) }
+                .compactMap { characters($0).first }.shuffled())
         } else {
-            candidates += similar[answer] ?? []
-            candidates += corpus.compactMap { title in
-                let chars = characters(title)
-                let used = prefix.map(String.init).count
-                return chars.count > used && chars.prefix(used).joined() == prefix ? chars[used] : nil
-            }
-            let prev = String(prefix.suffix(1))
-            candidates += corpus.flatMap { title -> [String] in
-                let chars = characters(title)
-                guard chars.count > 1 else { return [] }
-                return (0..<(chars.count - 1)).compactMap { chars[$0] == prev ? chars[$0 + 1] : nil }
+            let titles = (corpus + famousTitles).map(characters)
+            let used = prefix.count
+            add(titles.compactMap { chars in
+                chars.count > used && chars.prefix(used).joined() == prefix ? chars[used] : nil
+            }.shuffled())
+            if distractors.count < 3 {
+                let prev = String(prefix.suffix(1))
+                var frequency: [String: Int] = [:]
+                for chars in titles where chars.count > 1 {
+                    for index in 0..<(chars.count - 1) where chars[index] == prev {
+                        frequency[chars[index + 1], default: 0] += 1
+                    }
+                }
+                add(frequency.keys.shuffled().sorted { frequency[$0, default: 0] > frequency[$1, default: 0] })
             }
         }
-        let pools = [
-            "あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをん",
-            "アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン",
-            "愛光音海風春夏秋冬君夢星夜花青空雨雪月道心時人世界日明白山川新未来恋歌声虹",
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "0123456789"
-        ]
-        if type == 2 {
-            candidates += (0..<1200).compactMap { UnicodeScalar(0x4E00 + $0).map { String(Character($0)) } }.shuffled()
+        if distractors.count < 3 {
+            let pools = [
+                "あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをん",
+                "アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン",
+                "愛光音海風春夏秋冬君夢星夜花青空雨雪月道心時人世界日明白山川新未来恋歌声虹",
+                "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "0123456789"
+            ]
+            add(pools[type].map(String.init).shuffled())
         }
-        candidates += pools[type].map(String.init).shuffled()
-        let fallback = Array(NSOrderedSet(array: candidates.filter { $0 != answer && kind($0) == type
-            && !forbidden.contains($0) && !preferred.contains($0) })).compactMap { $0 as? String }
-        let distractors = preferred + fallback
         return ([answer] + distractors.prefix(3)).shuffled()
     }
 }

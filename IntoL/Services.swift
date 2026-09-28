@@ -182,7 +182,7 @@ enum AppError: LocalizedError {
             guard let title = item.trackName else { continue }
             let normalized = TitleRules.normalized(title)
             if !normalized.isEmpty && seen.insert(normalized).inserted { titles.append(title) }
-            if titles.count == 7 { break }
+            if titles.count == 6 { break }
         }
         titlesByArtist[key] = titles
         return titles

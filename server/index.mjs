@@ -67,22 +67,6 @@ const pools = [
   [...'愛光音海風春夏秋冬君夢星夜花青空雨雪月道心時人世界日明白山川新未来恋歌声虹'],
   [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'], [...'0123456789']
 ];
-const visualGroups = [
-  '日目白田','未末朱本','大犬太天','土士王工','人入八','青清晴静','花華芽草','歌唄謡語','空突穹室','夜液衣夢',
-  '木本末未','口日目四','山出岳岩','川州順','水永氷泉','火灯炎災','金針銀鉄','月用明朋','雨雪雲雷','心必思忘',
-  '春奏泰','夏復憂','秋愁愈','冬寒終','朝潮嘲','風鳳凰','海毎梅','光先元','星屋室','恋変愛',
-  '道導首','音暗韻','声聖聞','新親薪','時待持','間問門','夢薫募','愛受優','君群郡','花化華',
-  '高髙亮','島鳥嶋','楽薬栗','白自百','赤赦赫','青責清','黒墨黙','深探採','遠運達','近折所',
-  '笑咲啖','泣涙流','走起赴','飛非悲','舞無夢','知和矢','手毛才','足是定','目貝見','耳取聞',
-  '思恩忠','空室窓','石右岩','林森木','糸系紫','魚漁鮮','言計詩','女好妥','子字学','力刀功',
-  '夜液掖','友反双','雪雲雷','花草葉','地池他','声唄歌','虹紅江','春椿秋','時詩持','道運遠'
-];
-const similar = {};
-for (const group of visualGroups) for (const char of group) {
-  similar[char] ||= [];
-  similar[char].push(...[...group].filter(other => other !== char));
-}
-
 export function normalize(title) {
   return String(title).replace(/\([^)]*\)|（[^）]*）/g, '')
     .replace(/\s+(?:feat\.?|featuring)\s+.*$/i, '')
@@ -105,22 +89,33 @@ function shuffled(array) {
   }
   return copy;
 }
-export function choices(answer, prefix, titles, artistTopTitles = []) {
+export function choices(answer, prefix, titles, artistTopTitles = [], currentTitle = '') {
   const type = kind(answer);
-  const chars = titles.map(normalize).map(title => [...title]);
-  const preferred = [];
-  if (!prefix) for (const char of shuffled(artistTopTitles.slice(0, 7).map(title => [...normalize(title)][0]))) {
-    if (char && char !== answer && !forbidden.has(char) && !preferred.includes(char)) preferred.push(char);
-    if (preferred.length === 3) break;
+  const distractors = [];
+  const add = candidates => {
+    for (const char of candidates) {
+      if (char && char !== answer && !forbidden.has(char) && !distractors.includes(char)) distractors.push(char);
+      if (distractors.length === 3) break;
+    }
+  };
+  if (!prefix) {
+    add(shuffled(artistTopTitles.slice(0, 6).filter(title => normalize(title) !== normalize(currentTitle))
+      .map(title => [...normalize(title)][0])));
+  } else {
+    const chars = titles.map(normalize).map(title => [...title]);
+    const used = [...prefix].length;
+    add(shuffled(chars.filter(c => c.length > used && c.slice(0, used).join('') === prefix).map(c => c[used])));
+    if (distractors.length < 3) {
+      const frequency = new Map();
+      const prev = [...prefix].at(-1);
+      for (const title of chars) for (let i = 0; i < title.length - 1; i++) {
+        if (title[i] === prev) frequency.set(title[i + 1], (frequency.get(title[i + 1]) || 0) + 1);
+      }
+      add(shuffled([...frequency.keys()]).sort((a, b) => frequency.get(b) - frequency.get(a)));
+    }
   }
-  const candidates = prefix ? [ ...(similar[answer] || []),
-    ...chars.filter(c => c.join('').startsWith(prefix) && c.length > [...prefix].length).map(c => c[[...prefix].length]),
-    ...chars.flatMap(c => c.slice(1).filter((_, i) => c[i] === [...prefix].at(-1)))
-  ] : chars.map(c => c[0]);
-  if (type === 2) candidates.push(...shuffled([...Array(1200)].map((_, index) => String.fromCodePoint(0x4e00 + index))));
-  candidates.push(...shuffled(pools[type]));
-  const fallback = [...new Set(candidates)].filter(c => c && c !== answer && kind(c) === type && !forbidden.has(c) && !preferred.includes(c));
-  return shuffled([answer, ...[...preferred, ...fallback].slice(0, 3)]);
+  if (distractors.length < 3) add(shuffled(pools[type]));
+  return shuffled([answer, ...distractors]);
 }
 function clamp(value, min, max, fallback) {
   const number = Number(value);
@@ -143,7 +138,7 @@ function catalogSongs(origin) {
       trackURL: song.trackURL || null }));
 }
 function artistTopTitles(value) {
-  return Array.isArray(value) ? value.filter(t => typeof t === 'string' && normalize(t)).slice(0, 7).map(t => t.slice(0, 150)) : [];
+  return Array.isArray(value) ? value.filter(t => typeof t === 'string' && normalize(t)).slice(0, 6).map(t => t.slice(0, 150)) : [];
 }
 function playerAvatar(value) {
   if (typeof value !== 'string' || value.length > 16_000 || !/^[A-Za-z0-9+/]+={0,2}$/.test(value)) return null;
@@ -442,7 +437,7 @@ export function handle(method, path, body, query, authorization, origin = 'https
     room.pushed.add(playerId); room.skipped.delete(playerId);
     room.answers.push({ playerId, progress: '', letterIndex: 0, deadline: pushedAt + 5000,
       pushTimeMS,
-      options: choices([...normalize(currentSong(room).title)][0], '', room.corpus || room.songs.map(s => s.title), currentSong(room).artistTopTitles || []),
+      options: choices([...normalize(currentSong(room).title)][0], '', room.corpus || room.songs.map(s => s.title), currentSong(room).artistTopTitles || [], currentSong(room).title),
       status: 'active' });
     if (room.settings.endless) {
       room.pausedAt = Date.now();

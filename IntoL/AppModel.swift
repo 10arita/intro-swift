@@ -502,7 +502,7 @@ struct SoloGame {
         game.letterIndex = 0
         game.deadline = .now.addingTimeInterval(5)
         game.secondsLeft = 5
-        game.choices = TitleRules.choices(answer: game.answer[0], prefix: "", corpus: game.current.id.hasPrefix("spotify:") || game.current.id.hasPrefix("applemusic:") ? quizCorpus : game.songs.map(\.title), artistTopTitles: game.current.artistTopTitles ?? [])
+        game.choices = TitleRules.choices(answer: game.answer[0], prefix: "", corpus: game.current.id.hasPrefix("spotify:") || game.current.id.hasPrefix("applemusic:") ? quizCorpus : game.songs.map(\.title), artistTopTitles: game.current.artistTopTitles ?? [], currentTitle: game.current.title)
         stats.attempts += 1
         stats.totalPushSeconds += game.pushTime
         var genre = stats.genres[game.current.genre] ?? GenreRecord()
@@ -742,17 +742,10 @@ struct SoloGame {
     var accuracy: Double { stats.accuracy }
 
     private func withArtistTopTitles(_ songs: [Song]) async -> [Song] {
-        var result: [Song]
-        if songs.first?.id.hasPrefix("spotify:") == true {
-            result = await spotify.withArtistTopTitles(songs)
-        } else if songs.first?.id.hasPrefix("applemusic:") == true {
-            result = await appleMusic.withArtistTopTitles(songs)
-        } else {
-            result = songs
-        }
-        for index in result.indices where result[index].artistTopTitles?.isEmpty != false {
+        var result = songs
+        for index in result.indices {
             let titles = await artistTopSongs.titles(for: result[index].artist)
-            if !titles.isEmpty { result[index].artistTopTitles = titles }
+            result[index].artistTopTitles = titles
         }
         return result
     }

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
 import { handle, normalize, choices, server } from './index.mjs';
 
-test('title normalization and distractors preserve the character class', () => {
+test('title normalization and distractor priorities', () => {
   assert.equal(normalize('新時代 (ウタ from ONE PIECE) feat. A'), '新時代');
   assert.equal(normalize('Subtitle - Live Version'), 'SUBTITLE');
   const option = choices('花', '青', ['青花', '青空', '花火', '春風']);
@@ -19,6 +19,19 @@ test('title normalization and distractors preserve the character class', () => {
   const short = choices('花', '', ['花火', '春風'], ['青空', '青い鳥']);
   assert.equal(short.length, 4);
   assert.ok(short.includes('青'));
+  const topSix = choices('花', '', [], ['花火', '青空', '新時代', '夜に駆ける', '空', '月', '星'], '花火');
+  assert.equal(topSix.length, 4);
+  assert.ok(topSix.every(char => ['花', '青', '新', '夜', '空', '月'].includes(char)));
+  assert.ok(!topSix.includes('星'));
+  assert.deepEqual(new Set(choices('ボ', 'シンデレラ', [
+    'シンデレラボーイ', 'シンデレラガール', 'シンデレラストーリー', 'シンデレラナイト'
+  ])), new Set(['ボ', 'ガ', 'ス', 'ナ']));
+  assert.deepEqual(new Set(choices('星', 'の', [
+    'の星', 'の中', '君の君', '夜の君', '僕の日', '夏の日'
+  ])), new Set(['星', '中', '君', '日']));
+  const fallback = choices('C', 'ZZ', []);
+  assert.equal(fallback.length, 4);
+  assert.ok(fallback.every(char => /^[A-Z]$/.test(char)));
 });
 
 test('catalog exposes only configured original audio', () => {
