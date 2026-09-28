@@ -122,6 +122,7 @@ test('room API arbitrates PUSH, validates answers, scores, and protects sessions
     const pushed = await call(`/rooms/${id}/push`, { playerId: 'p1' }, hostToken);
     assert.equal(pushed.value.phase, 'answering');
     assert.equal(pushed.value.players.find(p => p.id === 'p1').pushTimeMS, 1300);
+    assert.deepEqual(pushed.value.pushOrderIds, ['p1']);
     assert.equal((await call(`/rooms/${id}/push`, { playerId: 'p2' }, guestToken)).status, 200);
     for (const char of answer) {
       const step = await call(`/rooms/${id}/choose`, { playerId: 'p1', choice: char }, hostToken);
@@ -136,10 +137,14 @@ test('room API arbitrates PUSH, validates answers, scores, and protects sessions
     assert.equal(revealed.players.find(p => p.id === 'p2').wrongCount, 1);
     assert.deepEqual(revealed.players.find(p => p.id === 'p1').roundResults, ['correct']);
     assert.deepEqual(revealed.players.find(p => p.id === 'p2').roundResults, ['wrong']);
+    assert.equal(revealed.players.find(p => p.id === 'p1').currentResult, 'correct');
+    assert.equal(revealed.players.find(p => p.id === 'p2').currentResult, 'wrong');
     assert.equal(revealed.current.title, songs.find(song => song.id === state.current.id).title);
     const next = (await call(`/rooms/${id}/next`, { playerId: 'p1' }, hostToken)).value;
     assert.equal(next.phase, 'preparing');
     assert.equal(next.players.find(p => p.id === 'p1').pushTimeMS, null);
+    assert.equal(next.players.find(p => p.id === 'p1').currentResult, null);
+    assert.deepEqual(next.pushOrderIds, []);
     assert.equal(next.players.find(p => p.id === 'p1').correctCount, 1);
     await call(`/rooms/${id}/ready`, { playerId: 'p1' }, hostToken);
     await call(`/rooms/${id}/ready`, { playerId: 'p2' }, guestToken);
@@ -151,6 +156,7 @@ test('room API arbitrates PUSH, validates answers, scores, and protects sessions
     assert.equal(failed.value.players.find(p => p.id === 'p1').score, 0);
     assert.equal(failed.value.players.find(p => p.id === 'p1').lives, 2);
     assert.equal(failed.value.players.find(p => p.id === 'p1').wrongCount, 1);
+    assert.equal(failed.value.players.find(p => p.id === 'p1').currentResult, 'wrong');
     const second = await call(`/rooms/${id}/push`, { playerId: 'p2' }, guestToken);
     assert.equal(second.value.phase, 'answering');
     const answer2 = normalize(songs.find(song => song.id === second.value.current.id).title);
@@ -166,13 +172,14 @@ test('room API arbitrates PUSH, validates answers, scores, and protects sessions
   }
 });
 
-function startedThreePlayerRoom(endless, settings = {}) {
+function startedThreePlayerRoom(endless, settings = {}, extraGuestIDs = []) {
   const song = { id: 'spotify:ABCDEFGHIJKLMNOPQRSTUV', title: '花火', artist: 'Artist' };
   const host = handle('POST', '/rooms', { playerId: 'relayA', name: 'A', mode: 'spotify', songs: [song],
     settings: { questionCount: 1, answerSlots: 2, endless, targetScore: 0, ...settings } }, new URLSearchParams()).body;
-  const guests = ['relayB', 'relayC'].map((id, index) => handle('POST', `/rooms/${host.id}/join`,
-    { playerId: id, name: index ? 'C' : 'B' }, new URLSearchParams()).body);
-  const tokens = Object.fromEntries([['relayA', host], ['relayB', guests[0]], ['relayC', guests[1]]]
+  const guestIDs = ['relayB', 'relayC', ...extraGuestIDs];
+  const guests = guestIDs.map(id => handle('POST', `/rooms/${host.id}/join`,
+    { playerId: id, name: id.at(-1) }, new URLSearchParams()).body);
+  const tokens = Object.fromEntries([['relayA', host], ...guestIDs.map((id, index) => [id, guests[index]])]
     .map(([id, state]) => [id, state.sessionToken]));
   const action = (name, id, extra = {}) => handle('POST', `/rooms/${host.id}/${name}`,
     { playerId: id, ...extra }, new URLSearchParams(), `Bearer ${tokens[id]}`);
@@ -195,10 +202,13 @@ test('a rejected simultaneous PUSH keeps the losing player in the room', () => {
     assert.equal(rejected.status, 409);
     assert.equal(rejected.body.state.players.length, 3);
     assert.deepEqual(rejected.body.state.options, []);
+    assert.deepEqual(rejected.body.state.pushOrderIds, ['relayA', 'relayB']);
+    assert.equal(rejected.body.state.players.find(player => player.id === 'relayB').pushTimeMS, 1000);
     const loser = state('relayB');
     assert.equal(loser.players.length, 3);
     assert.ok(loser.players.some(player => player.id === 'relayB'));
     assert.equal(loser.answerStatus, null);
+    assert.deepEqual(loser.pushedIds, ['relayA']);
     action('choose', 'relayA', { choice: '花' });
     action('choose', 'relayA', { choice: '火' });
     const revealed = state('relayB');
@@ -206,6 +216,48 @@ test('a rejected simultaneous PUSH keeps the losing player in the room', () => {
     assert.deepEqual(revealed.players.find(player => player.id === 'relayB').roundResults, [null]);
   } finally { Date.now = realNow; }
 });
+
+test('PUSH order follows first press and leaves unpressed players in join order', () => {
+  const realNow = Date.now;
+  let now = realNow();
+  Date.now = () => now;
+  try {
+    const { action, state } = startedThreePlayerRoom(false, { answerSlots: 2 }, ['relayD']);
+    now += 6000;
+    action('push', 'relayB');
+    now += 10;
+    action('push', 'relayD');
+    const after = state('relayA');
+    assert.deepEqual(after.pushOrderIds, ['relayB', 'relayD']);
+    assert.equal(after.players.find(player => player.id === 'relayB').pushTimeMS, 1000);
+    assert.equal(after.players.find(player => player.id === 'relayD').pushTimeMS, 1010);
+    const rejected = action('push', 'relayC');
+    assert.equal(rejected.status, 409);
+    assert.deepEqual(rejected.body.state.pushOrderIds, ['relayB', 'relayD', 'relayC']);
+    assert.equal(rejected.body.state.players.find(player => player.id === 'relayC').pushTimeMS, 1010);
+    assert.deepEqual(rejected.body.state.pushedIds, ['relayB', 'relayD']);
+  } finally { Date.now = realNow; }
+});
+
+for (const endless of [false, true]) {
+  test(`wrong player is excluded from SKIP quorum in ${endless ? 'endless' : 'normal'} mode`, () => {
+    const realNow = Date.now;
+    let now = realNow();
+    Date.now = () => now;
+    try {
+      const { action, state } = startedThreePlayerRoom(endless);
+      now += 6000;
+      action('skip', 'relayB');
+      action('skip', 'relayC');
+      assert.equal(state('relayA').phase, 'listening');
+      action('push', 'relayA');
+      const wrong = action('choose', 'relayA', { choice: 'X' });
+      assert.equal(wrong.status, 200);
+      assert.equal(wrong.body.phase, 'reveal');
+      assert.equal(wrong.body.players.find(player => player.id === 'relayA').currentResult, 'wrong');
+    } finally { Date.now = realNow; }
+  });
+}
 
 test('normal mode admits two parallel answers and reveals progress only after slots fill', () => {
   const realNow = Date.now;
@@ -247,6 +299,8 @@ test('normal mode keeps accepting PUSH after an early correct answer and ranks b
     assert.equal(stillOpen.current.title, undefined);
     assert.equal(stillOpen.correctPlayerIDs.length, 0);
     assert.equal(stillOpen.players.find(p => p.id === 'relayA').score, 0);
+    assert.equal(stillOpen.players.find(p => p.id === 'relayA').currentResult, 'correct');
+    assert.equal(stillOpen.players.find(p => p.id === 'relayB').currentResult, null);
     assert.equal(state('relayA').answerStatus, 'correct');
     assert.equal(action('push', 'relayB').status, 200);
     assert.equal(state('relayC').phase, 'answering');

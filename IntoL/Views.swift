@@ -750,7 +750,7 @@ private struct CountdownBar: View {
     var body: some View {
         VStack(spacing: compact ? 4 : 12) {
             HStack(alignment: .firstTextBaseline) {
-                Text(String(format: "%.1f", remaining))
+                Text(String(format: total == 30 ? "%.2f" : "%.1f", remaining))
                     .font(.system(size: compact ? 34 : 56, weight: .light, design: .rounded))
                     .monospacedDigit()
                     .contentTransition(.numericText())
@@ -768,7 +768,7 @@ private struct CountdownBar: View {
             .frame(height: 5)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("残り時間 \(Int(remaining.rounded(.up)))秒")
+        .accessibilityLabel("残り時間 \(String(format: total == 30 ? "%.2f" : "%.1f", remaining))秒")
     }
 }
 
@@ -1607,70 +1607,79 @@ struct RoomGameView: View {
     }
 
     private func skipButton(_ room: RoomState) -> some View {
-        Button(room.skippedIds.contains(model.rooms.playerId) ? "スキップに投票済み" : "スキップに投票") {
+        let wasWrong = room.answerStatus == "wrong"
+        return Button(wasWrong ? "誤答済み・投票不要" :
+               room.skippedIds.contains(model.rooms.playerId) ? "スキップに投票済み" : "スキップに投票") {
             Task { await model.roomAction("skip") }
         }
         .font(.subheadline)
         .foregroundStyle(Studio.secondary)
         .frame(minHeight: 36)
-        .disabled(room.skippedIds.contains(model.rooms.playerId))
+        .disabled(wasWrong || room.skippedIds.contains(model.rooms.playerId))
     }
 
     private func compactPlayers(_ room: RoomState) -> some View {
-        let players = room.phase == "finished" ? room.players.sorted { $0.score > $1.score } : room.players
-        return LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
+        let pushOrder = room.pushOrderIds ?? room.pushedIds
+        let players = room.phase == "finished" ? room.players.sorted { $0.score > $1.score } :
+            pushOrder.compactMap { room.player($0) } + room.players.filter { !pushOrder.contains($0.id) }
+        return HStack(alignment: .top, spacing: 5) {
             ForEach(Array(players.enumerated()), id: \.element.id) { index, player in
                 let isAnswering = room.isAnswering(player.id)
                 let isPending = player.id == model.rooms.playerId && model.roomPushPending
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 3) {
-                        if room.phase == "finished" {
-                            Text("\(index + 1)位")
-                                .font(.caption2.bold())
-                                .foregroundStyle(Studio.accent)
-                        }
+                let pushRank = pushOrder.firstIndex(of: player.id)
+                VStack(spacing: 4) {
+                    Text(room.phase == "finished" ? "\(index + 1)位" :
+                         pushRank.map { pushRankLabel($0) } ?? (isPending ? "判定中" : "—"))
+                        .font(.system(size: 16, weight: .black, design: .rounded))
+                        .minimumScaleFactor(0.65)
+                        .lineLimit(1)
+                        .foregroundStyle(pushRank != nil || isPending || room.phase == "finished" ? .white : Studio.secondary)
+                        .frame(maxWidth: .infinity, minHeight: 26)
+                        .background(pushRank != nil || isPending || room.phase == "finished" ? Studio.accent : Studio.raised,
+                                    in: RoundedRectangle(cornerRadius: 7))
+                    HStack(spacing: 2) {
                         Menu {
                             Text(player.badge ?? "称号未設定")
                         } label: {
                             Text(player.name)
-                                .font(.caption.weight(.semibold))
+                                .font(.caption.weight(.bold))
                                 .lineLimit(1)
+                                .minimumScaleFactor(0.65)
+                                .foregroundStyle(Studio.primary)
                         }
                         if player.isHost {
                             Image(systemName: "crown.fill")
-                                .font(.caption2)
+                                .font(.system(size: 9))
                                 .foregroundStyle(Studio.accent)
                                 .accessibilityLabel("ホスト")
                         }
-                        Spacer(minLength: 2)
-                        Text(room.settings.lives == 0 ? "ライフ∞" : "ライフ\(player.lives)")
-                            .font(.caption2)
-                            .foregroundStyle(player.disqualified ? Studio.warning : Studio.secondary)
                     }
-                    HStack {
-                        Text("問題別")
-                            .foregroundStyle(Studio.secondary)
-                        Spacer(minLength: 0)
-                        Text("\(player.score) pt")
-                            .font(.caption.weight(.bold))
-                    }
-                    roundMarks(player.roundResults ?? [])
-                    HStack(spacing: 4) {
-                        Text("Skip \(room.skippedIds.contains(player.id) ? "あり" : "なし")")
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                        Spacer(minLength: 0)
-                        Text(isPending ? "PUSH 判定中" : isAnswering ? "解答中 \(pushTime(player))" : "PUSH \(pushTime(player))")
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                            .foregroundStyle(isAnswering || isPending ? Studio.accent : Studio.secondary)
-                    }
-                    .foregroundStyle(Studio.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 18)
+                    Text("\(player.score) pt")
+                        .font(.caption2.bold())
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                    Text(player.currentResult == "correct" ? "○" : player.currentResult == "wrong" ? "×" : "−")
+                        .font(.system(size: 32, weight: .bold, design: .rounded))
+                        .foregroundStyle(player.currentResult == "correct" ? Studio.accent :
+                                         player.currentResult == "wrong" ? Studio.warning : Studio.secondary)
+                        .frame(height: 35)
+                        .accessibilityLabel("第\(room.round + 1)問、\(player.currentResult == "correct" ? "正解" : player.currentResult == "wrong" ? "不正解" : "未判定")")
+                    Text(room.settings.lives == 0 ? "ライフ ∞" : "ライフ \(player.lives)")
+                        .foregroundStyle(player.disqualified ? Studio.warning : Studio.secondary)
+                    Text(isAnswering ? "解答中" : isPending ? "PUSH判定中" : "PUSH")
+                        .foregroundStyle(isAnswering || isPending ? Studio.accent : Studio.secondary)
+                    Text(pushTime(player))
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                    Text(room.skippedIds.contains(player.id) ? "SKIP ✓" : "SKIP —")
+                        .foregroundStyle(Studio.secondary)
                 }
-                .font(.caption2)
+                .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(Studio.primary)
-                .padding(7)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(5)
+                .frame(maxWidth: .infinity)
                 .background(Studio.surface, in: RoundedRectangle(cornerRadius: 12))
                 .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(
                     isAnswering || isPending ? Studio.accent : Studio.line,
@@ -1680,44 +1689,16 @@ struct RoomGameView: View {
         }
         .frame(maxWidth: 560)
         .frame(maxWidth: .infinity)
+        .animation(reduceMotion ? nil : Studio.spring, value: pushOrder)
+    }
+
+    private func pushRankLabel(_ index: Int) -> String {
+        ["1st", "2nd", "3rd", "4th"][min(index, 3)]
     }
 
     private func pushTime(_ player: RoomPlayer) -> String {
         guard let milliseconds = player.pushTimeMS else { return "—" }
-        return String(format: "%.1f秒", milliseconds / 1000)
-    }
-
-    private func roundMarks(_ results: [String?]) -> some View {
-        Group {
-            if results.isEmpty {
-                Text("結果待ち")
-                    .font(.caption)
-                    .foregroundStyle(Studio.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                ScrollViewReader { proxy in
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 5) {
-                            ForEach(results.indices, id: \.self) { index in
-                                let result = results[index]
-                                Text(result == "correct" ? "○" : result == "wrong" ? "×" : "−")
-                                    .font(.system(size: 30, weight: .bold, design: .rounded))
-                                    .foregroundStyle(result == "correct" ? Studio.accent :
-                                                     result == "wrong" ? Studio.warning : Studio.secondary)
-                                    .frame(minWidth: 28)
-                                    .id(index)
-                                    .accessibilityLabel("第\(index + 1)問、\(result == "correct" ? "正解" : result == "wrong" ? "不正解" : "未回答")")
-                            }
-                        }
-                    }
-                    .onAppear { proxy.scrollTo(results.count - 1, anchor: .trailing) }
-                    .onChange(of: results.count) { _, count in
-                        if count > 0 { proxy.scrollTo(count - 1, anchor: .trailing) }
-                    }
-                }
-            }
-        }
-        .frame(height: 38)
+        return String(format: "%.2f秒", milliseconds / 1000)
     }
 
 }

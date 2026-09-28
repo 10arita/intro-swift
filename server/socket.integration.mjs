@@ -90,12 +90,18 @@ test('WebSocket actions and state broadcasts share one authenticated connection'
     assert.equal(rejected.status, 409);
     assert.equal(rejected.state.players.length, 2);
     assert.deepEqual(rejected.state.options, []);
+    assert.equal(rejected.state.pushOrderIds.length, 2);
+    const rejectedPlayerID = answers[0].type === 'error' ? 'socket-host' : 'socket-guest';
+    assert.notEqual(rejected.state.players.find(player => player.id === rejectedPlayerID).pushTimeMS, null);
     const winner = answers[0].type === 'result' ? host : visitor;
     const loser = winner === host ? visitor : host;
     const winnerID = winner === host ? 'socket-host' : 'socket-guest';
     const pushedState = await loser.next(message => message.type === 'state' &&
       message.state.pushedIds.includes(winnerID));
     assert.equal(pushedState.state.players.length, 2);
+    const recorded = await winner.next(message => message.type === 'state' &&
+      message.state.pushOrderIds.length === 2);
+    assert.ok(recorded.state.pushOrderIds.includes(rejectedPlayerID));
     const malformedChoice = await action(winner, 'choose', { choice: { toString: 'invalid' } });
     assert.equal(malformedChoice.status, 400);
     const stillConnected = await action(winner, 'choose', { choice: '間違い' });

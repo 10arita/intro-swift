@@ -327,8 +327,9 @@ struct SoloGame {
         ticker?.cancel()
         ticker = Task { [weak self] in
             while !Task.isCancelled {
+                let showsCentiseconds = self?.game?.stage == .listening
                 self?.tick()
-                try? await Task.sleep(for: .milliseconds(80))
+                try? await Task.sleep(for: .milliseconds(showsCentiseconds ? 10 : 80))
             }
         }
     }
@@ -816,10 +817,14 @@ struct SoloGame {
         roomTicker?.cancel()
         roomTicker = Task { [weak self] in
             while !Task.isCancelled {
+                var showsCentiseconds = false
                 if let self, let room = self.room {
                     self.roomSecondsLeft = self.remainingTime(room)
+                    showsCentiseconds = room.phase == "listening" ||
+                        room.phase == "answering" && !room.pushClosed &&
+                        !room.isAnswering(self.rooms.playerId)
                 }
-                try? await Task.sleep(for: .milliseconds(60))
+                try? await Task.sleep(for: .milliseconds(showsCentiseconds ? 10 : 60))
             }
         }
         roomSyncTask = Task { [weak self] in

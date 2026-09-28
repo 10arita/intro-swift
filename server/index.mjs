@@ -19,6 +19,8 @@ if (DATA_FILE && existsSync(DATA_FILE)) {
       room.answers ||= room.answeringPlayerID ? [{ playerId: room.answeringPlayerID,
         progress: room.answerProgress || '', letterIndex: room.letterIndex || 0,
         deadline: room.answerDeadline, options: room.options || [], status: 'active' }] : [];
+      room.pushAttempts ||= [...room.pushed].map(playerId => ({ playerId,
+        pushTimeMS: room.answers.find(answer => answer.playerId === playerId)?.pushTimeMS ?? null }));
       room.pausedAt ||= null;
       room.pausedPositionMS ||= null;
       room.pushClosed ||= false;
@@ -145,10 +147,13 @@ function artistTopTitles(value) {
 }
 function publicPlayer(player, room) {
   const attempt = room.answers.find(answer => answer.playerId === player.id);
+  const push = room.pushAttempts.find(item => item.playerId === player.id);
   return { id: player.id, name: player.name, score: player.score, lives: player.lives,
     correctCount: player.correctCount ?? 0, wrongCount: player.wrongCount ?? 0,
     roundResults: player.roundResults || [],
-    pushTimeMS: attempt?.pushTimeMS ?? null,
+    currentResult: ['correct', 'wrong'].includes(attempt?.status) ? attempt.status :
+      player.roundResults?.[room.round] ?? null,
+    pushTimeMS: attempt?.pushTimeMS ?? push?.pushTimeMS ?? null,
     disqualified: player.disqualified, connected: Date.now() - player.lastSeen < GRACE,
     isHost: player.id === room.hostId, joinedAt: player.joinedAt, badge: player.badge || null };
 }
@@ -185,6 +190,11 @@ function settleNormal(room, now = Date.now()) {
   if (room.pushClosed && !active) reveal(room);
   else room.phase = active ? 'answering' : 'listening';
 }
+function allEligiblePlayersSkipped(room, now = Date.now()) {
+  return room.players.filter(player => !player.disqualified && now - player.lastSeen < GRACE &&
+    !room.answers.some(answer => answer.playerId === player.id && answer.status === 'wrong'))
+    .every(player => room.skipped.has(player.id));
+}
 function beginRound(room) {
   if (room.round + 1 >= room.songs.length || room.settings.targetScore > 0 && room.players.some(p => p.score >= room.settings.targetScore) || room.players.every(p => p.disqualified)) {
     room.phase = 'finished'; return;
@@ -201,6 +211,7 @@ function beginRound(room) {
   room.pushClosed = false;
   room.audioStoppedAt = null;
   room.pushed = new Set();
+  room.pushAttempts = [];
   room.skipped = new Set();
   room.correctPlayerID = null;
   room.correctPlayerIDs = [];
@@ -225,9 +236,11 @@ function wrong(room, player, answer) {
     room.pausedPositionMS = null;
   }
   if (!s.endless) {
+    if (allEligiblePlayersSkipped(room)) room.pushClosed = true;
     settleNormal(room);
     return;
   }
+  if (allEligiblePlayersSkipped(room)) { reveal(room); return; }
   const active = room.answers.some(item => item.status === 'active');
   const eligible = room.players.some(p => !p.disqualified && !room.pushed.has(p.id) && Date.now() - p.lastSeen < GRACE);
   if (!active && (!eligible || Date.now() >= room.roundDeadline)) reveal(room);
@@ -288,6 +301,7 @@ function snapshot(room, playerId) {
     activeAnswers: room.answers.filter(answer => answer.status === 'active').map(answer => ({
       playerId: answer.playerId, progress: watching ? answer.progress : '' })),
     pushedIds: [...room.pushed], skippedIds: [...room.skipped], readyIds: [...room.readyIds],
+    pushOrderIds: room.pushAttempts.map(attempt => attempt.playerId),
     assetsReadyIds: [...(room.assetsReadyIds || [])],
     preload: room.phase === 'lobby' ? room.songs.map(({ id, artworkURL, previewURL }) => ({ id, artworkURL, previewURL })) : [],
     correctPlayerID: disclosed ? room.correctPlayerID : null,
@@ -357,7 +371,7 @@ export function handle(method, path, body, query, authorization, origin = 'https
       hostId: String(body.playerId), players: [{ id: String(body.playerId), secret: randomUUID(), name: String(body.name).trim().slice(0, 24),
         badge: String(body.badge || '').slice(0, 24), score: 0, correctCount: 0, wrongCount: 0,
         roundResults: [], lives: s.lives, disqualified: false, joinedAt: Date.now(), lastSeen: Date.now() }],
-      pushed: new Set(), skipped: new Set(), readyIds: new Set(), assetsReadyIds: new Set(), startAt: null, roundDeadline: null,
+      pushed: new Set(), pushAttempts: [], skipped: new Set(), readyIds: new Set(), assetsReadyIds: new Set(), startAt: null, roundDeadline: null,
       pausedAt: null, pausedPositionMS: null, pushClosed: false, audioStoppedAt: null,
       answers: [], correctPlayerID: null, correctPlayerIDs: [], firstWrongDone: false };
     rooms.set(id, room);
@@ -405,15 +419,22 @@ export function handle(method, path, body, query, authorization, origin = 'https
     if (room.phase !== 'lobby' || room.hostId !== playerId || !target) return fail(403, 'ホスト変更は待機中のホストのみ行えます');
     room.hostId = target.id;
   } else if (action === 'push') {
-    if (!['listening', 'answering'].includes(room.phase) || player.disqualified || room.pushed.has(playerId) ||
+    if (!['listening', 'answering'].includes(room.phase) || player.disqualified) {
+      return { status: 409, body: { error: '解答権を取得できません', state: snapshot(room, playerId) } };
+    }
+    const pushedAt = Date.now();
+    const pushTimeMS = Math.max(0, Math.min(30_000, pushedAt - room.startAt));
+    if (!room.pushAttempts.some(attempt => attempt.playerId === playerId)) {
+      room.pushAttempts.push({ playerId, pushTimeMS });
+    }
+    if (room.pushed.has(playerId) ||
         room.settings.endless && room.phase === 'answering' ||
         !room.settings.endless && room.pushClosed) {
       return { status: 409, body: { error: '解答権を取得できません', state: snapshot(room, playerId) } };
     }
-    const pushedAt = Date.now();
     room.pushed.add(playerId); room.skipped.delete(playerId);
     room.answers.push({ playerId, progress: '', letterIndex: 0, deadline: pushedAt + 5000,
-      pushTimeMS: Math.max(0, Math.min(30_000, pushedAt - room.startAt)),
+      pushTimeMS,
       options: choices([...normalize(currentSong(room).title)][0], '', room.corpus || room.songs.map(s => s.title), currentSong(room).artistTopTitles || []),
       status: 'active' });
     if (room.settings.endless) {
@@ -446,7 +467,7 @@ export function handle(method, path, body, query, authorization, origin = 'https
   } else if (action === 'skip') {
     if (!['listening','answering'].includes(room.phase) || player.disqualified) return fail(409, '今はスキップできません');
     room.skipped.add(playerId);
-    if (room.players.filter(p => !p.disqualified && Date.now() - p.lastSeen < GRACE).every(p => room.skipped.has(p.id))) {
+    if (allEligiblePlayersSkipped(room)) {
       if (room.settings.endless) reveal(room);
       else { room.pushClosed = true; settleNormal(room); }
     }
@@ -476,7 +497,7 @@ function roomSignature(room) {
     players: room.players.map(({ id, score, lives, disqualified, correctCount, wrongCount, roundResults }) =>
       [id, score, lives, disqualified, correctCount, wrongCount, roundResults]),
     ready: [...room.readyIds], assetsReady: [...room.assetsReadyIds],
-    pushed: [...room.pushed], skipped: [...room.skipped],
+    pushed: [...room.pushed], pushAttempts: room.pushAttempts, skipped: [...room.skipped],
     answers: room.answers.map(({ playerId, progress, deadline, options, status }) =>
       [playerId, progress, deadline, options, status]),
     correct: room.correctPlayerIDs, startAt: room.startAt, roundDeadline: room.roundDeadline,

@@ -19,6 +19,7 @@ struct RoomPlayer: Decodable, Identifiable {
     let correctCount: Int?
     let wrongCount: Int?
     let roundResults: [String?]?
+    let currentResult: String?
     let pushTimeMS: Double?
     let lives: Int
     let disqualified: Bool
@@ -77,6 +78,7 @@ struct RoomState: Decodable, Identifiable {
     let options: [String]
     let activeAnswers: [RoomActiveAnswer]
     let pushedIds: [String]
+    let pushOrderIds: [String]?
     let skippedIds: [String]
     let readyIds: [String]
     let assetsReadyIds: [String]?
