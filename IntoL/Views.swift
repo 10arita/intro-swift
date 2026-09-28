@@ -1721,6 +1721,7 @@ struct RoomGameView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showVolumeSettings = false
     @State private var showFriends = false
+    @State private var showHandicapSettings = false
 
     var body: some View {
         ZStack {
@@ -1879,6 +1880,10 @@ struct RoomGameView: View {
                 .environmentObject(model)
                 .presentationDetents([.large])
         }
+        .sheet(isPresented: $showHandicapSettings) {
+            RoomHandicapSettingsView()
+                .environmentObject(model)
+        }
     }
 
     private func roundTitle(_ room: RoomState) -> some View {
@@ -1920,7 +1925,11 @@ struct RoomGameView: View {
                         .foregroundStyle(Studio.accent)
                 } else if room.pushedIds.contains(model.rooms.playerId) {
                     Text("この曲は解答済みです（再PUSH不可）").foregroundStyle(Studio.secondary)
-                } else if model.roomPushPending || room.canPush(model.rooms.playerId) {
+                } else if room.handicapSecondsLeft(for: model.rooms.playerId, nowMS: model.rooms.serverNowMS) > 0 {
+                    Text("ハンデ中・あと\(Int(ceil(room.handicapSecondsLeft(for: model.rooms.playerId, nowMS: model.rooms.serverNowMS))))秒で解答できます")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Studio.accent)
+                } else if model.roomPushPending || room.canPush(model.rooms.playerId, nowMS: model.rooms.serverNowMS) {
                     PushButton(action: { model.beginRoomPush() }, size: compact ? 142 : 180,
                                pending: model.roomPushPending)
                 }
@@ -2036,7 +2045,22 @@ struct RoomGameView: View {
                 Button("準備を再試行") { model.retryRoomPreload() }
                     .buttonStyle(SecondaryButtonStyle())
             }
+            let handicapped = room.players.compactMap { player -> String? in
+                let seconds = room.settings.handicapSeconds(for: player.id)
+                return seconds > 0 ? "\(player.name) \(seconds)秒" : nil
+            }
+            if !handicapped.isEmpty {
+                Text("ハンデ: \(handicapped.joined(separator: "・"))")
+                    .font(.subheadline)
+                    .foregroundStyle(Studio.secondary)
+                    .multilineTextAlignment(.center)
+            }
             if room.hostId == model.rooms.playerId {
+                Button { showHandicapSettings = true } label: {
+                    Label("ハンデを設定", systemImage: "timer")
+                        .font(.subheadline.bold()).foregroundStyle(Studio.accent)
+                        .frame(minHeight: 44)
+                }
                 if room.players.count > 1 {
                     Menu {
                         ForEach(room.players.filter { $0.id != model.rooms.playerId }) { player in
@@ -2211,4 +2235,69 @@ struct RoomGameView: View {
         return String(format: "%.2f秒", milliseconds / 1000)
     }
 
+}
+
+private struct RoomHandicapSettingsView: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var seconds: [String: Int] = [:]
+    @State private var saving = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    if let room = model.room {
+                        ForEach(room.players) { player in
+                            Stepper(value: Binding(
+                                get: { seconds[player.id] ?? 0 },
+                                set: { seconds[player.id] = $0 }), in: 0...30) {
+                                HStack {
+                                    Text(player.name).lineLimit(1)
+                                    Spacer()
+                                    Text("\(seconds[player.id] ?? 0)秒")
+                                        .foregroundStyle(Studio.accent)
+                                }
+                            }
+                            .disabled(saving)
+                            .accessibilityLabel("\(player.name)のハンデ、\(seconds[player.id] ?? 0)秒")
+                        }
+                    }
+                } header: {
+                    Text("プレイヤーごとのハンデ")
+                } footer: {
+                    Text("各問題の再生開始から設定した秒数、PUSHして解答できません。0秒はハンデなしです。")
+                }
+            }
+            .navigationTitle("ハンデ設定")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("キャンセル") { dismiss() }
+                        .disabled(saving)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("保存") {
+                        guard let room = model.room else { return }
+                        let playerIDs = Set(room.players.map(\.id))
+                        let values = seconds.filter { playerIDs.contains($0.key) }
+                        saving = true
+                        Task {
+                            let saved = await model.updateRoomHandicaps(values)
+                            saving = false
+                            if saved { dismiss() }
+                            else { errorMessage = model.roomNotice ?? "ハンデを保存できませんでした" }
+                        }
+                    }
+                    .disabled(saving || model.room?.phase != "lobby")
+                }
+            }
+            .alert("ハンデを保存できません", isPresented: Binding(
+                get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+                    Button("OK", role: .cancel) { errorMessage = nil }
+                } message: { Text(errorMessage ?? "") }
+            .onAppear { seconds = model.room?.settings.handicaps ?? [:] }
+        }
+    }
 }

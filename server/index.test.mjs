@@ -386,6 +386,54 @@ function startedThreePlayerRoom(endless, settings = {}, extraGuestIDs = []) {
   return { action, state };
 }
 
+test('lobby handicap blocks selected players at the start of every round', () => {
+  const originalNow = Date.now;
+  let now = originalNow();
+  Date.now = () => now;
+  try {
+    const songs = ['A', 'B'].map(letter => ({
+      id: `spotify:${letter.repeat(22)}`, title: '花火', artist: 'Artist' }));
+    const host = handle('POST', '/rooms', { playerId: 'handicap-host', name: 'Host',
+      mode: 'spotify', songs, settings: { questionCount: 2, targetScore: 0 } }, new URLSearchParams()).body;
+    const path = `/rooms/${host.id}`;
+    const guest = handle('POST', `${path}/join`, { playerId: 'handicap-guest', name: 'Guest' }, new URLSearchParams()).body;
+    const act = (who, action, payload = {}) => handle('POST', `${path}/${action}`,
+      { playerId: who, ...payload }, new URLSearchParams(),
+      `Bearer ${who === 'handicap-host' ? host.sessionToken : guest.sessionToken}`);
+    const state = who => handle('GET', path, {}, new URLSearchParams({ playerId: who }),
+      `Bearer ${who === 'handicap-host' ? host.sessionToken : guest.sessionToken}`).body;
+    const values = { 'handicap-guest': 4 };
+    assert.equal(act('handicap-guest', 'handicaps', { handicaps: values }).status, 403);
+    assert.equal(act('handicap-host', 'handicaps', { handicaps: { stranger: 4 } }).status, 400);
+    assert.equal(act('handicap-host', 'handicaps', { handicaps: { 'handicap-guest': 31 } }).status, 400);
+    assert.equal(act('handicap-host', 'handicaps', { handicaps: { 'handicap-guest': 0 } }).status, 200);
+    assert.deepEqual(state('handicap-guest').settings.handicaps, {});
+    assert.equal(act('handicap-host', 'handicaps', { handicaps: values }).status, 200);
+    assert.deepEqual(state('handicap-guest').settings.handicaps, values);
+    for (const who of ['handicap-host', 'handicap-guest']) act(who, 'assets-ready');
+    act('handicap-host', 'start');
+    assert.equal(act('handicap-host', 'handicaps', { handicaps: {} }).status, 403);
+    for (const who of ['handicap-host', 'handicap-guest']) act(who, 'ready');
+    now += 6000;
+    assert.equal(act('handicap-guest', 'push').status, 409);
+    assert.deepEqual(state('handicap-guest').pushOrderIds, []);
+    assert.equal(act('handicap-host', 'push').status, 200);
+    now += 2999;
+    assert.equal(act('handicap-guest', 'push').status, 409);
+    now += 1;
+    assert.equal(act('handicap-guest', 'push').status, 200);
+    now += 30000;
+    assert.equal(state('handicap-host').phase, 'reveal');
+    act('handicap-host', 'next');
+    for (const who of ['handicap-host', 'handicap-guest']) act(who, 'ready');
+    now += 6000;
+    assert.equal(act('handicap-guest', 'push').status, 409);
+    assert.equal(act('handicap-host', 'handicaps', { handicaps: {} }).status, 403);
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
 test('a rejected simultaneous PUSH keeps the losing player in the room', () => {
   const realNow = Date.now;
   let now = realNow();

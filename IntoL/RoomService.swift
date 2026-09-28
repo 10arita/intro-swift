@@ -10,6 +10,9 @@ struct RoomSettings: Codable {
     var firstWrongPenalty = 10
     var lives = 3
     var endless = false
+    var handicaps: [String: Int]? = nil
+
+    func handicapSeconds(for playerID: String) -> Int { handicaps?[playerID] ?? 0 }
 }
 
 struct RoomPlayer: Decodable, Identifiable {
@@ -129,9 +132,13 @@ struct RoomState: Decodable, Identifiable {
 
     func player(_ id: String) -> RoomPlayer? { players.first { $0.id == id } }
     func isAnswering(_ id: String) -> Bool { activeAnswers.contains { $0.playerId == id } }
-    func canPush(_ id: String) -> Bool {
+    func handicapSecondsLeft(for id: String, nowMS: Double) -> Double {
+        guard let startAt else { return 0 }
+        return max(0, (startAt + Double(settings.handicapSeconds(for: id)) * 1000 - nowMS) / 1000)
+    }
+    func canPush(_ id: String, nowMS: Double) -> Bool {
         guard ["listening", "answering"].contains(phase), player(id)?.disqualified == false,
-              !pushedIds.contains(id) else { return false }
+              !pushedIds.contains(id), handicapSecondsLeft(for: id, nowMS: nowMS) == 0 else { return false }
         return settings.endless ? activeAnswers.isEmpty : !pushClosed
     }
 }

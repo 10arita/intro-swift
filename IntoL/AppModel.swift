@@ -1269,7 +1269,8 @@ struct SoloGame {
     }
 
     func beginRoomPush() {
-        guard let roomID, !roomPushPending, room?.canPush(rooms.playerId) == true else { return }
+        guard let roomID, !roomPushPending,
+              room?.canPush(rooms.playerId, nowMS: rooms.serverNowMS) == true else { return }
         roomPushPending = true
         Task { [weak self] in
             guard let self, self.roomID == roomID else { return }
@@ -1277,6 +1278,19 @@ struct SoloGame {
         }
         sound.play(.push)
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+    }
+
+    func updateRoomHandicaps(_ handicaps: [String: Int]) async -> Bool {
+        guard let roomID, room?.phase == "lobby", room?.hostId == rooms.playerId else { return false }
+        do {
+            let state = try await rooms.action("handicaps", id: roomID, payload: ["handicaps": handicaps])
+            guard self.roomID == roomID else { return false }
+            receiveNetworkRoom(state)
+            return true
+        } catch {
+            showRoomNotice(error.localizedDescription)
+            return false
+        }
     }
 
     func roomAction(_ action: String, payload: [String: Any] = [:]) async {
@@ -1302,7 +1316,7 @@ struct SoloGame {
             if action == "push", let failure = error as? RoomHTTPError, failure.status == 409 {
                 if let state = failure.state { receiveNetworkRoom(state) }
                 else if let state = try? await rooms.state(roomID), self.roomID == roomID { receiveNetworkRoom(state) }
-                showRoomNotice("解答権は取れませんでした。ルームには残っています")
+                showRoomNotice(failure.message.contains("ハンデ") ? failure.message : "解答権は取れませんでした。ルームには残っています")
             } else if action == "choose", RoomService.isConnectionError(error) {
                 if let state = try? await rooms.state(roomID), self.roomID == roomID {
                     receiveNetworkRoom(state)

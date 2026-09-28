@@ -14,6 +14,7 @@ if (DATA_FILE && existsSync(DATA_FILE)) {
     const saved = JSON.parse(readFileSync(DATA_FILE, 'utf8'));
     for (const room of saved.rooms || []) {
       room.pushed = new Set(room.pushed || []); room.skipped = new Set(room.skipped || []);
+      room.settings.handicaps ||= {};
       room.readyIds = new Set(room.readyIds || []);
       room.assetsReadyIds = new Set(room.assetsReadyIds || []);
       room.answers ||= room.answeringPlayerID ? [{ playerId: room.answeringPlayerID,
@@ -59,7 +60,7 @@ const streams = new Map();
 const sockets = new Map();
 const roomTimers = new Map();
 const socketServer = new WebSocketServer({ noServer: true, perMessageDeflate: false, maxPayload: 8_192, clientTracking: false });
-const socketActions = new Set(['assets-ready', 'assets-unready', 'ready', 'start', 'push', 'choose', 'skip', 'next', 'transfer', 'friend-request', 'invite']);
+const socketActions = new Set(['assets-ready', 'assets-unready', 'ready', 'start', 'push', 'choose', 'skip', 'next', 'transfer', 'handicaps', 'friend-request', 'invite']);
 const forbidden = new Set([...'っゃゅょぁぃぅぇぉゎッャュョァィゥェォヮー']);
 const pools = [
   [...'あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをん'],
@@ -124,7 +125,7 @@ function settings(input = {}) {
     targetScore: clamp(input.targetScore, 0, 500, 50), correctPoints: clamp(input.correctPoints, 1, 50, 10),
     firstBonus: clamp(input.firstBonus, 0, 50, 10), wrongPenalty: clamp(input.wrongPenalty, 0, 50, 10),
     firstWrongPenalty: clamp(input.firstWrongPenalty, 0, 50, 10), lives: clamp(input.lives, 0, 10, 3),
-    endless: Boolean(input.endless)
+    endless: Boolean(input.endless), handicaps: {}
   };
 }
 function catalogSongs(origin) {
@@ -454,7 +455,7 @@ export function handle(method, path, body, query, authorization, origin = 'https
     if (room.players[0].profileId) profiles.get(room.players[0].profileId).name = room.players[0].name;
     return { status: 201, body: { ...snapshot(room, String(body.playerId)), sessionToken: room.players[0].secret } };
   }
-  const match = path.match(/^\/rooms\/([A-Z]{6})(?:\/(join|heartbeat|assets-ready|assets-unready|ready|start|push|choose|skip|next|leave|transfer|bind-profile|friend-request|invite))?$/);
+  const match = path.match(/^\/rooms\/([A-Z]{6})(?:\/(join|heartbeat|assets-ready|assets-unready|ready|start|push|choose|skip|next|leave|transfer|handicaps|bind-profile|friend-request|invite))?$/);
   if (!match) return fail(404, '見つかりません');
   const room = rooms.get(match[1]); if (!room) return fail(404, 'ルームが見つかりません');
   refresh(room);
@@ -520,11 +521,23 @@ export function handle(method, path, body, query, authorization, origin = 'https
     const target = room.players.find(p => p.id === body.targetId);
     if (room.phase !== 'lobby' || room.hostId !== playerId || !target) return fail(403, 'ホスト変更は待機中のホストのみ行えます');
     room.hostId = target.id;
+  } else if (action === 'handicaps') {
+    if (room.phase !== 'lobby' || room.hostId !== playerId) return fail(403, '待機中のホストのみハンデを設定できます');
+    const values = body.handicaps;
+    if (!values || typeof values !== 'object' || Array.isArray(values) ||
+        Object.entries(values).some(([id, seconds]) =>
+          !room.players.some(item => item.id === id) || !Number.isInteger(seconds) || seconds < 0 || seconds > 30)) {
+      return fail(400, 'ハンデの対象または秒数が無効です');
+    }
+    room.settings.handicaps = Object.fromEntries(Object.entries(values).filter(([, seconds]) => seconds > 0));
   } else if (action === 'push') {
     if (!['listening', 'answering'].includes(room.phase) || player.disqualified) {
       return { status: 409, body: { error: '解答権を取得できません', state: snapshot(room, playerId) } };
     }
     const pushedAt = Date.now();
+    if (pushedAt < room.startAt + (room.settings.handicaps?.[playerId] || 0) * 1000) {
+      return { status: 409, body: { error: 'ハンデ時間中は解答できません', state: snapshot(room, playerId) } };
+    }
     const pushTimeMS = Math.max(0, Math.min(30_000, pushedAt - room.startAt));
     if (!room.pushAttempts.some(attempt => attempt.playerId === playerId)) {
       room.pushAttempts.push({ playerId, pushTimeMS });
@@ -594,6 +607,7 @@ export function handle(method, path, body, query, authorization, origin = 'https
   } else if (action === 'leave') {
     const attempt = room.answers.find(answer => answer.playerId === playerId && answer.status === 'active');
     room.players = room.players.filter(p => p.id !== playerId);
+    delete room.settings.handicaps?.[playerId];
     if (!room.players.length) rooms.delete(room.id);
     else {
       if (room.hostId === playerId) room.hostId = room.players.sort((a,b) => a.joinedAt - b.joinedAt)[0].id;
@@ -610,7 +624,7 @@ function send(response, status, body) {
 
 function roomSignature(room) {
   return JSON.stringify({
-    phase: room.phase, round: room.round, hostId: room.hostId,
+    phase: room.phase, round: room.round, hostId: room.hostId, handicaps: room.settings.handicaps,
     friendship: room.players.map(({ profileId }) => [profileId,
       profiles.get(profileId)?.friends, profiles.get(profileId)?.friendRequests?.map(item => item.id)]),
     players: room.players.map(({ id, score, lives, disqualified, correctCount, wrongCount, roundResults }) =>
