@@ -588,10 +588,10 @@ function closeRoomStreams(id) {
   sockets.delete(id);
 }
 
-function enrichSpotifyChorus(id) {
+function enrichStreamingChorus(id) {
   const room = rooms.get(id);
   const song = room && currentSong(room);
-  if (room?.mode === 'spotify' && song) {
+  if ((room?.mode === 'spotify' || room?.mode === 'applemusic') && song) {
     chorusPosition(song).then(position => { song.chorusMS = position; persist(); }).catch(() => {});
   }
 }
@@ -724,7 +724,7 @@ export const server = createServer(async (request, response) => {
       })();
     }
     if (result.status === 200 && request.method === 'POST' && /\/rooms\/[A-Z]{6}\/(start|next)$/.test(url.pathname)) {
-      enrichSpotifyChorus(url.pathname.split('/')[2]);
+      enrichStreamingChorus(url.pathname.split('/')[2]);
     }
     if (request.method !== 'GET' || url.pathname.startsWith('/rooms/')) persist();
   } catch (error) { send(response, 400, { error: error instanceof Error ? error.message : 'Bad request' }); }
@@ -800,7 +800,7 @@ server.on('upgrade', (request, socket, head) => {
         const changed = roomSignature(room) !== before;
         if (changed) publishRoom(room, answer.status === 200 || answer.body.state ? playerId : null);
         scheduleRoom(room);
-        if (answer.status === 200 && ['start', 'next'].includes(message.action)) enrichSpotifyChorus(id);
+        if (answer.status === 200 && ['start', 'next'].includes(message.action)) enrichStreamingChorus(id);
         if (answer.status === 200 || changed) persist();
       } catch {
         sendSocket(connection, { type: 'error', id: message.id, status: 400, error: '操作に失敗しました' });

@@ -102,6 +102,22 @@ private struct RoomCatalog: Decodable { let songs: [Song] }
 private struct ItunesMatch: Decodable { let song: Song? }
 private struct CorpusResponse: Decodable { let titles: [String] }
 private struct ChorusResponse: Decodable { let positionMS: Int }
+private struct SongleSearchEntry: Decodable {
+    struct Artist: Decodable { let name: String }
+    let title: String
+    let artist: Artist?
+    let duration: Double?
+    let permalink: URL?
+    let url: URL?
+}
+private struct SongleChorusMap: Decodable {
+    struct Segment: Decodable {
+        struct Repeat: Decodable { let start: Double }
+        let isChorus: Bool
+        let repeats: [Repeat]
+    }
+    let chorusSegments: [Segment]
+}
 private struct RoomFailure: Decodable { let error: String; let state: RoomState? }
 private struct RoomSocketMessage: Decodable {
     let type: String
@@ -379,15 +395,64 @@ struct SavedProfile: Decodable {
     }
     func chorus(_ song: Song) async -> Int {
         guard !song.id.hasPrefix("itunes:") else { return 0 }
-        var request: URLRequest
-        do { request = URLRequest(url: try endpoint("chorus")) } catch { return fallbackChorus(song) }
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try? JSONEncoder().encode(song)
+        if let url = try? endpoint("chorus") {
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.timeoutInterval = 16
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try? JSONEncoder().encode(song)
+            if let (data, response) = try? await URLSession.shared.data(for: request),
+               (response as? HTTPURLResponse)?.statusCode == 200,
+               let decoded = try? JSONDecoder().decode(ChorusResponse.self, from: data) {
+                return decoded.positionMS
+            }
+        }
+        return await songleChorus(song) ?? fallbackChorus(song)
+    }
+    private func songleChorus(_ song: Song) async -> Int? {
+        var source = song.songleURL
+        if source == nil {
+            guard var search = URLComponents(string: "https://widget.songle.jp/api/v1/songs/search.json") else { return nil }
+            search.queryItems = [URLQueryItem(name: "q", value: "\(song.title) \(song.artist)".trimmingCharacters(in: .whitespaces))]
+            guard let url = search.url, let entries: [SongleSearchEntry] = await songleResponse(url) else { return nil }
+            let title = TitleRules.normalized(song.title)
+            let artist = TitleRules.normalized(song.artist.components(separatedBy: ",").first ?? song.artist)
+            let matches = entries.filter { entry in
+                TitleRules.normalized(entry.title) == title &&
+                    (artist.isEmpty || TitleRules.normalized(entry.artist?.name ?? "").contains(artist))
+            }
+            let closest = matches.min {
+                abs(($0.duration ?? Double(song.durationMS)) - Double(song.durationMS)) <
+                    abs(($1.duration ?? Double(song.durationMS)) - Double(song.durationMS))
+            }
+            source = closest?.permalink ?? closest?.url
+        }
+        guard var source, ["http", "https"].contains(source.scheme?.lowercased() ?? "") else { return nil }
+        if ["songle.jp", "www.songle.jp"].contains(source.host?.lowercased() ?? "") {
+            guard let path = URLComponents(url: source, resolvingAgainstBaseURL: false)?.percentEncodedPath,
+                  path.hasPrefix("/songs/"),
+                  let original = String(path.dropFirst("/songs/".count)).removingPercentEncoding,
+                  let decoded = URL(string: "https://\(original)") else { return nil }
+            source = decoded
+        }
+        guard let parts = URLComponents(url: source, resolvingAgainstBaseURL: false),
+              let host = parts.host?.lowercased(),
+              ["www.youtube.com", "youtube.com", "youtu.be", "www.nicovideo.jp", "www.niconico.jp"].contains(host),
+              parts.port == nil, parts.user == nil, parts.password == nil else { return nil }
+        var chorus = URLComponents(string: "https://widget.songle.jp/api/v1/song/chorus.json")!
+        chorus.queryItems = [URLQueryItem(name: "url", value:
+            host + parts.percentEncodedPath + (parts.percentEncodedQuery.map { "?\($0)" } ?? ""))]
+        guard let url = chorus.url, let map: SongleChorusMap = await songleResponse(url),
+              let start = map.chorusSegments.first(where: \.isChorus)?.repeats.first?.start,
+              start.isFinite else { return nil }
+        return max(0, min(max(0, song.durationMS - 5000), Int((start - 1500).rounded())))
+    }
+    private func songleResponse<Value: Decodable>(_ url: URL) async -> Value? {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 8
         guard let (data, response) = try? await URLSession.shared.data(for: request),
-              (response as? HTTPURLResponse)?.statusCode == 200,
-              let decoded = try? JSONDecoder().decode(ChorusResponse.self, from: data) else { return fallbackChorus(song) }
-        return decoded.positionMS
+              (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+        return try? JSONDecoder().decode(Value.self, from: data)
     }
     private func fallbackChorus(_ song: Song) -> Int {
         max(0, min(90_000, max(30_000, Int(Double(song.durationMS) * 0.32))) - 1500)

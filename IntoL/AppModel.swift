@@ -141,6 +141,8 @@ struct SoloGame {
     private var recordedRoomAttempts = Set<String>()
     private var recordedRoomGenres = Set<String>()
     private var chorusPositions: [String: Int] = [:]
+    private var chorusLookups: [String: Task<Int, Never>] = [:]
+    private var revealAudioTask: Task<Void, Never>?
 
     init() {
         if let data = UserDefaults.standard.data(forKey: "reviews"), let decoded = try? JSONDecoder().decode([ReviewSong].self, from: data) { reviews = decoded }
@@ -449,12 +451,8 @@ struct SoloGame {
                 self.game = current
             }
         }
-        if song.id.hasPrefix("spotify:") {
-            Task { [weak self] in
-                guard let self else { return }
-                self.rooms.baseURL = self.serverURL
-                self.chorusPositions[song.id] = await self.rooms.chorus(song)
-            }
+        if song.id.hasPrefix("spotify:") || song.id.hasPrefix("applemusic:") {
+            _ = chorusLookup(for: song)
         }
     }
 
@@ -715,6 +713,7 @@ struct SoloGame {
     }
 
     private func stopAudio() {
+        revealAudioTask?.cancel(); revealAudioTask = nil
         let play = musicTask ?? (roomID == nil ? soloRoundTask : scheduledRoomAudio)
         musicTask?.cancel(); musicTask = nil
         appleMusic.stop(); appleMusicPlaying = false
@@ -733,8 +732,37 @@ struct SoloGame {
 
     private func revealAudio(_ song: Song) {
         guard song.id.hasPrefix("spotify:") || song.id.hasPrefix("applemusic:") else { playAudio(song); return }
-        let estimated = max(0, min(90_000, max(30_000, Int(Double(song.durationMS) * 0.32))) - 1500)
-        playAudio(song, offsetMS: song.chorusMS ?? chorusPositions[song.id] ?? estimated)
+        if let position = song.chorusMS ?? chorusPositions[song.id] {
+            playAudio(song, offsetMS: position)
+            return
+        }
+        let lookup = chorusLookup(for: song)
+        revealAudioTask?.cancel()
+        revealAudioTask = Task { [weak self] in
+            let position = await lookup.value
+            guard let self, !Task.isCancelled else { return }
+            if self.roomID != nil {
+                guard self.room?.phase == "reveal", self.room?.current?.id == song.id else { return }
+            } else {
+                guard self.game?.stage == .reveal, self.game?.current.id == song.id else { return }
+            }
+            self.playAudio(song, offsetMS: position)
+        }
+    }
+
+    private func chorusLookup(for song: Song) -> Task<Int, Never> {
+        if let lookup = chorusLookups[song.id] { return lookup }
+        let lookup = Task { [weak self] in
+            guard let self else { return 0 }
+            self.rooms.baseURL = self.serverURL
+            return await self.rooms.chorus(song)
+        }
+        chorusLookups[song.id] = lookup
+        Task { [weak self] in
+            let position = await lookup.value
+            self?.chorusPositions[song.id] = position
+        }
+        return lookup
     }
 
     var totalGames: Int { stats.games }

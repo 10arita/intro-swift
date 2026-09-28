@@ -104,6 +104,60 @@ test('Apple Music rooms accept catalog IDs and keep answers hidden until reveal'
   assert.equal(invalid.status, 400);
 });
 
+test('Apple Music room reveals the Songle chorus position', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalNow = Date.now;
+  let now = originalNow();
+  Date.now = () => now;
+  const requests = [];
+  globalThis.fetch = async url => {
+    const address = new URL(url);
+    requests.push(address);
+    if (address.pathname.endsWith('/songs/search.json')) return new Response(JSON.stringify([
+      { title: '青い空', artist: { name: '歌手' }, permalink: 'http://www.youtube.com/watch?v=apple-test' }
+    ]), { status: 200 });
+    if (address.pathname.endsWith('/song/chorus.json')) return new Response(JSON.stringify({
+      chorusSegments: [{ isChorus: true, repeats: [{ start: 65000 }] }]
+    }), { status: 200 });
+    throw new Error(`Unexpected URL: ${address}`);
+  };
+  try {
+    const song = { id: 'applemusic:1234567890', title: '青い空', artist: '歌手', durationMS: 180000 };
+    const created = handle('POST', '/rooms', { playerId: 'apple-chorus-host', name: 'Host', mode: 'applemusic',
+      songs: [song], settings: { questionCount: 1 } }, new URLSearchParams());
+    assert.equal(created.status, 201);
+    const id = created.body.id;
+    const authorization = `Bearer ${created.body.sessionToken}`;
+    assert.equal(handle('POST', `/rooms/${id}/assets-ready`, { playerId: 'apple-chorus-host' },
+      new URLSearchParams(), authorization).status, 200);
+    const request = Readable.from([Buffer.from(JSON.stringify({ playerId: 'apple-chorus-host' }))]);
+    request.method = 'POST'; request.url = `/rooms/${id}/start`;
+    request.headers = { host: 'localhost', authorization };
+    const started = await new Promise(resolve => {
+      const response = {
+        writeHead(status) { this.status = status; },
+        end(data) { resolve({ status: this.status, body: JSON.parse(data) }); }
+      };
+      server.emit('request', request, response);
+    });
+    assert.equal(started.status, 200);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(requests.length, 2);
+    assert.equal(requests[1].searchParams.get('url'), 'www.youtube.com/watch?v=apple-test');
+    const ready = handle('POST', `/rooms/${id}/ready`, { playerId: 'apple-chorus-host' },
+      new URLSearchParams(), authorization);
+    assert.equal(ready.body.phase, 'countdown');
+    now += 5100;
+    const revealed = handle('POST', `/rooms/${id}/skip`, { playerId: 'apple-chorus-host' },
+      new URLSearchParams(), authorization);
+    assert.equal(revealed.body.phase, 'reveal');
+    assert.equal(revealed.body.current.chorusMS, 63500);
+  } finally {
+    globalThis.fetch = originalFetch;
+    Date.now = originalNow;
+  }
+});
+
 test('room API arbitrates PUSH, validates answers, scores, and protects sessions', async () => {
   const realNow = Date.now;
   let now = realNow();

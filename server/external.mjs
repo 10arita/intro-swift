@@ -54,22 +54,30 @@ export async function chorusPosition(song) {
       search.searchParams.set('q', `${song.title} ${song.artist || ''}`.trim());
       const result = await json(search, 24 * 60 * 60_000);
       const entries = Array.isArray(result) ? result : result.songs || result.results || [];
-      const matched = entries.find(entry => baseTitle(entry.title || entry.name) === baseTitle(song.title) &&
+      const matches = entries.filter(entry => baseTitle(entry.title || entry.name) === baseTitle(song.title) &&
         (!song.artist || clean(String(entry.artist?.name || entry.artist || '')).includes(clean(String(song.artist).split(',')[0]))));
-      song = { ...song, songleURL: matched?.url || matched?.source?.url || null };
+      const duration = Number(song.durationMS);
+      const distance = entry => Math.abs((Number(entry.duration) || duration) - duration);
+      const matched = Number.isFinite(duration) && duration > 0 ? matches.sort((a, b) => distance(a) - distance(b))[0] : matches[0];
+      song = { ...song, songleURL: matched?.permalink || matched?.source?.url || matched?.url || null };
     } catch { /* Search failures use the estimate. */ }
   }
   if (!song?.songleURL) return fallbackChorus(song?.durationMS);
   let source;
   try {
     const raw = String(song.songleURL);
-    source = new URL(raw.startsWith('http') ? raw : `https://${raw}`);
+    source = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+    if (source.hostname === 'songle.jp' || source.hostname === 'www.songle.jp') {
+      const encodedSource = source.pathname.match(/^\/songs\/(.+)$/)?.[1];
+      if (!encodedSource) return fallbackChorus(song.durationMS);
+      source = new URL(`https://${decodeURIComponent(encodedSource)}`);
+    }
   } catch { return fallbackChorus(song.durationMS); }
-  if (source.protocol !== 'https:' || !['www.youtube.com', 'youtube.com', 'youtu.be', 'www.nicovideo.jp', 'www.niconico.jp'].includes(source.hostname)) {
+  if (!['http:', 'https:'].includes(source.protocol) || !['www.youtube.com', 'youtube.com', 'youtu.be', 'www.nicovideo.jp', 'www.niconico.jp'].includes(source.hostname)) {
     return fallbackChorus(song.durationMS);
   }
   const url = new URL('https://widget.songle.jp/api/v1/song/chorus.json');
-  url.searchParams.set('url', source.toString());
+  url.searchParams.set('url', `${source.host}${source.pathname}${source.search}`);
   try {
     const data = await json(url, 24 * 60 * 60_000);
     const start = data.chorusSegments?.find(s => s.isChorus)?.repeats?.[0]?.start;
