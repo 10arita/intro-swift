@@ -14,6 +14,85 @@ private struct SystemMusicVolumeSlider: UIViewRepresentable {
     func updateUIView(_ view: MPVolumeView, context: Context) {}
 }
 
+private struct VolumeSettingsControls: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            volumeSlider("BGM", value: $model.bgmVolume)
+            volumeSlider("効果音", value: $model.effectsVolume)
+            volumeSlider("曲（アプリ音源）", value: $model.songVolume)
+            Text("曲の音量はデモ曲・共有音源・試聴曲に適用されます。")
+                .font(.caption)
+                .foregroundStyle(Studio.secondary)
+            if model.appleMusicConnected || model.spotifyConnected {
+                Divider()
+                Text("Apple Music・Spotify の曲（端末音量）")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Studio.primary)
+                SystemMusicVolumeSlider()
+                    .frame(height: 30)
+                    .accessibilityLabel("端末の音楽音量")
+                Text("サービスの曲は端末音量で調整します。BGMと効果音にも影響します。")
+                    .font(.caption)
+                    .foregroundStyle(Studio.secondary)
+            }
+        }
+    }
+
+    private func volumeSlider(_ title: String, value: Binding<Double>) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(Studio.primary)
+                Spacer()
+                Text("\(Int((value.wrappedValue * 100).rounded()))%")
+                    .font(.caption.monospacedDigit()).foregroundStyle(Studio.secondary)
+            }
+            Slider(value: value, in: 0...1)
+                .tint(Studio.accent)
+                .accessibilityLabel("\(title)の音量")
+        }
+    }
+}
+
+private struct GameVolumeButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "speaker.wave.2")
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(Studio.primary)
+                .frame(width: 44, height: 44)
+                .background(Studio.surface, in: Circle())
+        }
+        .accessibilityLabel("音量を調整")
+    }
+}
+
+private struct GameVolumeSettingsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                StudioCard { VolumeSettingsControls() }
+                    .padding(20)
+            }
+            .background(Studio.background)
+            .navigationTitle("音量")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("閉じる") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+}
+
 struct RootView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
@@ -66,12 +145,12 @@ struct RootView: View {
     private var tabBar: some View {
         Group {
             if #available(iOS 26, *) {
-                GlassEffectContainer(spacing: 4) {
-                    tabButtons(spacing: 8)
-                }
-                .padding(.horizontal, 12)
-                .padding(.top, 8)
-                .padding(.bottom, 4)
+                tabButtons(spacing: 0)
+                    .padding(4)
+                    .glassEffect(.regular, in: Capsule())
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+                    .padding(.bottom, 4)
             } else {
                 tabButtons(spacing: 0)
                     .padding(.top, 9)
@@ -90,8 +169,8 @@ struct RootView: View {
         }
     }
 
-    @ViewBuilder private func tabButton(_ title: String, symbol: String, tab: MainTab) -> some View {
-        let button = Button {
+    private func tabButton(_ title: String, symbol: String, tab: MainTab) -> some View {
+        Button {
             if tab == .play { playHomeToken += 1 }
             selectedTab = tab
         } label: {
@@ -107,20 +186,16 @@ struct RootView: View {
             }
             .foregroundStyle(selectedTab == tab ? Studio.accent : Studio.secondary)
             .frame(maxWidth: .infinity, minHeight: 50)
+            .background {
+                if #available(iOS 26, *), selectedTab == tab {
+                    Capsule().fill(Studio.accent.opacity(0.12))
+                }
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
         .accessibilityValue(selectedTab == tab ? "選択中" : "")
-
-        if #available(iOS 26, *) {
-            button.glassEffect(
-                .regular.tint(selectedTab == tab ? Studio.accent.opacity(0.22) : nil).interactive(),
-                in: Capsule()
-            )
-        } else {
-            button
-        }
     }
 
     @MainActor
@@ -201,7 +276,7 @@ struct PlayView: View {
                     }
                     VStack(spacing: 12) {
                         PrimaryButton(title: "すぐに練習する", symbol: "play.fill", disabled: model.busy) {
-                            Task {
+                            startGame {
                                 model.searchTerm = ""
                                 await model.search()
                                 await model.startSolo()
@@ -223,7 +298,24 @@ struct PlayView: View {
                 .frame(maxWidth: .infinity)
             }
             .scrollBounceBehavior(.basedOnSize)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                HStack {
+                    Spacer()
+                    Text(appVersion)
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Studio.secondary.opacity(0.75))
+                        .accessibilityLabel("アプリのバージョン \(appVersion)")
+                }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 8)
+            }
         }
+    }
+
+    private var appVersion: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"
+        return "v\(version) (\(build))"
     }
 
     private var selectionFlow: some View {
@@ -388,7 +480,7 @@ struct PlayView: View {
                         .foregroundStyle(Studio.secondary)
                     ForEach(model.searchSongs.prefix(3)) { song in SongRow(song: song) }
                     PrimaryButton(title: "プレイ開始", symbol: "arrow.right", disabled: model.busy) {
-                        Task { await model.startSolo() }
+                        startGame { await model.startSolo() }
                     }
                     if let status = model.preparationStatus { Text(status).font(.caption).foregroundStyle(Studio.secondary) }
                 }
@@ -410,7 +502,7 @@ struct PlayView: View {
                             .foregroundStyle(Studio.secondary)
                         ForEach(model.sharedSongs.prefix(3)) { song in SongRow(song: song) }
                         PrimaryButton(title: "プレイ開始", symbol: "arrow.right", disabled: model.busy) {
-                            Task { await model.startSolo(shared: true) }
+                            startGame { await model.startSolo(shared: true) }
                         }
                         if let status = model.preparationStatus { Text(status).font(.caption).foregroundStyle(Studio.secondary) }
                     }
@@ -429,11 +521,11 @@ struct PlayView: View {
                 if !model.spotifySongs.isEmpty {
                     if sabitro {
                         PrimaryButton(title: "プレイ開始", symbol: "arrow.right", disabled: model.busy) {
-                            Task { await model.startSabitroSolo() }
+                            startGame { await model.startSabitroSolo() }
                         }
                     } else {
                         PrimaryButton(title: "プレイ開始", symbol: "arrow.right", disabled: !model.spotifyPremium || model.busy) {
-                            Task { await model.startSpotifySolo() }
+                            startGame { await model.startSpotifySolo() }
                         }
                         if !model.spotifyPremium {
                             Text("Spotify 音源の再生には Premium が必要です")
@@ -454,7 +546,7 @@ struct PlayView: View {
                     ForEach(model.appleMusicSongs.prefix(3)) { song in SongRow(song: song) }
                     PrimaryButton(title: "プレイ開始", symbol: "arrow.right",
                                   disabled: !model.appleMusicPlayable || model.busy) {
-                        Task { await model.startAppleMusicSolo() }
+                        startGame { await model.startAppleMusicSolo() }
                     }
                     if let status = model.preparationStatus { Text(status).font(.caption).foregroundStyle(Studio.secondary) }
                 }
@@ -524,7 +616,7 @@ struct PlayView: View {
                         PrimaryButton(title: "プレイ開始", symbol: "arrow.right", disabled: model.busy) {
                             model.player.stop()
                             sampleID = nil
-                            Task { await model.startItunesSolo() }
+                            startGame { await model.startItunesSolo() }
                         }
                         if let status = model.preparationStatus { Text(status).font(.caption).foregroundStyle(Studio.secondary) }
                     }
@@ -642,6 +734,14 @@ struct PlayView: View {
                         .foregroundStyle(Studio.secondary)
                 }
             }
+        }
+    }
+
+    @MainActor private func startGame(_ action: @escaping @MainActor () async -> Void) {
+        model.beginGameStart()
+        Task {
+            defer { model.finishGameStart() }
+            await action()
         }
     }
 
@@ -937,6 +1037,7 @@ private struct RevealCard: View {
 struct SoloGameView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var showVolumeSettings = false
 
     var body: some View {
         ZStack {
@@ -963,6 +1064,7 @@ struct SoloGameView: View {
                                 .font(.system(size: 12, weight: .bold, design: .monospaced))
                                 .tracking(1.5)
                                 .foregroundStyle(Studio.secondary)
+                            GameVolumeButton { showVolumeSettings = true }
                         }
                         if game.stage == .preparing {
                             Spacer(minLength: 24)
@@ -1033,6 +1135,10 @@ struct SoloGameView: View {
                     .animation(reduceMotion ? .none : Studio.spring, value: game.stage)
                 }
             }
+        }
+        .sheet(isPresented: $showVolumeSettings) {
+            GameVolumeSettingsSheet()
+                .environmentObject(model)
         }
     }
 }
@@ -1322,24 +1428,7 @@ struct AccountView: View {
                     StudioCard {
                         VStack(alignment: .leading, spacing: 14) {
                             SectionCaption(title: "音量")
-                            volumeSlider("BGM", value: $model.bgmVolume)
-                            volumeSlider("効果音", value: $model.effectsVolume)
-                            volumeSlider("曲（アプリ音源）", value: $model.songVolume)
-                            Text("曲の音量はデモ曲・共有音源・試聴曲に適用されます。")
-                                .font(.caption)
-                                .foregroundStyle(Studio.secondary)
-                            if model.appleMusicConnected || model.spotifyConnected {
-                                Divider()
-                                Text("Apple Music・Spotify の曲（端末音量）")
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(Studio.primary)
-                                SystemMusicVolumeSlider()
-                                    .frame(height: 30)
-                                    .accessibilityLabel("端末の音楽音量")
-                                Text("サービスの曲は端末音量で調整します。BGMと効果音にも影響します。")
-                                    .font(.caption)
-                                    .foregroundStyle(Studio.secondary)
-                            }
+                            VolumeSettingsControls()
                         }
                     }
                     }
@@ -1355,20 +1444,6 @@ struct AccountView: View {
         .sheet(isPresented: $showAvatarSettings) {
             AvatarSettingsView()
                 .environmentObject(model)
-        }
-    }
-
-    private func volumeSlider(_ title: String, value: Binding<Double>) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack {
-                Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(Studio.primary)
-                Spacer()
-                Text("\(Int((value.wrappedValue * 100).rounded()))%")
-                    .font(.caption.monospacedDigit()).foregroundStyle(Studio.secondary)
-            }
-            Slider(value: value, in: 0...1)
-                .tint(Studio.accent)
-                .accessibilityLabel("\(title)の音量")
         }
     }
 
@@ -1504,6 +1579,7 @@ private struct AvatarSettingsView: View {
 struct RoomGameView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var showVolumeSettings = false
 
     var body: some View {
         ZStack {
@@ -1524,6 +1600,7 @@ struct RoomGameView: View {
                                 .tracking(2)
                                 .foregroundStyle(Studio.accent)
                                 .textSelection(.enabled)
+                            GameVolumeButton { showVolumeSettings = true }
                         }
                         .padding(.horizontal, 24)
                         .padding(.top, 12)
@@ -1622,6 +1699,10 @@ struct RoomGameView: View {
                     }
                 }
             }
+        }
+        .sheet(isPresented: $showVolumeSettings) {
+            GameVolumeSettingsSheet()
+                .environmentObject(model)
         }
     }
 
@@ -1790,7 +1871,11 @@ struct RoomGameView: View {
                 }
                 PrimaryButton(title: "ゲームを始める", symbol: "play.fill",
                               disabled: (room.assetsReadyIds ?? []).count < room.players.count) {
-                    Task { await model.roomAction("start") }
+                    model.beginGameStart()
+                    Task {
+                        await model.roomAction("start")
+                        model.finishGameStart()
+                    }
                 }
             }
         }
@@ -1819,16 +1904,19 @@ struct RoomGameView: View {
                 let pushRank = pushOrder.firstIndex(of: player.id)
                 let rankLabel = room.phase == "finished" ? "\(index + 1)位" :
                     pushRank.map { pushRankLabel($0) } ?? (isPending ? "判定中" : "—")
+                let rankColor = room.phase == "finished" || isPending ? Studio.accent :
+                    pushRank.map { pushRankColor($0) } ?? Studio.raised
+                let rankTextColor = room.phase != "finished" && (pushRank == 0 || pushRank == 1) ? Studio.primary :
+                    pushRank != nil || isPending || room.phase == "finished" ? .white : Studio.secondary
                 let localAvatar = player.id == model.rooms.playerId ? model.avatarData : nil
                 VStack(spacing: 4) {
                     Text(rankLabel)
                         .font(.system(size: 16, weight: .black, design: .rounded))
                         .minimumScaleFactor(0.65)
                         .lineLimit(1)
-                        .foregroundStyle(pushRank != nil || isPending || room.phase == "finished" ? .white : Studio.secondary)
+                        .foregroundStyle(rankTextColor)
                         .frame(maxWidth: .infinity, minHeight: 26)
-                        .background(pushRank != nil || isPending || room.phase == "finished" ? Studio.accent : Studio.raised,
-                                    in: RoundedRectangle(cornerRadius: 7))
+                        .background(rankColor, in: RoundedRectangle(cornerRadius: 7))
                     HStack(spacing: 2) {
                         Menu {
                             Text(player.badge ?? "称号未設定")
@@ -1904,6 +1992,14 @@ struct RoomGameView: View {
 
     private func pushRankLabel(_ index: Int) -> String {
         ["1st", "2nd", "3rd", "4th"][min(index, 3)]
+    }
+
+    private func pushRankColor(_ index: Int) -> Color {
+        switch index {
+        case 0: return Color(red: 0.86, green: 0.74, blue: 0.45)
+        case 1: return Color(red: 0.77, green: 0.79, blue: 0.82)
+        default: return Studio.accent
+        }
     }
 
     private func pushTime(_ player: RoomPlayer) -> String {

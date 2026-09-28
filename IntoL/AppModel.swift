@@ -131,6 +131,7 @@ struct SoloGame {
     private var roomPreloadTask: Task<Void, Never>?
     private var preloadedRoomID: String?
     private var appIsActive = false
+    private var gameStartHolds = 0
     private var musicTask: Task<Void, Never>?
     private var spotifyPlaying = false
     private var spotifyPauseTask: Task<Void, Never>?
@@ -163,10 +164,19 @@ struct SoloGame {
         updateBGM()
     }
 
+    func beginGameStart() {
+        gameStartHolds += 1
+        updateBGM()
+    }
+
+    func finishGameStart() {
+        gameStartHolds = max(0, gameStartHolds - 1)
+        updateBGM()
+    }
+
     private func updateBGM() {
-        let soloAllowsBGM = game.map { [.preparing, .countdown, .finished].contains($0.stage) } ?? true
-        let roomAllowsBGM = room.map { ["lobby", "preparing", "countdown", "finished"].contains($0.phase) } ?? true
-        if appIsActive && bgmVolume > 0 && soloAllowsBGM && roomAllowsBGM { sound.playBGM() }
+        let roomAllowsBGM = room?.phase == "lobby" || room == nil
+        if appIsActive && gameStartHolds == 0 && game == nil && roomAllowsBGM && bgmVolume > 0 { sound.playBGM() }
         else { sound.pauseBGM() }
     }
 
@@ -286,6 +296,8 @@ struct SoloGame {
         quizCorpus = appleMusicSongs.map(\.title)
         let name = appleMusicPlaylists.first { $0.id == selectedAppleMusicPlaylistID }?.name ?? "Apple Music"
         guard !busy else { return }
+        beginGameStart()
+        defer { finishGameStart() }
         busy = true; defer { busy = false; preparationStatus = nil }
         do { try await launchSolo(songs: appleMusicSongs, playlist: "Apple Music · \(name)") }
         catch { alert = error.localizedDescription }
@@ -302,6 +314,8 @@ struct SoloGame {
         let source = shared ? sharedSongs : searchSongs
         guard !source.isEmpty else { alert = shared ? "先に共有音源を読み込んでください" : "デモ曲がありません"; return }
         guard !busy else { return }
+        beginGameStart()
+        defer { finishGameStart() }
         busy = true; defer { busy = false; preparationStatus = nil }
         do { try await launchSolo(songs: source, playlist: shared ? "共有音源" : "オリジナルデモ") }
         catch { alert = error.localizedDescription }
@@ -311,6 +325,8 @@ struct SoloGame {
         let songs = itunesSongs.filter { $0.playablePreview && !TitleRules.characters($0.title).isEmpty }
         guard !songs.isEmpty else { alert = "先に試聴曲を検索してください"; return }
         guard !busy else { return }
+        beginGameStart()
+        defer { finishGameStart() }
         busy = true; defer { busy = false; preparationStatus = nil }
         do { try await launchSolo(songs: songs, playlist: "サビトロ · 試聴曲") }
         catch { alert = error.localizedDescription }
@@ -319,6 +335,8 @@ struct SoloGame {
     func startSabitroSolo() async {
         guard !spotifySongs.isEmpty else { alert = "先にプレイリストを選んでください"; return }
         guard !busy else { return }
+        beginGameStart()
+        defer { finishGameStart() }
         busy = true; defer { busy = false; preparationStatus = nil }
         rooms.baseURL = serverURL
         do {
@@ -338,6 +356,8 @@ struct SoloGame {
         guard !spotifySongs.isEmpty else { alert = "先にプレイリストを選んでください"; return }
         quizCorpus = spotifySongs.map(\.title)
         guard !busy else { return }
+        beginGameStart()
+        defer { finishGameStart() }
         busy = true; defer { busy = false; preparationStatus = nil }
         rooms.baseURL = serverURL
         var selected = Array(spotifySongs.shuffled().prefix(10))
