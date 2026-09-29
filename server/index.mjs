@@ -154,9 +154,9 @@ function artistTopTitles(value) {
   return Array.isArray(value) ? value.filter(t => typeof t === 'string' && normalize(t)).slice(0, 6).map(t => t.slice(0, 150)) : [];
 }
 function playerAvatar(value) {
-  if (typeof value !== 'string' || value.length > 16_000 || !/^[A-Za-z0-9+/]+={0,2}$/.test(value)) return null;
+  if (typeof value !== 'string' || value.length > 85_336 || !/^[A-Za-z0-9+/]+={0,2}$/.test(value)) return null;
   const bytes = Buffer.from(value, 'base64');
-  return bytes.length <= 12_000 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
+  return bytes.length <= 64_000 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
     ? value : null;
 }
 function publicPlayer(player, room, viewer) {

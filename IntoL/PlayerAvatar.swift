@@ -1,9 +1,9 @@
-import ImageIO
 import SwiftUI
 import UIKit
 
 enum PlayerAvatar {
     private static let fileName = "player-avatar.jpg"
+    static let maximumBytes = 64_000
 
     private static var fileURL: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -14,28 +14,36 @@ enum PlayerAvatar {
         try? Data(contentsOf: fileURL)
     }
 
-    static func save(_ data: Data) throws -> Data {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-              let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceThumbnailMaxPixelSize: 160
-              ] as CFDictionary) else {
-            throw AppError.message("画像を読み込めませんでした")
+    static func save(_ image: UIImage, crop: CGRect) throws -> Data {
+        guard image.size.width > 0, image.size.height > 0,
+              crop.width > 0, crop.height > 0,
+              crop.minX >= 0, crop.minY >= 0,
+              crop.maxX <= image.size.width + 0.01,
+              crop.maxY <= image.size.height + 0.01 else {
+            throw AppError.message("切り抜く範囲が無効です")
         }
-        let image = UIImage(cgImage: thumbnail)
-        let side = min(image.size.width, image.size.height)
-        let origin = CGPoint(x: (image.size.width - side) / 2, y: (image.size.height - side) / 2)
         let format = UIGraphicsImageRendererFormat.default()
         format.scale = 1
         format.opaque = true
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 80, height: 80), format: format)
-        let cropped = renderer.image { _ in
-            image.draw(in: CGRect(x: -origin.x * 80 / side, y: -origin.y * 80 / side,
-                                  width: image.size.width * 80 / side,
-                                  height: image.size.height * 80 / side))
+        var jpeg: Data?
+        for pixels in [384, 320, 256] {
+            let side = CGFloat(pixels)
+            let renderer = UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format)
+            let cropped = renderer.image { _ in
+                let scale = side / crop.width
+                image.draw(in: CGRect(x: -crop.minX * scale, y: -crop.minY * scale,
+                                      width: image.size.width * scale,
+                                      height: image.size.height * scale))
+            }
+            for quality in [0.88, 0.78, 0.68] {
+                if let data = cropped.jpegData(compressionQuality: quality), data.count <= maximumBytes {
+                    jpeg = data
+                    break
+                }
+            }
+            if jpeg != nil { break }
         }
-        guard let jpeg = cropped.jpegData(compressionQuality: 0.65), jpeg.count <= 12_000 else {
+        guard let jpeg else {
             throw AppError.message("画像をアイコン用に変換できませんでした")
         }
         try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(),

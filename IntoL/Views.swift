@@ -1123,7 +1123,12 @@ private struct ResultSummary: View {
 
 struct ReviewView: View {
     @EnvironmentObject private var model: AppModel
+    @StateObject private var reviewPlayer = PreviewPlayer()
     @State private var learned = false
+    @State private var activeSongID: String?
+    @State private var loadingSongID: String?
+    @State private var playbackTask: Task<Void, Never>?
+    @State private var playbackError: String?
 
     var body: some View {
         NavigationStack {
@@ -1148,8 +1153,14 @@ struct ReviewView: View {
                     } else {
                         ForEach(items) { item in
                             ReviewSongRow(item: item,
+                                          isPlaying: activeSongID == item.id && loadingSongID == nil,
+                                          isLoading: loadingSongID == item.id,
+                                          togglePlayback: { togglePlayback(item.song) },
                                           toggleLearned: { model.toggleLearned(item.id) },
-                                          remove: { model.removeReview(item.id) })
+                                          remove: {
+                                              if activeSongID == item.id { stopPlayback() }
+                                              model.removeReview(item.id)
+                                          })
                         }
                     }
                 }
@@ -1159,31 +1170,75 @@ struct ReviewView: View {
             }
             .background(Studio.background)
             .toolbar(.hidden, for: .navigationBar)
+            .onChange(of: learned) { _, _ in stopPlayback() }
+            .onDisappear { stopPlayback() }
+            .alert("曲を再生できません", isPresented: Binding(
+                get: { playbackError != nil }, set: { if !$0 { playbackError = nil } })) {
+                    Button("OK", role: .cancel) { playbackError = nil }
+                } message: { Text(playbackError ?? "") }
         }
+    }
+
+    @MainActor private func togglePlayback(_ song: Song) {
+        if activeSongID == song.id { stopPlayback(); return }
+        stopPlayback()
+        activeSongID = song.id
+        reviewPlayer.volume = Float(model.songVolume)
+        if let url = song.previewURL {
+            reviewPlayer.play(url)
+            return
+        }
+        guard song.id.hasPrefix("applemusic:") else {
+            activeSongID = nil
+            playbackError = "この曲の音源は利用できません"
+            return
+        }
+        loadingSongID = song.id
+        playbackTask = Task {
+            do {
+                let canPlay = (try? await model.appleMusic.authorize()) ?? false
+                try Task.checkCancellation()
+                if canPlay {
+                    do { try await model.appleMusic.play(song) }
+                    catch {
+                        try Task.checkCancellation()
+                        guard let preview = await model.appleMusic.previewURL(for: song.id) else { throw error }
+                        try Task.checkCancellation()
+                        reviewPlayer.play(preview)
+                    }
+                } else if let preview = await model.appleMusic.previewURL(for: song.id) {
+                    try Task.checkCancellation()
+                    reviewPlayer.play(preview)
+                } else {
+                    throw AppError.message("Apple Music のサブスクリプション、またはこの曲の試聴音源が必要です")
+                }
+                if !Task.isCancelled, activeSongID == song.id { loadingSongID = nil }
+            } catch {
+                guard !Task.isCancelled, activeSongID == song.id else { return }
+                loadingSongID = nil
+                activeSongID = nil
+                playbackError = error.localizedDescription
+            }
+        }
+    }
+
+    @MainActor private func stopPlayback() {
+        playbackTask?.cancel()
+        playbackTask = nil
+        reviewPlayer.stop()
+        model.appleMusic.stop()
+        activeSongID = nil
+        loadingSongID = nil
     }
 }
 
 private struct ReviewSongRow: View {
     let item: ReviewSong
+    let isPlaying: Bool
+    let isLoading: Bool
+    let togglePlayback: () -> Void
     let toggleLearned: () -> Void
     let remove: () -> Void
-
-    private var musicURL: URL? {
-        if let url = item.song.trackURL,
-           let host = url.host, ["music.apple.com", "itunes.apple.com"].contains(host) {
-            var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-            components?.host = "music.apple.com"
-            return components?.url
-        }
-        return nil
-    }
-
-    private var searchURL: URL? {
-        guard !item.song.id.hasPrefix("demo:") else { return nil }
-        var components = URLComponents(string: "https://music.apple.com/jp/search")
-        components?.queryItems = [URLQueryItem(name: "term", value: "\(item.song.title) \(item.song.artist)")]
-        return components?.url
-    }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -1195,19 +1250,21 @@ private struct ReviewSongRow: View {
                     .lineLimit(2)
                 Text(item.song.artist)
                     .font(.caption).foregroundStyle(Studio.secondary).lineLimit(1)
-                if let url = musicURL ?? searchURL {
-                    Link(destination: url) {
+                if item.song.previewURL != nil || item.song.id.hasPrefix("applemusic:") {
+                    Button(action: togglePlayback) {
                         HStack(spacing: 4) {
-                            AppleMusicIcon(size: 16)
-                            Text(musicURL != nil ? "Apple Musicで聴く" : "Apple Musicで探す")
+                            if isLoading { ProgressView().controlSize(.mini) }
+                            else { Image(systemName: isPlaying ? "stop.fill" : "play.fill") }
+                            Text(isLoading ? "読み込み中" : isPlaying ? "停止" : "アプリ内で再生")
                                 .font(.caption2.weight(.semibold))
                         }
                         .foregroundStyle(Studio.accent)
                         .frame(minHeight: 44, alignment: .leading)
                         .contentShape(Rectangle())
                     }
+                    .accessibilityLabel("\(item.song.title)を\(isPlaying || isLoading ? "停止" : "再生")")
                 } else {
-                    Text("オリジナル音源")
+                    Text("再生できる音源がありません")
                         .font(.caption2).foregroundStyle(Studio.secondary)
                 }
             }
@@ -1695,6 +1752,7 @@ private struct AvatarSettingsView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
     @State private var selectedPhoto: PhotosPickerItem?
+    @State private var photoToCrop: AvatarPhoto?
     @State private var loading = false
     @State private var errorMessage: String?
 
@@ -1712,7 +1770,7 @@ private struct AvatarSettingsView: View {
                     .font(.subheadline)
                     .foregroundStyle(Studio.secondary)
                     .multilineTextAlignment(.center)
-                PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                PhotosPicker(selection: $selectedPhoto, matching: .images, preferredItemEncoding: .current) {
                     Label("写真を選ぶ・変更", systemImage: "photo.on.rectangle")
                         .font(.headline)
                         .foregroundStyle(.white)
@@ -1737,6 +1795,9 @@ private struct AvatarSettingsView: View {
             .navigationTitle("アイコン設定")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("完了") { dismiss() } } }
+            .sheet(item: $photoToCrop) { photo in
+                AvatarCropView(image: photo.image)
+            }
             .alert("アイコンを設定できません", isPresented: Binding(
                 get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
                     Button("OK", role: .cancel) { errorMessage = nil }
@@ -1748,12 +1809,108 @@ private struct AvatarSettingsView: View {
                 do {
                     guard let data = try await selectedPhoto.loadTransferable(type: Data.self),
                           !Task.isCancelled else { return }
-                    try model.setAvatar(data)
+                    guard let image = UIImage(data: data) else {
+                        throw AppError.message("画像を読み込めませんでした")
+                    }
+                    photoToCrop = AvatarPhoto(image: image)
                 } catch {
                     if !Task.isCancelled { errorMessage = error.localizedDescription }
                 }
             }
         }
+    }
+}
+
+private struct AvatarPhoto: Identifiable {
+    let id = UUID()
+    let image: UIImage
+}
+
+private struct AvatarCropView: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+    let image: UIImage
+    @State private var zoom: CGFloat = 1
+    @State private var offset = CGSize.zero
+    @State private var dragOrigin = CGSize.zero
+    @State private var errorMessage: String?
+    private let cropSize: CGFloat = 280
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 24) {
+                Spacer(minLength: 16)
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: cropSize, height: cropSize)
+                    .scaleEffect(zoom)
+                    .offset(offset)
+                    .frame(width: cropSize, height: cropSize)
+                    .clipShape(Circle())
+                    .overlay(Circle().strokeBorder(Studio.accent, lineWidth: 2))
+                    .gesture(DragGesture()
+                        .onChanged { value in
+                            offset = limitedOffset(CGSize(width: dragOrigin.width + value.translation.width,
+                                                          height: dragOrigin.height + value.translation.height))
+                        }
+                        .onEnded { _ in dragOrigin = offset })
+                    .accessibilityLabel("アイコンの切り抜き位置")
+                VStack(spacing: 8) {
+                    Label("拡大・縮小", systemImage: "plus.magnifyingglass")
+                        .font(.subheadline)
+                        .foregroundStyle(Studio.secondary)
+                    Slider(value: $zoom, in: 1...3)
+                        .tint(Studio.accent)
+                        .onChange(of: zoom) { _, _ in
+                            offset = limitedOffset(offset)
+                            dragOrigin = offset
+                        }
+                }
+                .frame(maxWidth: 320)
+                Text("写真を動かして、丸の中に表示する範囲を選んでください。")
+                    .font(.subheadline)
+                    .foregroundStyle(Studio.secondary)
+                    .multilineTextAlignment(.center)
+                Spacer()
+                PrimaryButton(title: "この範囲をアイコンにする", symbol: "checkmark") {
+                    do {
+                        try model.setAvatar(image, crop: cropRect)
+                        dismiss()
+                    } catch { errorMessage = error.localizedDescription }
+                }
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Studio.background)
+            .navigationTitle("アイコンを切り抜く")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarLeading) { Button("キャンセル") { dismiss() } } }
+            .alert("アイコンを設定できません", isPresented: Binding(
+                get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+                    Button("OK", role: .cancel) { errorMessage = nil }
+                } message: { Text(errorMessage ?? "") }
+        }
+    }
+
+    private var renderedScale: CGFloat {
+        max(cropSize / image.size.width, cropSize / image.size.height) * zoom
+    }
+
+    private func limitedOffset(_ proposed: CGSize) -> CGSize {
+        let maxX = max(0, (image.size.width * renderedScale - cropSize) / 2)
+        let maxY = max(0, (image.size.height * renderedScale - cropSize) / 2)
+        return CGSize(width: min(max(proposed.width, -maxX), maxX),
+                      height: min(max(proposed.height, -maxY), maxY))
+    }
+
+    private var cropRect: CGRect {
+        let side = cropSize / renderedScale
+        let originX = (image.size.width - side) / 2 - offset.width / renderedScale
+        let originY = (image.size.height - side) / 2 - offset.height / renderedScale
+        return CGRect(x: max(0, min(originX, image.size.width - side)),
+                      y: max(0, min(originY, image.size.height - side)),
+                      width: side, height: side)
     }
 }
 

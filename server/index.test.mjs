@@ -209,7 +209,11 @@ test('room snapshots share bounded player icons with other players', () => {
   assert.equal(joined.status, 200);
   assert.equal(joined.body.players.find(player => player.id === 'avatar-host').avatar, avatar);
   assert.equal(joined.body.players.find(player => player.id === 'avatar-guest').avatar, null);
-  const oversized = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(12_001)]).toString('base64');
+  const detailed = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(30_000)]).toString('base64');
+  const detailedPlayer = handle('POST', `/rooms/${created.body.id}/join`,
+    { playerId: 'avatar-detailed', name: 'Detailed', avatar: detailed }, new URLSearchParams());
+  assert.equal(detailedPlayer.body.players.find(player => player.id === 'avatar-detailed').avatar, detailed);
+  const oversized = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(64_001)]).toString('base64');
   const another = handle('POST', `/rooms/${created.body.id}/join`,
     { playerId: 'avatar-third', name: 'Third', avatar: oversized }, new URLSearchParams());
   assert.equal(another.body.players.find(player => player.id === 'avatar-third').avatar, null);

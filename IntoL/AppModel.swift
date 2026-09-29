@@ -44,8 +44,8 @@ struct SoloGame {
     @Published private(set) var avatarData: Data? = PlayerAvatar.load()
     var roomAvatar: String? { avatarData?.base64EncodedString() }
 
-    func setAvatar(_ data: Data) throws {
-        avatarData = try PlayerAvatar.save(data)
+    func setAvatar(_ image: UIImage, crop: CGRect) throws {
+        avatarData = try PlayerAvatar.save(image, crop: crop)
     }
 
     func removeAvatar() throws {

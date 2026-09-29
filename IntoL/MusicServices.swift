@@ -225,11 +225,22 @@ private struct AppleMusicLibrarySongResponse: Decodable {
         return item
     }
 
+    private func playableSong(for songID: String) async throws -> MusicKit.Song {
+        if let cached = songsByID[songID] { return cached }
+        guard songID.hasPrefix("applemusic:") else { throw AppError.message("Apple Music の曲IDが無効です") }
+        let id = String(songID.dropFirst("applemusic:".count))
+        if isCatalogID(id), let catalog = try? await catalogSong(for: songID) { return catalog }
+        var request = MusicLibraryRequest<MusicKit.Song>()
+        request.filter(matching: \.id, equalTo: MusicItemID(id))
+        if let library = try? await request.response().items.first, library.playParameters != nil {
+            songsByID[songID] = library
+            return library
+        }
+        return try await catalogSong(for: songID)
+    }
+
     func previewURL(for songID: String) async -> URL? {
-        let item: MusicKit.Song
-        if let cached = songsByID[songID] { item = cached }
-        else if let fetched = try? await catalogSong(for: songID) { item = fetched }
-        else { return nil }
+        guard let item = try? await playableSong(for: songID) else { return nil }
         if let url = item.previewAssets?.compactMap(\.url).first { return url }
         guard let catalog = await catalogMatch(for: item) else { return nil }
         return catalog.previewAssets?.compactMap(\.url).first
@@ -246,9 +257,7 @@ private struct AppleMusicLibrarySongResponse: Decodable {
 
     func play(_ song: Song, offsetMS: Int = 0) async throws {
         let initialRequest = playRequest
-        let item: MusicKit.Song
-        if let cached = songsByID[song.id] { item = cached }
-        else { item = try await catalogSong(for: song.id) }
+        let item = try await playableSong(for: song.id)
         guard initialRequest == playRequest, !Task.isCancelled else { throw CancellationError() }
         playRequest += 1
         let request = playRequest
