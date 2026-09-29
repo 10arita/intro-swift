@@ -131,12 +131,24 @@ struct RootView: View {
             await openRequestedPractice()
             if model.appleMusicConnected { await model.loadAppleMusicPlaylists() }
             await model.syncProfile()
+            await model.refreshFriends(reportErrors: false)
+        }
+        .task(id: scenePhase) {
+            guard scenePhase == .active, model.serverConfigured else { return }
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(10)) }
+                catch { break }
+                await model.refreshFriends(reportErrors: false)
+            }
         }
         .onChange(of: shortcut.practiceRequest) { _, _ in
             Task { await openRequestedPractice() }
         }
         .onChange(of: scenePhase) { _, phase in
             model.setAppActive(phase == .active)
+            if phase == .active {
+                Task { await model.refreshFriends(reportErrors: false) }
+            }
         }
     }
 
@@ -169,13 +181,26 @@ struct RootView: View {
     }
 
     private func tabButton(_ title: String, symbol: String, tab: MainTab) -> some View {
-        Button {
+        let inviteCount = model.friendsState?.invites.count ?? 0
+        return Button {
             if tab == .play { playHomeToken += 1 }
             selectedTab = tab
         } label: {
             VStack(spacing: 4) {
                 Image(systemName: symbol).font(.system(size: 21, weight: .medium))
                     .frame(width: 60, height: 30)
+                    .overlay(alignment: .topTrailing) {
+                        if tab == .friends && inviteCount > 0 {
+                            Text("\(inviteCount)")
+                                .font(.system(size: 10, weight: .bold, design: .rounded))
+                                .foregroundStyle(.white)
+                                .frame(minWidth: 16, minHeight: 16)
+                                .padding(.horizontal, 3)
+                                .background(Studio.accent, in: Capsule())
+                                .offset(x: -2, y: -4)
+                                .accessibilityHidden(true)
+                        }
+                    }
                     .background {
                         if #unavailable(iOS 26), selectedTab == tab {
                             Capsule().fill(Studio.raised)
@@ -194,7 +219,9 @@ struct RootView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
-        .accessibilityValue(selectedTab == tab ? "選択中" : "")
+        .accessibilityValue(tab == .friends && inviteCount > 0
+            ? "\(selectedTab == tab ? "選択中、" : "")ルーム招待\(inviteCount)件"
+            : (selectedTab == tab ? "選択中" : ""))
     }
 
     @MainActor
@@ -1631,14 +1658,7 @@ struct FriendsView: View {
             .background(Studio.background)
             .toolbar(.hidden, for: .navigationBar)
             .refreshable { await model.refreshFriends() }
-            .task {
-                await model.refreshFriends()
-                while !Task.isCancelled {
-                    try? await Task.sleep(for: .seconds(10))
-                    if Task.isCancelled { break }
-                    await model.refreshFriends(reportErrors: false)
-                }
-            }
+            .task { await model.refreshFriends() }
             .sheet(item: $selectedProfile) { target in
                 PlayerProfileSheet(target: target).environmentObject(model)
             }
