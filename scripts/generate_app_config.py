@@ -7,7 +7,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 
-ALLOWED_KEYS = {"APP_SERVER_URL", "SPOTIFY_CLIENT_ID"}
+ALLOWED_KEYS = {"APP_SERVER_URL"}
 
 
 def read_env(path: Path) -> dict[str, str]:
@@ -50,7 +50,6 @@ def main() -> None:
             raise ValueError("APP_SERVER_URL must be an HTTPS origin without credentials, query, or fragment")
     config = {
         "APP_SERVER_URL": server_url,
-        "SPOTIFY_CLIENT_ID": values.get("SPOTIFY_CLIENT_ID", ""),
     }
     destination.parent.mkdir(parents=True, exist_ok=True)
     with destination.open("wb") as output:

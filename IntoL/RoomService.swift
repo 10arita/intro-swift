@@ -227,7 +227,10 @@ struct SavedProfile: Decodable {
     init() {
         if let saved = UserDefaults.standard.string(forKey: "roomPlayerId") { playerId = saved }
         else { playerId = UUID().uuidString; UserDefaults.standard.set(playerId, forKey: "roomPlayerId") }
-        profileID = UserDefaults.standard.string(forKey: "spotifyAccountID").map { "spotify:\($0)" } ?? playerId
+        // Keep the existing profile and friend graph when upgrading from account-based identity.
+        profileID = UserDefaults.standard.string(forKey: "profileID") ??
+            UserDefaults.standard.string(forKey: "spotifyAccountID").map { "spotify:\($0)" } ?? playerId
+        UserDefaults.standard.set(profileID, forKey: "profileID")
         token = Secrets.get("roomSessionToken") ?? UserDefaults.standard.string(forKey: "roomSessionToken")
     }
 
@@ -613,20 +616,6 @@ struct SavedProfile: Decodable {
             "profileId": profileID, "inviteId": inviteID, "name": name,
             "badge": badge ?? "", "avatar": avatar ?? ""
         ], authentication: credential)
-    }
-    func linkSpotify(accessToken: String) async throws {
-        var request = URLRequest(url: try endpoint("profile/link"))
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
-            throw AppError.message("Spotify プロフィールを連携できません")
-        }
-        struct Linked: Decodable { let id: String; let token: String }
-        let linked = try JSONDecoder().decode(Linked.self, from: data)
-        profileID = linked.id
-        UserDefaults.standard.set(String(linked.id.dropFirst("spotify:".count)), forKey: "spotifyAccountID")
-        Secrets.set(linked.token, for: profileKey)
     }
     func profile() async throws -> SavedProfile {
         let existingToken = Secrets.get(profileKey)

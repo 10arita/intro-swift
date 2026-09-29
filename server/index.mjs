@@ -13,6 +13,7 @@ if (DATA_FILE && existsSync(DATA_FILE)) {
   try {
     const saved = JSON.parse(readFileSync(DATA_FILE, 'utf8'));
     for (const room of saved.rooms || []) {
+      if (!['shared', 'applemusic', 'sabitro'].includes(room.mode)) continue;
       room.pushed = new Set(room.pushed || []); room.skipped = new Set(room.skipped || []);
       room.settings.handicaps ||= {};
       room.readyIds = new Set(room.readyIds || []);
@@ -429,15 +430,15 @@ export function handle(method, path, body, query, authorization, origin = 'https
   }
   if (method === 'POST' && path === '/rooms') {
     if (rooms.size >= 500) return fail(503, 'ルーム数の上限に達しました');
-    const mode = ['shared', 'spotify', 'applemusic', 'sabitro'].includes(body.mode) ? body.mode : 'shared';
+    const mode = body.mode ?? 'shared';
+    if (!['shared', 'applemusic', 'sabitro'].includes(mode)) return fail(400, 'この音源モードは利用できません');
     const supplied = Array.isArray(body.songs) ? body.songs.slice(0, 50).filter(song =>
       song && typeof song.title === 'string' && normalize(song.title) && typeof song.artist === 'string' &&
-      ((mode === 'spotify' && /^spotify:[A-Za-z0-9]{22}$/.test(song.id)) ||
-       (mode === 'applemusic' && /^applemusic:\d+$/.test(song.id)) ||
+      ((mode === 'applemusic' && /^applemusic:\d+$/.test(song.id)) ||
        (mode === 'sabitro' && /^itunes:\d+$/.test(song.id) && /^https:\/\//.test(song.previewURL || ''))))
       .map(song => ({ id: song.id, title: song.title.slice(0, 150), artist: song.artist.slice(0, 100),
         artistTopTitles: artistTopTitles(song.artistTopTitles),
-        artworkURL: song.artworkURL || null, previewURL: mode === 'spotify' || mode === 'applemusic' ? null : song.previewURL,
+        artworkURL: song.artworkURL || null, previewURL: mode === 'applemusic' ? null : song.previewURL,
         trackURL: song.trackURL || null, durationMS: Number(song.durationMS) || 180_000,
         genre: song.genre || 'その他', songleURL: song.songleURL || null, chorusMS: song.chorusMS || null })) : [];
     const suppliedTopTitles = new Map((Array.isArray(body.songs) ? body.songs : [])
@@ -727,18 +728,13 @@ function closeRoomStreams(id) {
 function enrichStreamingChorus(id) {
   const room = rooms.get(id);
   const song = room && currentSong(room);
-  if ((room?.mode === 'spotify' || room?.mode === 'applemusic') && song) {
+  if (room?.mode === 'applemusic' && song) {
     chorusPosition(song).then(position => { song.chorusMS = position; persist(); }).catch(() => {});
   }
 }
 
 export const server = createServer(async (request, response) => {
   const url = new URL(request.url, 'http://localhost');
-  if (request.method === 'GET' && url.pathname === '/spotify/callback') {
-    const deepLink = new URL('intol://callback');
-    for (const key of ['code', 'state', 'error']) if (url.searchParams.has(key)) deepLink.searchParams.set(key, url.searchParams.get(key));
-    response.writeHead(302, { Location: deepLink.toString(), 'Cache-Control': 'no-store' }); response.end(); return;
-  }
   if (!['GET', 'POST', 'PUT'].includes(request.method)) { send(response, 405, { error: 'Method not allowed' }); return; }
   const eventRoom = request.method === 'GET' && /^\/rooms\/([A-Z]{6})\/events$/.exec(url.pathname);
   if (eventRoom) {
@@ -815,25 +811,6 @@ export const server = createServer(async (request, response) => {
     if (request.method === 'POST' && url.pathname === '/chorus') {
       send(response, 200, { positionMS: await chorusPosition(body) }); return;
     }
-    if (request.method === 'POST' && url.pathname === '/profile/link') {
-      const access = request.headers.authorization?.replace(/^Bearer /, '');
-      if (!access) { send(response, 401, { error: 'Spotify 認証が必要です' }); return; }
-      const verification = await fetch('https://api.spotify.com/v1/me', {
-        headers: { Authorization: `Bearer ${access}` }, signal: AbortSignal.timeout(8000)
-      });
-      if (!verification.ok) { send(response, 403, { error: 'Spotify アカウントを確認できません' }); return; }
-      const account = await verification.json();
-      const accountID = account.account_id || account.id;
-      if (!accountID || !/^[A-Za-z0-9_-]+$/.test(accountID)) { send(response, 403, { error: 'アカウントIDが無効です' }); return; }
-      const id = `spotify:${accountID}`;
-      let profile = profiles.get(id);
-      if (!profile) {
-        profile = { id, secret: randomUUID(), reviews: [], history: [], stats: null };
-        profiles.set(id, profile); persist();
-      }
-      const { secret, ...safe } = profile;
-      send(response, 200, { ...safe, token: secret }); return;
-    }
     const origin = process.env.PUBLIC_BASE_URL || `${request.headers['x-forwarded-proto'] || 'http'}://${request.headers.host}`;
     const roomId = /^\/rooms\/([A-Z]{6})(?:\/|$)/.exec(url.pathname)?.[1];
     const before = roomId && rooms.has(roomId) ? roomSignature(rooms.get(roomId)) : null;
@@ -855,18 +832,6 @@ export const server = createServer(async (request, response) => {
       for (const room of rooms.values()) {
         if (room.players.some(player => player.profileId === body.profileId)) publishRoom(room);
       }
-    }
-    if (result.status === 201 && request.method === 'POST' && url.pathname === '/rooms' && result.body.mode === 'spotify') {
-      const room = rooms.get(result.body.id);
-      void (async () => {
-        for (const song of room.songs) {
-          if (rooms.get(room.id) !== room) return;
-          try {
-            const match = await matchItunes(song);
-            if (rooms.get(room.id) === room && match?.genre) { song.genre = match.genre; persist(); }
-          } catch { /* Genre enrichment must not block room creation. */ }
-        }
-      })();
     }
     if (result.status === 200 && request.method === 'POST' && /\/rooms\/[A-Z]{6}\/(start|next)$/.test(url.pathname)) {
       enrichStreamingChorus(url.pathname.split('/')[2]);

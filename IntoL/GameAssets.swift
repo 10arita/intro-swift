@@ -16,7 +16,7 @@ struct GameAsset: Decodable {
 }
 
 /// Temporary, per-install cache for audio that the app is allowed to fetch directly.
-/// Spotify and Apple Music audio stays inside their respective playback apps.
+/// Apple Music audio stays in MusicKit rather than being cached by the app.
 @MainActor final class GameAssets {
     static let shared = GameAssets()
     private var audio: [URL: URL] = [:]

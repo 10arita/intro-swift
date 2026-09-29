@@ -18,8 +18,6 @@
 		A0000000000000000000000A /* Audio in Resources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000000C /* Audio */; };
 		A0000000000000000000000E /* MusicServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000010 /* MusicServices.swift */; };
 		A0000000000000000000000F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000008 /* Assets.xcassets */; };
-		A00000000000000000000011 /* SpotifyRemote.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000011 /* SpotifyRemote.swift */; };
-		A00000000000000000000012 /* SpotifyiOS in Frameworks */ = {isa = PBXBuildFile; productRef = P00000000000000000000001 /* SpotifyiOS */; };
 		A00000000000000000000013 /* GameAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000013 /* GameAssets.swift */; };
 		A00000000000000000000014 /* server/corpus/famousSongs.json in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000014 /* server/corpus/famousSongs.json */; };
 		A00000000000000000000015 /* server/corpus/famousSongsJapaneseExpansion.json in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000015 /* server/corpus/famousSongsJapaneseExpansion.json */; };
@@ -42,7 +40,6 @@
 		B0000000000000000000000B /* DemoCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoCatalog.swift; sourceTree = "<group>"; };
 		B0000000000000000000000C /* Audio */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Audio; sourceTree = "<group>"; };
 		B00000000000000000000010 /* MusicServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicServices.swift; sourceTree = "<group>"; };
-		B00000000000000000000011 /* SpotifyRemote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotifyRemote.swift; sourceTree = "<group>"; };
 		B00000000000000000000013 /* GameAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameAssets.swift; sourceTree = "<group>"; };
 		B00000000000000000000014 /* server/corpus/famousSongs.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = server/corpus/famousSongs.json; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000015 /* server/corpus/famousSongsJapaneseExpansion.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = server/corpus/famousSongsJapaneseExpansion.json; sourceTree = SOURCE_ROOT; };
@@ -56,7 +53,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A00000000000000000000012 /* SpotifyiOS in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -79,7 +75,6 @@
 				B00000000000000000000003 /* Models.swift */,
 				B00000000000000000000004 /* Services.swift */,
 				B00000000000000000000010 /* MusicServices.swift */,
-				B00000000000000000000011 /* SpotifyRemote.swift */,
 				B00000000000000000000013 /* GameAssets.swift */,
 				B00000000000000000000018 /* PlayerAvatar.swift */,
 				B00000000000000000000005 /* AppModel.swift */,
@@ -123,7 +118,6 @@
 			);
 			name = IntoL;
 			packageProductDependencies = (
-				P00000000000000000000001 /* SpotifyiOS */,
 			);
 			productName = IntoL;
 			productReference = B0000000000000000000000A /* IntoL.app */;
@@ -154,7 +148,6 @@
 			);
 			mainGroup = C00000000000000000000001;
 			packageReferences = (
-				P00000000000000000000002 /* XCRemoteSwiftPackageReference "ios-sdk" */,
 			);
 			productRefGroup = C00000000000000000000003 /* Products */;
 			projectDirPath = "";
@@ -212,7 +205,6 @@
 				A00000000000000000000003 /* Models.swift in Sources */,
 				A00000000000000000000004 /* Services.swift in Sources */,
 				A0000000000000000000000E /* MusicServices.swift in Sources */,
-				A00000000000000000000011 /* SpotifyRemote.swift in Sources */,
 				A00000000000000000000013 /* GameAssets.swift in Sources */,
 				A00000000000000000000018 /* PlayerAvatar.swift in Sources */,
 				A00000000000000000000005 /* AppModel.swift in Sources */,
@@ -397,24 +389,6 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCRemoteSwiftPackageReference section */
-		P00000000000000000000002 /* XCRemoteSwiftPackageReference "ios-sdk" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/spotify/ios-sdk.git";
-			requirement = {
-				kind = exactVersion;
-				version = 5.0.1;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		P00000000000000000000001 /* SpotifyiOS */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = P00000000000000000000002 /* XCRemoteSwiftPackageReference "ios-sdk" */;
-			productName = SpotifyiOS;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = F00000000000000000000001 /* Project object */;
 }

@@ -12,7 +12,6 @@ enum AppConfiguration {
     }()
 
     static var serverURL: String { values["APP_SERVER_URL"] ?? "" }
-    static var spotifyClientID: String { values["SPOTIFY_CLIENT_ID"] ?? "" }
 }
 
 enum AppError: LocalizedError {

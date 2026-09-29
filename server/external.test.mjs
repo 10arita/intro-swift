@@ -28,7 +28,7 @@ test('iTunes matching requires the title and artist, and Songle starts before th
   } finally { globalThis.fetch = original; }
 });
 
-test('Songle search uses the original video permalink for a revealed Spotify song', async () => {
+test('Songle search uses the original video permalink for a revealed Apple Music song', async () => {
   const original = globalThis.fetch;
   const requests = [];
   globalThis.fetch = async url => {

@@ -48,8 +48,8 @@ test('a long vowel mark is required in the answer', () => {
   Date.now = () => now;
   try {
     const created = handle('POST', '/rooms', {
-      playerId: 'long-vowel-host', name: 'Host', mode: 'spotify',
-      songs: [{ id: `spotify:${'M'.repeat(22)}`, title: 'マー', artist: 'Artist' }],
+      playerId: 'long-vowel-host', name: 'Host', mode: 'applemusic',
+      songs: [{ id: 'applemusic:1000000001', title: 'マー', artist: 'Artist' }],
       settings: { questionCount: 1 }
     }, new URLSearchParams());
     assert.equal(created.status, 201);
@@ -76,8 +76,8 @@ test('a long vowel mark is required in the answer', () => {
 
 test('a hyphen within an English song title is required in the answer', () => {
   const created = handle('POST', '/rooms', {
-    playerId: 'hyphen-host', name: 'Host', mode: 'spotify',
-    songs: [{ id: `spotify:${'H'.repeat(22)}`, title: 'Bling-Bang-Bang-Born', artist: 'Artist' }],
+    playerId: 'hyphen-host', name: 'Host', mode: 'applemusic',
+    songs: [{ id: 'applemusic:1000000002', title: 'Bling-Bang-Bang-Born', artist: 'Artist' }],
     settings: { questionCount: 1 }
   }, new URLSearchParams());
   assert.equal(created.status, 201);
@@ -174,7 +174,7 @@ test('room snapshots share bounded player icons with other players', () => {
   assert.equal(another.body.players.find(player => player.id === 'avatar-third').avatar, null);
 });
 
-test('Spotify room creation does not wait for external metadata services', async () => {
+test('Apple Music room creation does not wait for external metadata services', async () => {
   const originalFetch = globalThis.fetch;
   let externalCalls = 0;
   globalThis.fetch = () => {
@@ -182,8 +182,8 @@ test('Spotify room creation does not wait for external metadata services', async
     return new Promise(() => {});
   };
   try {
-    const body = { playerId: 'spotify-room-test', name: 'Host', mode: 'spotify', settings: { questionCount: 1 },
-      songs: [{ id: 'spotify:AAAAAAAAAAAAAAAAAAAAAA', title: 'Test Song', artist: 'Test Artist' }] };
+    const body = { playerId: 'applemusic-room-test', name: 'Host', mode: 'applemusic', settings: { questionCount: 1 },
+      songs: [{ id: 'applemusic:1000000003', title: 'Test Song', artist: 'Test Artist' }] };
     const request = Readable.from([Buffer.from(JSON.stringify(body))]);
     request.method = 'POST'; request.url = '/rooms'; request.headers = { host: 'localhost' };
     const result = await new Promise(resolve => {
@@ -194,8 +194,8 @@ test('Spotify room creation does not wait for external metadata services', async
       server.emit('request', request, response);
     });
     assert.equal(result.status, 201, JSON.stringify(result.body));
-    assert.equal(result.body.mode, 'spotify');
-    assert.equal(externalCalls, 1);
+    assert.equal(result.body.mode, 'applemusic');
+    assert.equal(externalCalls, 0);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -219,6 +219,14 @@ test('Apple Music rooms accept catalog IDs and keep answers hidden until reveal'
   const invalid = handle('POST', '/rooms', { playerId: 'amInvalid', name: 'Host', mode: 'applemusic',
     songs: [{ ...song, id: 'applemusic:i.12345' }] }, new URLSearchParams());
   assert.equal(invalid.status, 400);
+});
+
+test('unsupported music providers cannot create rooms', () => {
+  const result = handle('POST', '/rooms', {
+    playerId: 'old-provider', name: 'Host', mode: 'spotify',
+    songs: [{ id: 'spotify:1234567890123456789012', title: '花火', artist: 'Artist' }]
+  }, new URLSearchParams());
+  assert.equal(result.status, 400);
 });
 
 test('a retried Apple Music choice is applied once and its reveal has an integral chorus', () => {
@@ -410,8 +418,8 @@ test('room API arbitrates PUSH, validates answers, scores, and protects sessions
 
 function startedThreePlayerRoom(endless, settings = {}, extraGuestIDs = []) {
   const songs = Array.from({ length: settings.questionCount ?? 1 }, (_, index) => ({
-    id: `spotify:${String.fromCharCode(65 + index).repeat(22)}`, title: '花火', artist: 'Artist' }));
-  const host = handle('POST', '/rooms', { playerId: 'relayA', name: 'A', mode: 'spotify', songs,
+    id: `applemusic:${1000000010 + index}`, title: '花火', artist: 'Artist' }));
+  const host = handle('POST', '/rooms', { playerId: 'relayA', name: 'A', mode: 'applemusic', songs,
     settings: { questionCount: 1, answerSlots: 2, endless, targetScore: 0, ...settings } }, new URLSearchParams()).body;
   const guestIDs = ['relayB', 'relayC', ...extraGuestIDs];
   const guests = guestIDs.map(id => handle('POST', `/rooms/${host.id}/join`,
@@ -433,9 +441,9 @@ test('lobby handicap blocks selected players at the start of every round', () =>
   Date.now = () => now;
   try {
     const songs = ['A', 'B'].map(letter => ({
-      id: `spotify:${letter.repeat(22)}`, title: '花火', artist: 'Artist' }));
+      id: `applemusic:${1000000000 + letter.charCodeAt(0)}`, title: '花火', artist: 'Artist' }));
     const host = handle('POST', '/rooms', { playerId: 'handicap-host', name: 'Host',
-      mode: 'spotify', songs, settings: { questionCount: 2, targetScore: 0 } }, new URLSearchParams()).body;
+      mode: 'applemusic', songs, settings: { questionCount: 2, targetScore: 0 } }, new URLSearchParams()).body;
     const path = `/rooms/${host.id}`;
     const guest = handle('POST', `${path}/join`, { playerId: 'handicap-guest', name: 'Guest' }, new URLSearchParams()).body;
     const act = (who, action, payload = {}) => handle('POST', `${path}/${action}`,
@@ -865,11 +873,11 @@ test('profile needs its secret and stores five results', () => {
   assert.equal(loaded.body.secret, undefined);
 });
 
-test('Spotify rooms hide the title, accept readiness, and allow a lobby host transfer', () => {
-  const song = { id: 'spotify:1234567890123456789012', title: '怪獣の花唄', artist: 'Vaundy',
+test('Apple Music rooms hide the title, accept readiness, and allow a lobby host transfer', () => {
+  const song = { id: 'applemusic:1000000004', title: '怪獣の花唄', artist: 'Vaundy',
     previewURL: null, durationMS: 220000, genre: 'Pop' };
-  const host = handle('POST', '/rooms', { playerId: 'spHost', name: 'Host', mode: 'spotify', songs: [song], settings: { questionCount: 1 } }, new URLSearchParams()).body;
-  assert.equal(host.mode, 'spotify');
+  const host = handle('POST', '/rooms', { playerId: 'spHost', name: 'Host', mode: 'applemusic', songs: [song], settings: { questionCount: 1 } }, new URLSearchParams()).body;
+  assert.equal(host.mode, 'applemusic');
   assert.equal(host.current, null);
   const guest = handle('POST', `/rooms/${host.id}/join`, { playerId: 'spGuest', name: 'Guest' }, new URLSearchParams()).body;
   const call = (action, playerId, token, extra = {}) => handle('POST', `/rooms/${host.id}/${action}`,
@@ -890,9 +898,9 @@ test('first room letter prefers the current artist top songs', () => {
   let now = realNow();
   Date.now = () => now;
   try {
-    const song = { id: 'spotify:ABCDEFGHIJKLMNOPQRSTUV', title: '花火', artist: 'Artist',
+    const song = { id: 'applemusic:1000000005', title: '花火', artist: 'Artist',
       artistTopTitles: ['青空', '新時代', '夜に駆ける', '花火'] };
-    const created = handle('POST', '/rooms', { playerId: 'topHost', name: 'Host', mode: 'spotify',
+    const created = handle('POST', '/rooms', { playerId: 'topHost', name: 'Host', mode: 'applemusic',
       songs: [song], settings: { questionCount: 1 } }, new URLSearchParams()).body;
     const post = action => handle('POST', `/rooms/${created.id}/${action}`, { playerId: 'topHost' },
       new URLSearchParams(), `Bearer ${created.sessionToken}`).body;
