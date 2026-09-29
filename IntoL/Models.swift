@@ -29,7 +29,7 @@ enum TitleRules {
 
     static func normalized(_ title: String) -> String {
         let mapped = title.precomposedStringWithCompatibilityMapping
-        let value = mapped.replacingOccurrences(of: #"(?i)((?<![A-Za-z])-|-(?![A-Za-z])|\(|(?<![A-Za-z])feat(?![A-Za-z])).*$"#, with: "", options: .regularExpression).uppercased()
+        let value = mapped.replacingOccurrences(of: #"(?i)((?<![A-Za-z])-|-(?![A-Za-z])|\(|~|〜|(?<![A-Za-z])feat(?![A-Za-z])).*$"#, with: "", options: .regularExpression).uppercased()
         return String(value.unicodeScalars.filter { scalar in
             let code = scalar.value
             return code == 0x2D || (code >= 0x30 && code <= 0x39) || (code >= 0x41 && code <= 0x5A)

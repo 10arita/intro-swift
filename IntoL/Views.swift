@@ -1191,7 +1191,7 @@ private struct ResultSummary: View {
                 HStack {
                     stat("正解", "\(result.correct) / \(result.total)")
                     Spacer()
-                    stat("平均 PUSH", String(format: "%.1f秒", result.averagePush))
+                    stat("平均 PUSH", String(format: "%.3f秒", result.averagePush))
                 }
             }
             Text(result.playlist).font(.subheadline).foregroundStyle(Studio.secondary)
@@ -1706,7 +1706,7 @@ struct AccountView: View {
                                 }
                             }
                             if model.stats.attempts > 0 {
-                                Text(String(format: "平均 PUSH %.1f秒 ・ 解答 %d回", model.stats.averagePush, model.stats.attempts))
+                                Text(String(format: "平均 PUSH %.3f秒 ・ 解答 %d回", model.stats.averagePush, model.stats.attempts))
                                     .font(.caption)
                                     .foregroundStyle(Studio.secondary)
                             }
@@ -2576,7 +2576,7 @@ struct RoomGameView: View {
 
     private func pushTime(_ player: RoomPlayer) -> String {
         guard let milliseconds = player.pushTimeMS else { return "—" }
-        return String(format: "%.2f秒", milliseconds / 1000)
+        return String(format: "%.3f秒", milliseconds / 1000)
     }
 
 }

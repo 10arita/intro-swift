@@ -11,6 +11,9 @@ test('title normalization and distractor priorities', () => {
   assert.equal(normalize('青い空♪- Live Version'), '青い空');
   assert.equal(normalize('青い空（Live）'), '青い空');
   assert.equal(normalize('青い空 feat. 歌手'), '青い空');
+  assert.equal(normalize('青い空~Live'), '青い空');
+  assert.equal(normalize('青い空〜Live'), '青い空');
+  assert.equal(normalize('青い空～Live'), '青い空');
   assert.equal(normalize('Defeat'), 'DEFEAT');
   assert.equal(normalize('スーパー・スター☆'), 'スーパースター');
   assert.equal(normalize('ﾏｰ'), 'マー');
@@ -72,6 +75,42 @@ test('a long vowel mark is required in the answer', () => {
   } finally {
     Date.now = originalNow;
   }
+});
+
+test('answers finish before tilde suffixes while revealing the full title', () => {
+  const originalNow = Date.now;
+  let now = originalNow();
+  Date.now = () => now;
+  try {
+    for (const [index, separator] of ['~', '〜', '～'].entries()) {
+      const title = `青い空${separator}Live`;
+      const playerId = `tilde-host-${index}`;
+      const created = handle('POST', '/rooms', {
+        playerId, name: 'Host', mode: 'applemusic',
+        songs: [{ id: `applemusic:100000001${index}`, title, artist: 'Artist' }],
+        settings: { questionCount: 1 }
+      }, new URLSearchParams());
+      assert.equal(created.status, 201);
+      const path = `/rooms/${created.body.id}`;
+      const auth = `Bearer ${created.body.sessionToken}`;
+      const send = (action, payload = {}) => handle('POST', `${path}/${action}`,
+        { playerId, ...payload }, new URLSearchParams(), auth);
+      send('assets-ready');
+      send('start');
+      send('ready');
+      now += 5100;
+      assert.equal(send('push').status, 200);
+      for (const choice of '青い空') {
+        const result = send('choose', { choice });
+        assert.equal(result.status, 200);
+        if (choice === '空') {
+          assert.equal(result.body.phase, 'reveal');
+          assert.equal(result.body.current.title, title);
+          assert.equal(result.body.players[0].currentResult, 'correct');
+        }
+      }
+    }
+  } finally { Date.now = originalNow; }
 });
 
 test('a hyphen within an English song title is required in the answer', () => {
