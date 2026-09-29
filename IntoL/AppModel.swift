@@ -272,9 +272,11 @@ struct SoloGame {
         rooms.baseURL = serverURL
         do {
             var matches: [Song] = []
-            for song in appleMusicSongs.shuffled() {
+            var seen = Set<String>()
+            for song in uniqueSongs(appleMusicSongs).shuffled() {
                 if let match = try await rooms.matchItunes(song), match.playablePreview,
-                   !TitleRules.characters(match.title).isEmpty { matches.append(match) }
+                   !TitleRules.characters(match.title).isEmpty,
+                   seen.insert(match.id).inserted { matches.append(match) }
                 if matches.count == 10 { break }
             }
             guard !matches.isEmpty else { alert = "iTunes に一致する試聴曲がありません"; return }
@@ -283,9 +285,10 @@ struct SoloGame {
     }
 
     private func launchSolo(songs source: [Song], playlist: String) async throws {
-        let limit = min(10, source.count)
+        let candidates = uniqueSongs(source)
+        let limit = min(10, candidates.count)
         preparationStatus = "選択肢を準備中"
-        let songs = await withArtistTopTitles(Array(source.shuffled().prefix(limit)))
+        let songs = await withArtistTopTitles(Array(candidates.shuffled().prefix(limit)))
         preparationStatus = "画像と音源を準備中 0 / \(songs.count)"
         try await GameAssets.shared.prepare(songs.map(GameAsset.init(song:))) { [weak self] ready, total in
             self?.preparationStatus = "画像と音源を準備中 \(ready) / \(total)"
@@ -682,6 +685,11 @@ struct SoloGame {
         return result
     }
 
+    private func uniqueSongs(_ songs: [Song]) -> [Song] {
+        var seen = Set<String>()
+        return songs.filter { seen.insert($0.id).inserted }
+    }
+
     func createRoom() async {
         guard !busy else { return }
         busy = true; defer { busy = false; preparationStatus = nil }
@@ -696,12 +704,13 @@ struct SoloGame {
                     throw AppError.message("Apple Music 対戦にはアクセス許可とサブスクリプションが必要です")
                 }
                 guard !appleMusicSongs.isEmpty else { throw AppError.message("先に Apple Music のプレイリストを選んでください") }
-                guard appleMusicSongs.count >= roomSettings.questionCount else {
+                let candidates = uniqueSongs(appleMusicSongs)
+                guard candidates.count >= roomSettings.questionCount else {
                     throw AppError.message("プレイリストの曲数が問題数より少なくなっています")
                 }
                 preparationStatus = "Apple Music の曲を照合中 0 / \(roomSettings.questionCount)"
                 var catalogIDs = Set<String>()
-                for candidate in appleMusicSongs.shuffled() {
+                for candidate in candidates.shuffled() {
                     for song in await appleMusic.catalogSongs(for: [candidate]) where catalogIDs.insert(song.id).inserted {
                         songs.append(song)
                     }
@@ -714,9 +723,11 @@ struct SoloGame {
                 corpus = appleMusicSongs.map(\.title)
             } else if roomMode == "sabitro" {
                 guard !appleMusicSongs.isEmpty else { throw AppError.message("先に Apple Music のプレイリストを選んでください") }
-                for song in appleMusicSongs.shuffled() {
+                var seen = Set<String>()
+                for song in uniqueSongs(appleMusicSongs).shuffled() {
                     if let match = try await rooms.matchItunes(song), match.playablePreview,
-                       !TitleRules.characters(match.title).isEmpty { songs.append(match) }
+                       !TitleRules.characters(match.title).isEmpty,
+                       seen.insert(match.id).inserted { songs.append(match) }
                     if songs.count == roomSettings.questionCount { break }
                 }
                 guard songs.count == roomSettings.questionCount else {
@@ -753,7 +764,7 @@ struct SoloGame {
                 var fresh: [Song] = []
                 var used: [Song] = []
                 var seen = Set<String>()
-                for candidate in appleMusicSongs.shuffled() {
+                for candidate in uniqueSongs(appleMusicSongs).shuffled() {
                     let matches: [Song]
                     if current.mode == "applemusic" {
                         matches = await appleMusic.catalogSongs(for: [candidate])

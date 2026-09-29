@@ -88,6 +88,9 @@ function shuffled(array) {
   }
   return copy;
 }
+function uniqueSongs(songs) {
+  return [...new Map(songs.map(song => [song.id, song])).values()];
+}
 export function choices(answer, prefix, titles, artistTopTitles = [], currentTitle = '') {
   const type = kind(answer);
   const distractors = [];
@@ -511,8 +514,8 @@ export function handle(method, path, body, query, authorization, origin = 'https
     const supplied = suppliedSongs(body.songs, mode);
     const suppliedTopTitles = new Map((Array.isArray(body.songs) ? body.songs : [])
       .filter(song => song && typeof song.id === 'string').map(song => [song.id, artistTopTitles(song.artistTopTitles)]));
-    const songs = mode === 'shared' ? catalogSongs(origin).map(song => ({ ...song,
-      artistTopTitles: suppliedTopTitles.get(song.id) || [] })) : supplied;
+    const songs = uniqueSongs(mode === 'shared' ? catalogSongs(origin).map(song => ({ ...song,
+      artistTopTitles: suppliedTopTitles.get(song.id) || [] })) : supplied);
     if (!songs.length) return fail(400, '再生できる曲がありません');
     if (!/^[A-Za-z0-9-]{1,64}$/.test(String(body.playerId || '')) || !String(body.name || '').trim()) return fail(400, 'プレイヤー情報が必要です');
     let id; do { id = Array.from({length: 6}, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ'[randomInt(24)]).join(''); } while (rooms.has(id));
@@ -681,7 +684,7 @@ export function handle(method, path, body, query, authorization, origin = 'https
     if (room.hostId !== playerId || room.phase !== 'finished') return fail(403, 'ホストのみ再プレイできます');
     const oldIDs = new Set(room.songs.map(song => song.id));
     const candidates = room.mode === 'shared' ? catalogSongs(origin) : suppliedSongs(body.songs, room.mode);
-    const unique = [...new Map(candidates.map(song => [song.id, song])).values()];
+    const unique = uniqueSongs(candidates);
     const fresh = shuffled(unique.filter(song => !oldIDs.has(song.id)));
     if (!fresh.length) return fail(409, '新しい問題を用意できません。曲数を増やしてからお試しください');
     const nextSongs = [...fresh, ...shuffled(unique.filter(song => oldIDs.has(song.id)))].slice(0, room.settings.questionCount);

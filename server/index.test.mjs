@@ -910,6 +910,22 @@ test('rematch keeps the room and players while replacing questions and resetting
   } finally { Date.now = realNow; }
 });
 
+test('playlist questions use unique song IDs before random selection', () => {
+  const songs = [1000000301, 1000000301, 1000000302, 1000000303].map(id => ({
+    id: `applemusic:${id}`, title: '花火', artist: 'Artist' }));
+  const query = new URLSearchParams();
+  const insufficient = handle('POST', '/rooms', { playerId: 'unique-insufficient', name: 'Host',
+    mode: 'applemusic', songs: songs.slice(0, 3), settings: { questionCount: 3 } }, query);
+  assert.equal(insufficient.status, 400);
+
+  const created = handle('POST', '/rooms', { playerId: 'unique-playlist-host', name: 'Host',
+    mode: 'applemusic', songs, settings: { questionCount: 3 } }, query);
+  assert.equal(created.status, 201);
+  assert.equal(created.body.preload.length, 3);
+  assert.deepEqual(new Set(created.body.preload.map(song => song.id)),
+    new Set(['applemusic:1000000301', 'applemusic:1000000302', 'applemusic:1000000303']));
+});
+
 test('endless relay resumes when the answering player leaves', () => {
   const realNow = Date.now;
   let now = realNow();
