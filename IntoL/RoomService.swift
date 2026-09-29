@@ -121,6 +121,7 @@ struct RoomActiveAnswer: Decodable, Identifiable {
 struct RoomState: Decodable, Identifiable {
     let id: String
     let sequence: Int?
+    let gameNumber: Int?
     let mode: String
     let hostId: String
     let phase: String
@@ -146,6 +147,7 @@ struct RoomState: Decodable, Identifiable {
     let readyIds: [String]
     let assetsReadyIds: [String]?
     let preload: [GameAsset]?
+    let playedSongIDs: [String]?
     let correctPlayerID: String?
     let correctPlayerIDs: [String]
     let current: RoomCurrent?

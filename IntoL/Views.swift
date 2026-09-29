@@ -1887,6 +1887,17 @@ struct RoomGameView: View {
                                 Text("ゲームセット")
                                     .font(.system(size: 36, weight: .bold, design: .rounded))
                                     .foregroundStyle(Studio.primary)
+                                PrimaryButton(title: "もう一度遊ぶ", symbol: "arrow.clockwise",
+                                              disabled: room.hostId != model.rooms.playerId || model.roomRematchPending) {
+                                    Task { await model.rematchRoom() }
+                                }
+                                if model.roomRematchPending {
+                                    ProgressView("新しい問題を準備中")
+                                        .tint(Studio.accent)
+                                } else if room.hostId != model.rooms.playerId {
+                                    Text("ホストが再プレイを選ぶと同じルームで待機画面に戻ります")
+                                        .font(.subheadline).foregroundStyle(Studio.secondary)
+                                }
                                 PrimaryButton(title: "ホームへ戻る", symbol: "house") {
                                     Task { await model.leaveRoom() }
                                 }
@@ -2158,20 +2169,23 @@ struct RoomGameView: View {
             if $0.lives != $1.lives { return $0.lives > $1.lives }
             return $0.id < $1.id
         }
-        let players = pushOrder.isEmpty ? scoreOrder :
+        let players = room.phase == "finished" ? finalRankOrder :
+            pushOrder.isEmpty ? scoreOrder :
             pushOrder.compactMap { room.player($0) } + scoreOrder.filter { !pushOrder.contains($0.id) }
         return HStack(alignment: .top, spacing: 5) {
             ForEach(players) { player in
                 let isAnswering = room.isAnswering(player.id)
                 let isPending = player.id == model.rooms.playerId && model.roomPushPending
                 let pushRank = pushOrder.firstIndex(of: player.id)
+                let isQueued = room.settings.endless && room.phase == "answering" &&
+                    pushRank != nil && !room.pushedIds.contains(player.id)
                 let finalRank = finalRankOrder.firstIndex { $0.id == player.id }.map { $0 + 1 } ?? 0
                 let rankLabel = room.phase == "finished" ? "\(finalRank)位" :
                     pushRank.map { pushRankLabel($0) } ?? (isPending ? "判定中" : "—")
-                let rankColor = room.phase == "finished" || isPending ? Studio.accent :
+                let rankColor = room.phase == "finished" ? finalRankColor(finalRank) : isPending ? Studio.accent :
                     pushRank.map { pushRankColor($0) } ?? Studio.raised
-                let rankTextColor = room.phase != "finished" && (pushRank == 0 || pushRank == 1) ? Studio.primary :
-                    pushRank != nil || isPending || room.phase == "finished" ? .white : Studio.secondary
+                let rankTextColor = room.phase == "finished" || pushRank == 0 || pushRank == 1 ? Studio.primary :
+                    pushRank != nil || isPending ? .white : Studio.secondary
                 let localAvatar = player.id == model.rooms.playerId ? model.avatarData : nil
                 VStack(spacing: 4) {
                     Text(rankLabel)
@@ -2236,8 +2250,8 @@ struct RoomGameView: View {
                     Text(room.settings.lives == 0 ? "♡×∞" : "♡×\(player.lives)")
                         .foregroundStyle(player.disqualified ? Studio.warning : Studio.secondary)
                         .accessibilityLabel(room.settings.lives == 0 ? "ライフ無制限" : "ライフ \(player.lives)")
-                    Text(isAnswering ? "解答中" : isPending ? "PUSH判定中" : "PUSH")
-                        .foregroundStyle(isAnswering || isPending ? Studio.accent : Studio.secondary)
+                    Text(isAnswering ? "解答中" : isPending ? "PUSH判定中" : isQueued ? "解答待ち" : "PUSH")
+                        .foregroundStyle(isAnswering || isPending || isQueued ? Studio.accent : Studio.secondary)
                     Text(pushTime(player))
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .lineLimit(1)
@@ -2284,6 +2298,15 @@ struct RoomGameView: View {
         case 0: return Color(red: 0.86, green: 0.74, blue: 0.45)
         case 1: return Color(red: 0.77, green: 0.79, blue: 0.82)
         default: return Studio.accent
+        }
+    }
+
+    private func finalRankColor(_ rank: Int) -> Color {
+        switch rank {
+        case 1: return Color(red: 0.96, green: 0.87, blue: 0.66)
+        case 2: return Color(red: 0.87, green: 0.89, blue: 0.92)
+        case 3: return Color(red: 0.91, green: 0.78, blue: 0.69)
+        default: return Studio.raised
         }
     }
 

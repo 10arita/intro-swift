@@ -65,6 +65,7 @@ struct SoloGame {
     @Published private(set) var locallyInvitedFriendIDs: Set<String> = []
     @Published var roomPushPending = false
     @Published var roomChoicePending = false
+    @Published var roomRematchPending = false
     @Published var roomPreparationStatus: String?
     @Published var roomAudioStarting = false
     @Published private(set) var roomAudioStarted = false
@@ -736,6 +737,53 @@ struct SoloGame {
         } catch { alert = error.localizedDescription }
     }
 
+    func rematchRoom() async {
+        guard let current = room, current.phase == "finished",
+              current.hostId == rooms.playerId, !roomRematchPending else { return }
+        roomRematchPending = true
+        defer { roomRematchPending = false }
+        do {
+            let previous = Set(current.playedSongIDs ?? [])
+            var songs: [Song] = []
+            var corpus: [String] = []
+            if current.mode != "shared" {
+                guard !appleMusicSongs.isEmpty else {
+                    throw AppError.message("新しい問題を用意するため、プレイリストを選び直してください")
+                }
+                var fresh: [Song] = []
+                var used: [Song] = []
+                var seen = Set<String>()
+                for candidate in appleMusicSongs.shuffled() {
+                    let matches: [Song]
+                    if current.mode == "applemusic" {
+                        matches = await appleMusic.catalogSongs(for: [candidate])
+                    } else if let match = try await rooms.matchItunes(candidate), match.playablePreview,
+                              !TitleRules.characters(match.title).isEmpty {
+                        matches = [match]
+                    } else { matches = [] }
+                    for song in matches where seen.insert(song.id).inserted {
+                        if previous.contains(song.id) { used.append(song) }
+                        else { fresh.append(song) }
+                    }
+                    if fresh.count >= current.settings.questionCount { break }
+                }
+                songs = Array((fresh + used).prefix(current.settings.questionCount))
+                guard !fresh.isEmpty, songs.count == current.settings.questionCount else {
+                    throw AppError.message("新しい問題を用意できません。曲数を増やしてからお試しください")
+                }
+                songs = await withArtistTopTitles(songs)
+                corpus = appleMusicSongs.map(\.title)
+            }
+            let songData = try JSONEncoder().encode(songs)
+            let songList = try JSONSerialization.jsonObject(with: songData)
+            guard room?.id == current.id, room?.phase == "finished" else { return }
+            receiveNetworkRoom(try await rooms.action("rematch", id: current.id,
+                payload: ["songs": songList, "corpus": corpus]))
+        } catch {
+            showRoomNotice(error.localizedDescription)
+        }
+    }
+
     func joinRoom(_ code: String) async {
         guard !busy else { return }
         busy = true; defer { busy = false }
@@ -923,6 +971,13 @@ struct SoloGame {
 
     private func receiveRoom(_ state: RoomState) {
         let old = room
+        if old?.id == state.id, old?.gameNumber != state.gameNumber {
+            preloadedRoomID = nil
+            preparedRoomRound = nil
+            roomPreloadTask?.cancel()
+            roomPreparationStatus = nil
+            roomError = nil
+        }
         if state.phase == "countdown" &&
             (old?.id != state.id || old?.round != state.round || old?.phase != "countdown") {
             sound.play(.question)
@@ -942,6 +997,9 @@ struct SoloGame {
         }
         room = state
         if old?.round != state.round { roomNotice = nil }
+        if old?.isAnswering(rooms.playerId) != true && state.isAnswering(rooms.playerId) {
+            roomNotice = nil
+        }
         if state.phase == "lobby", preloadedRoomID != state.id,
            !(state.assetsReadyIds ?? []).contains(rooms.playerId) {
             preloadedRoomID = state.id
@@ -971,7 +1029,7 @@ struct SoloGame {
                 }
             }
         }
-        let key = "\(state.id):\(state.round)"
+        let key = "\(state.id):\(state.gameNumber ?? 0):\(state.round)"
         if state.round >= 0 && state.pushedIds.contains(rooms.playerId) && !recordedRoomAttempts.contains(key) {
             recordedRoomAttempts.insert(key)
             stats.attempts += 1
@@ -990,8 +1048,9 @@ struct SoloGame {
         }
         if state.phase == "finished" {
             var finished = Set(UserDefaults.standard.stringArray(forKey: "finishedRoomIDs") ?? [])
-            if !finished.contains(state.id) {
-                finished.insert(state.id)
+            let gameKey = "\(state.id):\(state.gameNumber ?? 0)"
+            if !finished.contains(gameKey) {
+                finished.insert(gameKey)
                 UserDefaults.standard.set(Array(finished.suffix(100)), forKey: "finishedRoomIDs")
                 stats.games += 1
                 stats.awardBadges()
@@ -1186,7 +1245,13 @@ struct SoloGame {
             if action == "push", let failure = error as? RoomHTTPError, failure.status == 409 {
                 if let state = failure.state { receiveNetworkRoom(state) }
                 else if let state = try? await rooms.state(roomID), self.roomID == roomID { receiveNetworkRoom(state) }
-                showRoomNotice(failure.message.contains("ハンデ") ? failure.message : "解答権は取れませんでした。ルームには残っています")
+                if room?.isAnswering(rooms.playerId) == true { return }
+                let queued = room?.settings.endless == true &&
+                    (room?.pushOrderIds ?? []).contains(rooms.playerId) &&
+                    room?.pushedIds.contains(rooms.playerId) == false
+                showRoomNotice(failure.message.contains("ハンデ") ? failure.message :
+                    queued ? "PUSHを記録しました。前の人が誤答すると解答できます" :
+                    "解答権は取れませんでした。ルームには残っています")
             } else if action == "choose", RoomService.isConnectionError(error) {
                 if let state = try? await rooms.state(roomID), self.roomID == roomID {
                     receiveNetworkRoom(state)

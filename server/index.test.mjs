@@ -805,7 +805,7 @@ test('normal mode lets active answers finish after the 30-second PUSH deadline',
   } finally { Date.now = realNow; }
 });
 
-test('endless mode freezes the round clock and resumes from each paused position', () => {
+test('endless mode passes queued PUSHes in order before resuming the round clock', () => {
   const realNow = Date.now;
   let now = realNow();
   Date.now = () => now;
@@ -814,27 +814,99 @@ test('endless mode freezes the round clock and resumes from each paused position
     now += 6000;
     const first = action('push', 'relayA').body;
     assert.equal(first.pausedPositionMS, 1000);
+    now += 200;
     assert.equal(action('push', 'relayB').status, 409);
+    assert.equal(state('relayB').players.find(p => p.id === 'relayB').pushTimeMS, 1000);
     action('choose', 'relayA', { choice: '花' });
     assert.equal(state('relayC').activeAnswers[0].progress, '花');
     now += 4000;
     action('choose', 'relayA', { choice: 'X' });
-    const resumed = state('relayC');
+    const passed = state('relayB');
+    assert.equal(passed.phase, 'answering');
+    assert.equal(passed.answerStatus, 'active');
+    assert.equal(passed.pausedPositionMS, 1000);
+    assert.equal(passed.startAt, first.startAt);
+    assert.deepEqual(passed.pushedIds, ['relayA', 'relayB']);
+    now += 5000;
+    const resumed = state('relayA');
     assert.equal(resumed.phase, 'listening');
     assert.equal(resumed.pausedAt, null);
-    assert.equal(resumed.startAt, first.startAt + 4000);
-    assert.equal(resumed.roundDeadline, first.roundDeadline + 4000);
-    now += 2000;
-    const second = action('push', 'relayB').body;
-    assert.equal(second.pausedPositionMS, 3000);
-    assert.equal(state('relayA').activeAnswers[0].progress, '');
-    now += 5000;
-    assert.equal(state('relayA').phase, 'listening');
-    assert.equal(state('relayA').roundDeadline, second.roundDeadline + 5000);
+    assert.equal(resumed.startAt, first.startAt + 9200);
+    assert.equal(resumed.roundDeadline, first.roundDeadline + 9200);
     assert.equal(action('push', 'relayB').status, 409);
     assert.equal(action('push', 'relayC').status, 200);
     action('choose', 'relayC', { choice: 'X' });
     assert.equal(state('relayA').phase, 'reveal');
+  } finally { Date.now = realNow; }
+});
+
+test('endless mode passes a second queued PUSH after the first queued player is wrong', () => {
+  const realNow = Date.now;
+  let now = realNow();
+  Date.now = () => now;
+  try {
+    const { action, state } = startedThreePlayerRoom(true);
+    now += 6000;
+    assert.equal(action('push', 'relayA').status, 200);
+    now += 10;
+    assert.equal(action('push', 'relayB').status, 409);
+    now += 10;
+    assert.equal(action('push', 'relayC').status, 409);
+    assert.deepEqual(state('relayA').pushOrderIds, ['relayA', 'relayB', 'relayC']);
+    assert.equal(action('choose', 'relayA', { choice: 'X' }).body.phase, 'answering');
+    assert.equal(state('relayB').answerStatus, 'active');
+    assert.equal(action('choose', 'relayB', { choice: 'X' }).body.phase, 'answering');
+    assert.equal(state('relayC').answerStatus, 'active');
+    assert.equal(action('choose', 'relayC', { choice: '花' }).body.phase, 'answering');
+    const result = action('choose', 'relayC', { choice: '火' }).body;
+    assert.equal(result.phase, 'reveal');
+    assert.equal(result.correctPlayerID, 'relayC');
+    assert.equal(result.players.find(p => p.id === 'relayC').score, 20);
+  } finally { Date.now = realNow; }
+});
+
+test('rematch keeps the room and players while replacing questions and resetting scores', () => {
+  const realNow = Date.now;
+  let now = realNow();
+  Date.now = () => now;
+  try {
+    const songs = [1000000201, 1000000202].map(id => ({
+      id: `applemusic:${id}`, title: '花火', artist: 'Artist' }));
+    const host = handle('POST', '/rooms', { playerId: 'rematch-host', name: 'Host',
+      mode: 'applemusic', songs, settings: { questionCount: 1, targetScore: 0 } }, new URLSearchParams()).body;
+    const path = `/rooms/${host.id}`;
+    const guest = handle('POST', `${path}/join`, { playerId: 'rematch-guest', name: 'Guest' }, new URLSearchParams()).body;
+    const act = (id, action, payload = {}) => handle('POST', `${path}/${action}`,
+      { playerId: id, ...payload }, new URLSearchParams(),
+      `Bearer ${id === 'rematch-host' ? host.sessionToken : guest.sessionToken}`);
+    for (const id of ['rematch-host', 'rematch-guest']) act(id, 'assets-ready');
+    act('rematch-host', 'start');
+    for (const id of ['rematch-host', 'rematch-guest']) act(id, 'ready');
+    now += 6000;
+    act('rematch-host', 'push');
+    act('rematch-host', 'choose', { choice: '花' });
+    act('rematch-host', 'choose', { choice: '火' });
+    now += 30000;
+    const finished = act('rematch-host', 'next').body;
+    assert.equal(finished.phase, 'finished');
+    assert.equal(finished.players.find(p => p.id === 'rematch-host').score, 20);
+    const firstSongID = finished.playedSongIDs[0];
+    assert.equal(act('rematch-guest', 'rematch', { songs }).status, 403);
+    assert.equal(act('rematch-host', 'rematch', { songs: [songs.find(song => song.id === firstSongID)] }).status, 409);
+    const rematched = act('rematch-host', 'rematch', { songs }).body;
+    assert.equal(rematched.id, host.id);
+    assert.equal(rematched.phase, 'lobby');
+    assert.equal(rematched.round, -1);
+    assert.equal(rematched.gameNumber, 1);
+    assert.equal(rematched.preload.length, 1);
+    assert.notEqual(rematched.preload[0].id, firstSongID);
+    assert.deepEqual(rematched.players.map(p => [p.id, p.score, p.lives, p.roundResults]),
+      [['rematch-host', 0, 3, []], ['rematch-guest', 0, 3, []]]);
+    assert.deepEqual(rematched.assetsReadyIds, []);
+    assert.equal(act('rematch-host', 'start').status, 409);
+    assert.equal(act('rematch-guest', 'assets-ready').status, 200);
+    assert.equal(act('rematch-host', 'assets-ready').status, 200);
+    assert.equal(act('rematch-host', 'start').body.phase, 'preparing');
   } finally { Date.now = realNow; }
 });
 
