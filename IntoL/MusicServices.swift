@@ -225,6 +225,16 @@ private struct AppleMusicLibrarySongResponse: Decodable {
         return item
     }
 
+    func previewURL(for songID: String) async -> URL? {
+        let item: MusicKit.Song
+        if let cached = songsByID[songID] { item = cached }
+        else if let fetched = try? await catalogSong(for: songID) { item = fetched }
+        else { return nil }
+        if let url = item.previewAssets?.compactMap(\.url).first { return url }
+        guard let catalog = await catalogMatch(for: item) else { return nil }
+        return catalog.previewAssets?.compactMap(\.url).first
+    }
+
     func prepareCatalog(_ songIDs: [String]) async throws {
         guard isAuthorized, try await MusicSubscription.current.canPlayCatalogContent else {
             throw AppError.message("Apple Music のアクセス許可とサブスクリプションが必要です")

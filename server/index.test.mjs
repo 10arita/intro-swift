@@ -127,6 +127,27 @@ test('room friends require approval and invitations join without entering a code
   assert.equal(handle('GET', '/friends', {}, new URLSearchParams({ profileId: bob.id }), `Bearer ${charlie.token}`).status, 403);
   assert.equal(handle('POST', '/friends/accept', { profileId: bob.id,
     requestId: bobList.body.requests[0].id }, query, `Bearer ${bob.token}`).status, 200);
+  assert.equal(handle('PUT', '/profile', { id: bob.id,
+    stats: { games: 2, attempts: 8, correct: 5, privateNote: 'do not share' } },
+  query, `Bearer ${bob.token}`).status, 200);
+  const friendProfile = handle('GET', '/player-profile', {},
+    new URLSearchParams({ profileId: alice.id, friendId: bob.id }), `Bearer ${alice.token}`);
+  assert.equal(friendProfile.status, 200);
+  assert.equal(friendProfile.body.name, 'Bob');
+  assert.equal(friendProfile.body.secret, undefined);
+  assert.equal(friendProfile.body.stats.correct, 5);
+  assert.equal(friendProfile.body.stats.privateNote, undefined);
+  assert.equal(handle('GET', '/player-profile', {},
+    new URLSearchParams({ profileId: charlie.id, friendId: bob.id }), `Bearer ${charlie.token}`).status, 404);
+  const roomProfile = handle('GET', '/player-profile', {},
+    new URLSearchParams({ roomId: room.id, playerId: alice.id, targetPlayerId: bob.id }),
+    `Bearer ${room.sessionToken}`);
+  assert.equal(roomProfile.status, 200);
+  assert.equal(roomProfile.body.name, 'Bob');
+  assert.equal(roomProfile.body.roomScore, 0);
+  assert.equal(handle('GET', '/player-profile', {},
+    new URLSearchParams({ roomId: room.id, playerId: alice.id, targetPlayerId: bob.id }),
+    `Bearer ${charlie.token}`).status, 403);
   assert.equal(asAlice('invite', { targetProfileId: bob.id }).status, 409);
   assert.equal(asBob('leave').status, 200);
   assert.equal(asAlice('invite', { targetProfileId: bob.id }).status, 200);
@@ -149,6 +170,26 @@ test('room friends require approval and invitations join without entering a code
   assert.equal(handle('GET', '/friends', {}, new URLSearchParams({ profileId: bob.id }), `Bearer ${bob.token}`).body.invites.length, 0);
   assert.deepEqual(handle('GET', '/friends', {},
     new URLSearchParams({ profileId: alice.id }), `Bearer ${alice.token}`).body.sentInvites, []);
+});
+
+test('room player profile is available before a profile is linked', () => {
+  const query = new URLSearchParams();
+  const room = handle('POST', '/rooms', {
+    playerId: 'profile-view-host', name: 'Host', settings: { questionCount: 1 }
+  }, query).body;
+  const guest = handle('POST', `/rooms/${room.id}/join`, {
+    playerId: 'profile-view-guest', name: 'Guest'
+  }, query).body;
+  const result = handle('GET', '/player-profile', {}, new URLSearchParams({
+    roomId: room.id, playerId: 'profile-view-host', targetPlayerId: 'profile-view-guest'
+  }), `Bearer ${room.sessionToken}`);
+  assert.equal(result.status, 200);
+  assert.equal(result.body.name, 'Guest');
+  assert.equal(result.body.stats, null);
+  assert.equal(result.body.roomScore, 0);
+  assert.equal(handle('GET', '/player-profile', {}, new URLSearchParams({
+    roomId: room.id, playerId: 'profile-view-guest', targetPlayerId: 'profile-view-host'
+  }), `Bearer ${guest.sessionToken}`).status, 200);
 });
 
 test('catalog exposes only configured original audio', () => {

@@ -60,6 +60,7 @@ enum AppError: LocalizedError {
     func prepare(_ url: URL) async throws {
         let asset = AVURLAsset(url: GameAssets.shared.audioURL(for: url))
         guard try await asset.load(.isPlayable) else { throw AppError.message("音源を準備できません") }
+        try Task.checkCancellation()
         stop()
         if asset.url.isFileURL {
             let local = try AVAudioPlayer(contentsOf: asset.url)

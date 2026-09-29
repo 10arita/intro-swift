@@ -68,6 +68,24 @@ struct FriendsState: Decodable {
     let sentInvites: [SentRoomInvite]?
 }
 
+struct PlayerProfile: Decodable {
+    struct Stats: Decodable {
+        let games: Int?
+        let attempts: Int?
+        let correct: Int?
+        let selectedBadge: String?
+        let badges: [String]?
+    }
+
+    let name: String
+    let avatar: String?
+    let badge: String?
+    let stats: Stats?
+    let roomScore: Int?
+    let roomCorrect: Int?
+    let roomWrong: Int?
+}
+
 struct RoomCurrent: Decodable {
     let id: String
     let previewURL: URL?
@@ -152,7 +170,7 @@ struct RoomState: Decodable, Identifiable {
 private struct RoomCatalog: Decodable { let songs: [Song] }
 private struct ItunesMatch: Decodable { let song: Song? }
 private struct CorpusResponse: Decodable { let titles: [String] }
-private struct ChorusResponse: Decodable { let positionMS: Int }
+private struct ChorusResponse: Decodable { let positionMS: Int? }
 private struct SongleSearchEntry: Decodable {
     struct Artist: Decodable { let name: String }
     let title: String
@@ -453,8 +471,8 @@ struct SavedProfile: Decodable {
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { return [] }
         return try JSONDecoder().decode(CorpusResponse.self, from: data).titles
     }
-    func chorus(_ song: Song) async -> Int {
-        guard !song.id.hasPrefix("itunes:") else { return 0 }
+    func chorus(_ song: Song) async -> Int? {
+        guard !song.id.hasPrefix("itunes:") else { return nil }
         if let url = try? endpoint("chorus") {
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
@@ -467,7 +485,7 @@ struct SavedProfile: Decodable {
                 return decoded.positionMS
             }
         }
-        return await songleChorus(song) ?? fallbackChorus(song)
+        return await songleChorus(song)
     }
     private func songleChorus(_ song: Song) async -> Int? {
         var source = song.songleURL
@@ -514,7 +532,7 @@ struct SavedProfile: Decodable {
               (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
         return try? JSONDecoder().decode(Value.self, from: data)
     }
-    private func fallbackChorus(_ song: Song) -> Int {
+    func fallbackChorus(_ song: Song) -> Int {
         max(0, min(90_000, max(30_000, Int(Double(song.durationMS) * 0.32))) - 1500)
     }
     func action(_ action: String, id: String, payload: [String: Any] = [:]) async throws -> RoomState {
@@ -585,6 +603,33 @@ struct SavedProfile: Decodable {
 
     func friends() async throws -> FriendsState {
         try JSONDecoder().decode(FriendsState.self, from: await friendRequest("friends"))
+    }
+
+    func playerProfile(friendID: String) async throws -> PlayerProfile {
+        let credential = try await profileCredentials()
+        var url = try endpoint("player-profile")
+        url.append(queryItems: [URLQueryItem(name: "profileId", value: profileID),
+                                URLQueryItem(name: "friendId", value: friendID)])
+        return try await playerProfile(url: url, credential: credential)
+    }
+
+    func playerProfile(roomID: String, targetPlayerID: String) async throws -> PlayerProfile {
+        guard let token else { throw AppError.message("ルームのセッションを確認できません") }
+        var url = try endpoint("player-profile")
+        url.append(queryItems: [URLQueryItem(name: "roomId", value: roomID),
+                                URLQueryItem(name: "playerId", value: playerId),
+                                URLQueryItem(name: "targetPlayerId", value: targetPlayerID)])
+        return try await playerProfile(url: url, credential: token)
+    }
+
+    private func playerProfile(url: URL, credential: String) async throws -> PlayerProfile {
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(credential)", forHTTPHeaderField: "Authorization")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+            throw AppError.message("プレイヤーのプロフィールを取得できません")
+        }
+        return try JSONDecoder().decode(PlayerProfile.self, from: data)
     }
 
     func respondToFriendRequest(_ id: String, accept: Bool) async throws -> FriendsState {

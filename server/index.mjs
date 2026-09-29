@@ -193,6 +193,24 @@ function publicFriends(profile) {
       }).map(item => ({ roomId: item.roomId, targetId })))
   };
 }
+function publicProfile(profile, player = null) {
+  const stats = profile?.stats;
+  return {
+    name: player?.name || profile?.name || 'プレイヤー',
+    avatar: player?.avatar || profile?.avatar || null,
+    badge: player?.badge || profile?.stats?.selectedBadge || profile?.badge || null,
+    stats: stats && typeof stats === 'object' ? {
+      games: Number.isFinite(stats.games) ? stats.games : 0,
+      attempts: Number.isFinite(stats.attempts) ? stats.attempts : 0,
+      correct: Number.isFinite(stats.correct) ? stats.correct : 0,
+      selectedBadge: typeof stats.selectedBadge === 'string' ? stats.selectedBadge : null,
+      badges: Array.isArray(stats.badges) ? stats.badges.filter(badge => typeof badge === 'string') : []
+    } : null,
+    roomScore: player?.score ?? null,
+    roomCorrect: player?.correctCount ?? null,
+    roomWrong: player?.wrongCount ?? null
+  };
+}
 function addPlayer(room, body, profileId) {
   const player = { id: String(body.playerId), secret: randomUUID(), profileId,
     name: String(body.name || 'プレイヤー').trim().slice(0, 24),
@@ -200,7 +218,12 @@ function addPlayer(room, body, profileId) {
     correctCount: 0, wrongCount: 0, roundResults: [], lives: room.settings.lives,
     disqualified: false, joinedAt: Date.now(), lastSeen: Date.now() };
   room.players.push(player);
-  if (profileId) profiles.get(profileId).name = player.name;
+  if (profileId) {
+    const profile = profiles.get(profileId);
+    profile.name = player.name;
+    profile.avatar = player.avatar;
+    profile.badge = player.badge;
+  }
   return player;
 }
 function reveal(room) {
@@ -389,6 +412,23 @@ export function handle(method, path, body, query, authorization, origin = 'https
     const { secret, ...safe } = profile;
     return { status: 200, body: safe };
   }
+  if (method === 'GET' && path === '/player-profile') {
+    const room = rooms.get(query.get('roomId'));
+    if (room) {
+      const viewer = room.players.find(player => player.id === query.get('playerId'));
+      if (!viewer || viewer.secret !== authorization?.replace(/^Bearer /, '')) return fail(403, 'セッションを確認できません');
+      const target = room.players.find(player => player.id === query.get('targetPlayerId'));
+      return target ? { status: 200, body: publicProfile(profiles.get(target.profileId), target) }
+        : fail(404, 'プレイヤーが見つかりません');
+    }
+    const viewer = profileFrom(query.get('profileId'), authorization?.replace(/^Bearer /, ''));
+    if (!viewer) return fail(403, 'プロフィールを確認できません');
+    const target = profiles.get(query.get('friendId'));
+    if (!target || !(viewer.friends || []).includes(target.id) || !(target.friends || []).includes(viewer.id)) {
+      return fail(404, 'フレンドが見つかりません');
+    }
+    return { status: 200, body: publicProfile(target) };
+  }
   if (path === '/friends' && method === 'GET') {
     const profile = profileFrom(query.get('profileId'), authorization?.replace(/^Bearer /, ''));
     return profile ? { status: 200, body: publicFriends(profile) } : fail(403, 'プロフィールを確認できません');
@@ -458,7 +498,12 @@ export function handle(method, path, body, query, authorization, origin = 'https
       pausedAt: null, pausedPositionMS: null, pushClosed: false, audioStoppedAt: null,
       answers: [], correctPlayerID: null, correctPlayerIDs: [] };
     rooms.set(id, room);
-    if (room.players[0].profileId) profiles.get(room.players[0].profileId).name = room.players[0].name;
+    if (room.players[0].profileId) {
+      const profile = profiles.get(room.players[0].profileId);
+      profile.name = room.players[0].name;
+      profile.avatar = room.players[0].avatar;
+      profile.badge = room.players[0].badge;
+    }
     return { status: 201, body: { ...snapshot(room, String(body.playerId)), sessionToken: room.players[0].secret } };
   }
   const match = path.match(/^\/rooms\/([A-Z]{6})(?:\/(join|heartbeat|assets-ready|assets-unready|ready|start|push|choose|skip|next|leave|transfer|handicaps|bind-profile|friend-request|invite))?$/);
@@ -486,6 +531,8 @@ export function handle(method, path, body, query, authorization, origin = 'https
     if (!profile) return fail(403, 'プロフィールを確認できません');
     player.profileId = profile.id;
     profile.name = player.name;
+    profile.avatar = player.avatar;
+    profile.badge = player.badge;
   } else if (action === 'friend-request') {
     const sender = profiles.get(player.profileId);
     const targetPlayer = room.players.find(item => item.id === body.targetId);

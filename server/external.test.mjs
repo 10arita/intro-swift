@@ -68,3 +68,12 @@ test('Songle page URLs resolve to their original video', async () => {
     assert.equal(sourceURL, 'www.nicovideo.jp/watch/sm123');
   } finally { globalThis.fetch = original; }
 });
+
+test('missing Songle chorus stays missing so the client can try a preview', async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ chorusSegments: [] }), { status: 200 });
+  try {
+    assert.equal(await chorusPosition({ durationMS: 180000,
+      songleURL: 'https://www.youtube.com/watch?v=no-chorus' }), null);
+  } finally { globalThis.fetch = original; }
+});

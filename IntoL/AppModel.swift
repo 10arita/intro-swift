@@ -124,7 +124,7 @@ struct SoloGame {
     private var recordedRoomAttempts = Set<String>()
     private var recordedRoomGenres = Set<String>()
     private var chorusPositions: [String: Int] = [:]
-    private var chorusLookups: [String: Task<Int, Never>] = [:]
+    private var chorusLookups: [String: Task<Int?, Never>] = [:]
     private var revealAudioTask: Task<Void, Never>?
 
     init() {
@@ -626,21 +626,44 @@ struct SoloGame {
             } else {
                 guard self.game?.stage == .reveal, self.game?.current.id == song.id else { return }
             }
-            self.playAudio(song, offsetMS: position)
+            if let position {
+                self.playAudio(song, offsetMS: position)
+                return
+            }
+            if let preview = await self.appleMusic.previewURL(for: song.id), !Task.isCancelled {
+                do {
+                    try await self.player.prepare(preview)
+                    guard !Task.isCancelled, self.isRevealing(song) else { return }
+                    self.appleMusic.stop()
+                    self.appleMusicPlaying = false
+                    try self.player.startPrepared(preview)
+                    return
+                } catch {
+                    guard !Task.isCancelled, self.isRevealing(song) else { return }
+                    self.player.stop()
+                }
+            }
+            guard !Task.isCancelled, self.isRevealing(song) else { return }
+            self.playAudio(song, offsetMS: self.rooms.fallbackChorus(song))
         }
     }
 
-    private func chorusLookup(for song: Song) -> Task<Int, Never> {
+    private func isRevealing(_ song: Song) -> Bool {
+        if roomID != nil { return room?.phase == "reveal" && room?.current?.id == song.id }
+        return game?.stage == .reveal && game?.current.id == song.id
+    }
+
+    private func chorusLookup(for song: Song) -> Task<Int?, Never> {
         if let lookup = chorusLookups[song.id] { return lookup }
-        let lookup = Task { [weak self] in
-            guard let self else { return 0 }
+        let lookup: Task<Int?, Never> = Task { [weak self] in
+            guard let self else { return nil }
             self.rooms.baseURL = self.serverURL
             return await self.rooms.chorus(song)
         }
         chorusLookups[song.id] = lookup
         Task { [weak self] in
             let position = await lookup.value
-            self?.chorusPositions[song.id] = position
+            if let position { self?.chorusPositions[song.id] = position }
         }
         return lookup
     }

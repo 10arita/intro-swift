@@ -1236,10 +1236,124 @@ private struct ReviewSongRow: View {
     }
 }
 
+private struct PlayerProfileTarget: Identifiable {
+    let id: String
+    let name: String
+    let roomID: String?
+}
+
+private struct PlayerProfileSheet: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+    let target: PlayerProfileTarget
+    @State private var profile: PlayerProfile?
+    @State private var error: String?
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    if let profile {
+                        StudioCard {
+                            HStack(spacing: 14) {
+                                PlayerAvatarView(data: nil, size: 72, encoded: profile.avatar)
+                                VStack(alignment: .leading, spacing: 5) {
+                                    Text(profile.name)
+                                        .font(.title2.bold())
+                                        .foregroundStyle(Studio.primary)
+                                    if let badge = profile.badge, !badge.isEmpty {
+                                        Label(badge, systemImage: "medal.fill")
+                                            .font(.subheadline)
+                                            .foregroundStyle(Studio.accent)
+                                    }
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        if let score = profile.roomScore {
+                            StudioCard {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    SectionCaption(title: "このルーム")
+                                    HStack {
+                                        profileMetric("スコア", "\(score) pt")
+                                        profileMetric("正解", "\(profile.roomCorrect ?? 0) 曲")
+                                        profileMetric("誤答", "\(profile.roomWrong ?? 0) 曲")
+                                    }
+                                }
+                            }
+                        }
+                        if let stats = profile.stats {
+                            StudioCard {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    SectionCaption(title: "通算記録")
+                                    HStack {
+                                        profileMetric("完走", "\(stats.games ?? 0) 回")
+                                        profileMetric("正解", "\(stats.correct ?? 0) 曲")
+                                        let attempts = stats.attempts ?? 0
+                                        let accuracy = attempts == 0 ? 0 : 100 * (stats.correct ?? 0) / attempts
+                                        profileMetric("正答率", "\(accuracy)%")
+                                    }
+                                    if let badges = stats.badges, !badges.isEmpty {
+                                        Text("獲得称号: \(badges.sorted().joined(separator: " ・ "))")
+                                            .font(.caption)
+                                            .foregroundStyle(Studio.secondary)
+                                    }
+                                }
+                            }
+                        } else {
+                            Text("通算記録はまだありません")
+                                .font(.subheadline)
+                                .foregroundStyle(Studio.secondary)
+                        }
+                    } else if let error {
+                        StudioCard {
+                            Text(error).foregroundStyle(Studio.warning)
+                        }
+                    } else {
+                        ProgressView("プロフィールを読み込み中")
+                            .frame(maxWidth: .infinity, minHeight: 160)
+                    }
+                }
+                .padding(20)
+                .frame(maxWidth: 640)
+                .frame(maxWidth: .infinity)
+            }
+            .background(Studio.background)
+            .navigationTitle(target.name)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) { Button("閉じる") { dismiss() } }
+            }
+            .task {
+                do {
+                    if let roomID = target.roomID {
+                        profile = try await model.rooms.playerProfile(roomID: roomID, targetPlayerID: target.id)
+                    } else {
+                        profile = try await model.rooms.playerProfile(friendID: target.id)
+                    }
+                } catch {
+                    if !Task.isCancelled { self.error = error.localizedDescription }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private func profileMetric(_ title: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title).font(.caption).foregroundStyle(Studio.secondary)
+            Text(value).font(.subheadline.bold()).foregroundStyle(Studio.primary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 struct FriendsView: View {
     @EnvironmentObject private var model: AppModel
     var inRoom = false
     var onClose: (() -> Void)? = nil
+    @State private var selectedProfile: PlayerProfileTarget?
 
     var body: some View {
         NavigationStack {
@@ -1329,7 +1443,15 @@ struct FriendsView: View {
                                     HStack(spacing: 8) {
                                         Image(systemName: "person.crop.circle")
                                             .foregroundStyle(Studio.accent)
-                                        Text(friend.name).font(.subheadline.bold())
+                                        Button {
+                                            selectedProfile = PlayerProfileTarget(id: friend.id, name: friend.name, roomID: nil)
+                                        } label: {
+                                            Text(friend.name)
+                                                .font(.subheadline.bold())
+                                                .foregroundStyle(Studio.primary)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .accessibilityLabel("\(friend.name)のプロフィールを見る")
                                         Spacer()
                                         if model.room?.phase == "lobby" {
                                             if model.room?.players.contains(where: { $0.friendProfileId == friend.id }) == true {
@@ -1372,6 +1494,9 @@ struct FriendsView: View {
                     if Task.isCancelled { break }
                     await model.refreshFriends(reportErrors: false)
                 }
+            }
+            .sheet(item: $selectedProfile) { target in
+                PlayerProfileSheet(target: target).environmentObject(model)
             }
         }
     }
@@ -1638,6 +1763,7 @@ struct RoomGameView: View {
     @State private var showVolumeSettings = false
     @State private var showFriends = false
     @State private var showHandicapSettings = false
+    @State private var selectedProfile: PlayerProfileTarget?
 
     var body: some View {
         ZStack {
@@ -1801,6 +1927,9 @@ struct RoomGameView: View {
         .sheet(isPresented: $showHandicapSettings) {
             RoomHandicapSettingsView()
                 .environmentObject(model)
+        }
+        .sheet(item: $selectedProfile) { target in
+            PlayerProfileSheet(target: target).environmentObject(model)
         }
     }
 
@@ -2053,6 +2182,20 @@ struct RoomGameView: View {
                         .frame(maxWidth: .infinity, minHeight: 26)
                         .background(rankColor, in: RoundedRectangle(cornerRadius: 7))
                     HStack(spacing: 2) {
+                        Button {
+                            selectedProfile = PlayerProfileTarget(id: player.id, name: player.name, roomID: room.id)
+                        } label: {
+                            HStack(spacing: 3) {
+                                PlayerAvatarView(data: localAvatar, size: 18, encoded: player.avatar)
+                                Text(player.name)
+                                    .font(.caption.weight(.bold))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.65)
+                                    .foregroundStyle(Studio.primary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(player.name)のプロフィールを見る")
                         Menu {
                             Text(player.badge ?? "称号未設定")
                             if player.friendStatus == "available" {
@@ -2067,15 +2210,11 @@ struct RoomGameView: View {
                                 Text("フレンド")
                             }
                         } label: {
-                            HStack(spacing: 3) {
-                                PlayerAvatarView(data: localAvatar, size: 18, encoded: player.avatar)
-                                Text(player.name)
-                                    .font(.caption.weight(.bold))
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.65)
-                                    .foregroundStyle(Studio.primary)
-                            }
+                            Image(systemName: "ellipsis.circle")
+                                .font(.system(size: 12))
+                                .foregroundStyle(Studio.secondary)
                         }
+                        .accessibilityLabel("\(player.name)の操作")
                         if player.isHost {
                             Image(systemName: "crown.fill")
                                 .font(.system(size: 9))

@@ -62,21 +62,21 @@ export async function chorusPosition(song) {
       const distance = entry => Math.abs((Number(entry.duration) || duration) - duration);
       const matched = Number.isFinite(duration) && duration > 0 ? matches.sort((a, b) => distance(a) - distance(b))[0] : matches[0];
       song = { ...song, songleURL: matched?.permalink || matched?.source?.url || matched?.url || null };
-    } catch { /* Search failures use the estimate. */ }
+    } catch { /* The client chooses an audio fallback. */ }
   }
-  if (!song?.songleURL) return fallbackChorus(song?.durationMS);
+  if (!song?.songleURL) return null;
   let source;
   try {
     const raw = String(song.songleURL);
     source = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
     if (source.hostname === 'songle.jp' || source.hostname === 'www.songle.jp') {
       const encodedSource = source.pathname.match(/^\/songs\/(.+)$/)?.[1];
-      if (!encodedSource) return fallbackChorus(song.durationMS);
+      if (!encodedSource) return null;
       source = new URL(`https://${decodeURIComponent(encodedSource)}`);
     }
-  } catch { return fallbackChorus(song.durationMS); }
+  } catch { return null; }
   if (!['http:', 'https:'].includes(source.protocol) || !['www.youtube.com', 'youtube.com', 'youtu.be', 'www.nicovideo.jp', 'www.niconico.jp'].includes(source.hostname)) {
-    return fallbackChorus(song.durationMS);
+    return null;
   }
   const url = new URL('https://widget.songle.jp/api/v1/song/chorus.json');
   url.searchParams.set('url', `${source.host}${source.pathname}${source.search}`);
@@ -84,6 +84,6 @@ export async function chorusPosition(song) {
     const data = await json(url, 24 * 60 * 60_000);
     const start = data.chorusSegments?.find(s => s.isChorus)?.repeats?.[0]?.start;
     if (Number.isFinite(start)) return Math.max(0, Math.min(Math.max(0, Number(song.durationMS || 180_000) - 5000), Math.round(start - 1500)));
-  } catch { /* Unregistered songs use the documented estimate. */ }
-  return fallbackChorus(song.durationMS);
+  } catch { /* The client chooses an audio fallback. */ }
+  return null;
 }
