@@ -61,6 +61,7 @@ private struct AppleMusicLibrarySongResponse: Decodable {
     private var topTitlesByArtist: [String: [String]] = [:]
 
     var isAuthorized: Bool { MusicAuthorization.currentStatus == .authorized }
+    var isPlaying: Bool { player.state.playbackStatus == .playing }
 
     func authorize() async throws -> Bool {
         guard await MusicAuthorization.request() == .authorized else {

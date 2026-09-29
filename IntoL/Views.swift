@@ -619,17 +619,17 @@ struct PlayView: View {
                     if source == .appleMusic || source == .appleMusicPreview {
                         appleMusicPlaylistInput(requiresPlayback: source == .appleMusic)
                     }
-                    Stepper("問題数 \(model.roomSettings.questionCount)", value: $model.roomSettings.questionCount, in: 1...50)
-                    Stepper("解答権人数 \(model.roomSettings.answerSlots)人", value: $model.roomSettings.answerSlots, in: 1...4)
-                        .disabled(model.roomSettings.endless)
+                    RuleDialRow(title: "問題数", value: $model.roomSettings.questionCount, range: 1...50, suffix: "問")
+                    RuleDialRow(title: "解答権人数", value: $model.roomSettings.answerSlots, range: 1...4, suffix: "人",
+                                disabled: model.roomSettings.endless)
                     DisclosureGroup("ルール詳細") {
                         VStack(spacing: 12) {
-                            Stepper("勝利目標 \(model.roomSettings.targetScore)点", value: $model.roomSettings.targetScore, in: 0...500, step: 10)
-                            Stepper("正解 \(model.roomSettings.correctPoints)点", value: $model.roomSettings.correctPoints, in: 10...50, step: 10)
-                            Stepper("1st正解 +\(model.roomSettings.firstBonus)点", value: $model.roomSettings.firstBonus, in: 0...50, step: 10)
-                            Stepper("誤答 −\(model.roomSettings.wrongPenalty)点", value: $model.roomSettings.wrongPenalty, in: 0...50, step: 10)
-                            Stepper("1st誤答 −\(model.roomSettings.firstWrongPenalty)点", value: $model.roomSettings.firstWrongPenalty, in: 0...50, step: 10)
-                            Stepper("ライフ \(model.roomSettings.lives)", value: $model.roomSettings.lives, in: 0...10)
+                            RuleDialRow(title: "勝利目標", value: $model.roomSettings.targetScore, range: 0...500, step: 10, suffix: "点")
+                            RuleDialRow(title: "正解", value: $model.roomSettings.correctPoints, range: 10...50, step: 10, suffix: "点")
+                            RuleDialRow(title: "1st正解", value: $model.roomSettings.firstBonus, range: 0...50, step: 10, prefix: "+", suffix: "点")
+                            RuleDialRow(title: "誤答", value: $model.roomSettings.wrongPenalty, range: 0...50, step: 10, prefix: "−", suffix: "点")
+                            RuleDialRow(title: "1st誤答", value: $model.roomSettings.firstWrongPenalty, range: 0...50, step: 10, prefix: "−", suffix: "点")
+                            RuleDialRow(title: "ライフ", value: $model.roomSettings.lives, range: 0...10)
                             Toggle("エンドレスモード", isOn: $model.roomSettings.endless)
                             Text("エンドレスモードでは解答権人数に関係なく、全員で曲を止めて1人ずつ解答します。")
                                 .font(.caption).foregroundStyle(Studio.secondary)
@@ -738,6 +738,63 @@ struct PlayView: View {
         source = nil
         roomCode = ""
     }
+}
+
+private struct RuleDialRow: View {
+    let title: String
+    @Binding var value: Int
+    let range: ClosedRange<Int>
+    var step = 1
+    var prefix = ""
+    var suffix = ""
+    var disabled = false
+    @State private var showingDial = false
+
+    var body: some View {
+        Button { showingDial = true } label: {
+            HStack(spacing: 12) {
+                Text(title).foregroundStyle(Studio.primary)
+                Spacer(minLength: 8)
+                Text(displayValue(value))
+                    .monospacedDigit()
+                    .foregroundStyle(Studio.accent)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption)
+                    .foregroundStyle(Studio.secondary)
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .accessibilityLabel(title)
+        .accessibilityValue(displayValue(value))
+        .accessibilityHint("ダイヤルで変更")
+        .sheet(isPresented: $showingDial) {
+            NavigationStack {
+                Picker(title, selection: $value) {
+                    ForEach(Array(stride(from: range.lowerBound, through: range.upperBound, by: step)), id: \.self) { option in
+                        Text(displayValue(option)).tag(option)
+                    }
+                }
+                .pickerStyle(.wheel)
+                .labelsHidden()
+                .frame(height: 190)
+                .frame(maxHeight: .infinity)
+                .navigationTitle(title)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("完了") { showingDial = false }
+                    }
+                }
+            }
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
+        }
+    }
+
+    private func displayValue(_ number: Int) -> String { "\(prefix)\(number)\(suffix)" }
 }
 
 private struct LandingButton: View {
@@ -1128,6 +1185,7 @@ struct ReviewView: View {
     @State private var activeSongID: String?
     @State private var loadingSongID: String?
     @State private var playbackTask: Task<Void, Never>?
+    @State private var playbackMonitor: Task<Void, Never>?
     @State private var playbackError: String?
 
     var body: some View {
@@ -1186,6 +1244,7 @@ struct ReviewView: View {
         reviewPlayer.volume = Float(model.songVolume)
         if let url = song.previewURL {
             reviewPlayer.play(url)
+            monitorPlayback(song.id, appleMusic: false)
             return
         }
         guard song.id.hasPrefix("applemusic:") else {
@@ -1199,16 +1258,20 @@ struct ReviewView: View {
                 let canPlay = (try? await model.appleMusic.authorize()) ?? false
                 try Task.checkCancellation()
                 if canPlay {
+                    monitorPlayback(song.id, appleMusic: true)
                     do { try await model.appleMusic.play(song) }
                     catch {
                         try Task.checkCancellation()
                         guard let preview = await model.appleMusic.previewURL(for: song.id) else { throw error }
                         try Task.checkCancellation()
+                        model.setReviewAudioPlaying(false)
                         reviewPlayer.play(preview)
+                        monitorPlayback(song.id, appleMusic: false)
                     }
                 } else if let preview = await model.appleMusic.previewURL(for: song.id) {
                     try Task.checkCancellation()
                     reviewPlayer.play(preview)
+                    monitorPlayback(song.id, appleMusic: false)
                 } else {
                     throw AppError.message("Apple Music のサブスクリプション、またはこの曲の試聴音源が必要です")
                 }
@@ -1217,7 +1280,28 @@ struct ReviewView: View {
                 guard !Task.isCancelled, activeSongID == song.id else { return }
                 loadingSongID = nil
                 activeSongID = nil
+                playbackMonitor?.cancel()
+                playbackMonitor = nil
+                model.setReviewAudioPlaying(false)
                 playbackError = error.localizedDescription
+            }
+        }
+    }
+
+    @MainActor private func monitorPlayback(_ songID: String, appleMusic: Bool) {
+        playbackMonitor?.cancel()
+        playbackMonitor = Task {
+            var started = false
+            while !Task.isCancelled && activeSongID == songID {
+                let audible = appleMusic ? model.appleMusic.isPlaying : reviewPlayer.isActuallyPlaying
+                model.setReviewAudioPlaying(audible)
+                if (appleMusic && started && !audible && loadingSongID == nil) ||
+                   (!appleMusic && reviewPlayer.hasEnded) {
+                    stopPlayback()
+                    return
+                }
+                started = started || audible
+                try? await Task.sleep(for: .milliseconds(300))
             }
         }
     }
@@ -1225,8 +1309,11 @@ struct ReviewView: View {
     @MainActor private func stopPlayback() {
         playbackTask?.cancel()
         playbackTask = nil
+        playbackMonitor?.cancel()
+        playbackMonitor = nil
         reviewPlayer.stop()
         model.appleMusic.stop()
+        model.setReviewAudioPlaying(false)
         activeSongID = nil
         loadingSongID = nil
     }

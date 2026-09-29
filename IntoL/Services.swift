@@ -27,6 +27,17 @@ enum AppError: LocalizedError {
     private var filePlayer: AVAudioPlayer?
     private var preparedURL: URL?
     @Published private(set) var playing = false
+    var isActuallyPlaying: Bool {
+        filePlayer?.isPlaying == true || player?.timeControlStatus == .playing
+    }
+    var hasEnded: Bool {
+        if let filePlayer { return playing && !filePlayer.isPlaying }
+        guard let player, let item = player.currentItem else { return false }
+        if item.status == .failed { return true }
+        let duration = item.duration.seconds
+        let current = player.currentTime().seconds
+        return duration.isFinite && current.isFinite && duration > 0 && current >= duration - 0.1
+    }
     var volume: Float = 1 {
         didSet { player?.volume = volume; filePlayer?.volume = volume }
     }

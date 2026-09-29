@@ -118,6 +118,7 @@ struct SoloGame {
     private var preloadedRoomID: String?
     private var appIsActive = false
     private var gameStartHolds = 0
+    private var reviewAudioPlaying = false
     private var musicTask: Task<Void, Never>?
     private var appleMusicPlaying = false
     private var appleMusicPauseTask: Task<Void, Never>?
@@ -157,9 +158,15 @@ struct SoloGame {
         updateBGM()
     }
 
+    func setReviewAudioPlaying(_ playing: Bool) {
+        guard reviewAudioPlaying != playing else { return }
+        reviewAudioPlaying = playing
+        updateBGM()
+    }
+
     private func updateBGM() {
         let roomAllowsBGM = room?.phase == "lobby" || room == nil
-        if appIsActive && gameStartHolds == 0 && game == nil && roomAllowsBGM && bgmVolume > 0 { sound.playBGM() }
+        if appIsActive && gameStartHolds == 0 && game == nil && roomAllowsBGM && !reviewAudioPlaying && bgmVolume > 0 { sound.playBGM() }
         else { sound.pauseBGM() }
     }
 
