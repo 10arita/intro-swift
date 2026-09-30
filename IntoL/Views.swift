@@ -2053,7 +2053,12 @@ struct RoomGameView: View {
                             .padding(.bottom, 12)
                         VStack(spacing: compact ? 8 : 12) {
                             if room.phase == "lobby" {
-                                lobby(room)
+                                ScrollView {
+                                    lobby(room)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.bottom, 12)
+                                }
+                                .scrollBounceBehavior(.basedOnSize)
                             } else if room.phase == "preparing" {
                                 roundTitle(room)
                                 ProgressView().tint(Studio.accent).scaleEffect(1.5)
