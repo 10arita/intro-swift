@@ -304,7 +304,7 @@ struct SavedProfile: Decodable {
         return state
     }
 
-    func create(name: String, settings: RoomSettings, mode: String = "shared", songs: [Song] = [], corpus: [String] = [], badge: String? = nil, avatar: String? = nil) async throws -> RoomState {
+    func create(name: String, settings: RoomSettings, mode: String = "shared", songs: [Song] = [], corpus: [String] = [], badge: String? = nil, avatar: String? = nil, deferQuestions: Bool = false) async throws -> RoomState {
         let identity = try? await profileCredentials()
         supportsChoiceRetry = false
         token = nil
@@ -315,7 +315,7 @@ struct SavedProfile: Decodable {
         let songData = try JSONEncoder().encode(songs)
         let songList = try JSONSerialization.jsonObject(with: songData)
         return try await request("rooms", method: "POST", payload: ["name": name, "badge": badge ?? "", "avatar": avatar ?? "", "profileId": profileID, "profileToken": identity ?? "", "settings": rule,
-                                                                  "mode": mode, "songs": songList, "corpus": corpus])
+                                                                  "mode": mode, "songs": songList, "corpus": corpus, "deferQuestions": deferQuestions])
     }
 
     func join(_ id: String, name: String, badge: String? = nil, avatar: String? = nil) async throws -> RoomState {

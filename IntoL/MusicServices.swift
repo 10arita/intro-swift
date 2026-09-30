@@ -126,30 +126,32 @@ private struct AppleMusicLibrarySongResponse: Decodable {
     }
 
     private func catalogMatch(for librarySong: MusicKit.Song) async -> MusicKit.Song? {
+        func exact(_ candidate: MusicKit.Song) -> Bool {
+            guard isCatalogID(String(describing: candidate.id)), candidate.playParameters != nil else { return false }
+            func key(_ text: String) -> String {
+                text.precomposedStringWithCompatibilityMapping.lowercased()
+                    .replacingOccurrences(of: #"[\p{P}\p{S}\s]"#, with: "", options: .regularExpression)
+            }
+            guard key(candidate.title) == key(librarySong.title),
+                  key(candidate.artistName) == key(librarySong.artistName) else { return false }
+            if let sourceDuration = librarySong.duration, let matchDuration = candidate.duration {
+                return abs(sourceDuration - matchDuration) <= 3
+            }
+            return true
+        }
         let libraryID = String(describing: librarySong.id)
-        if isCatalogID(libraryID), let song = try? await catalogSong(for: "applemusic:\(libraryID)") {
+        if isCatalogID(libraryID), let song = try? await catalogSong(for: "applemusic:\(libraryID)"), exact(song) {
             return song
         }
         if let catalogID = await associatedCatalogID(for: libraryID), isCatalogID(catalogID),
-           let song = try? await catalogSong(for: "applemusic:\(catalogID)") {
+           let song = try? await catalogSong(for: "applemusic:\(catalogID)"), exact(song) {
             return song
         }
         if let isrc = librarySong.isrc {
             let request = MusicCatalogResourceRequest<MusicKit.Song>(matching: \.isrc, equalTo: Optional(isrc))
-            if let song = try? await request.response().items.first(where: {
-                isCatalogID(String(describing: $0.id)) && $0.playParameters != nil
-            }) { return song }
+            if let song = try? await request.response().items.first(where: exact) { return song }
         }
-        var request = MusicCatalogSearchRequest(term: "\(librarySong.title) \(librarySong.artistName)", types: [MusicKit.Song.self])
-        request.limit = 25
-        guard let matches = try? await request.response().songs else { return nil }
-        return matches.first { match in
-            isCatalogID(String(describing: match.id)) && match.playParameters != nil &&
-            TitleRules.normalized(match.title) == TitleRules.normalized(librarySong.title) &&
-            TitleRules.normalized(match.artistName) == TitleRules.normalized(librarySong.artistName) &&
-            (librarySong.duration == nil || match.duration == nil ||
-             abs((match.duration ?? 0) - (librarySong.duration ?? 0)) <= 10)
-        }
+        return nil
     }
 
     private func associatedCatalogID(for libraryID: String) async -> String? {
@@ -222,7 +224,6 @@ private struct AppleMusicLibrarySongResponse: Decodable {
         guard let item = try await request.response().items.first, item.playParameters != nil else {
             throw AppError.message("この Apple Music の曲は再生できません")
         }
-        songsByID[songID] = item
         return item
     }
 
@@ -230,14 +231,19 @@ private struct AppleMusicLibrarySongResponse: Decodable {
         if let cached = songsByID[songID] { return cached }
         guard songID.hasPrefix("applemusic:") else { throw AppError.message("Apple Music の曲IDが無効です") }
         let id = String(songID.dropFirst("applemusic:".count))
-        if isCatalogID(id), let catalog = try? await catalogSong(for: songID) { return catalog }
+        if isCatalogID(id), let catalog = try? await catalogSong(for: songID) {
+            songsByID[songID] = catalog
+            return catalog
+        }
         var request = MusicLibraryRequest<MusicKit.Song>()
         request.filter(matching: \.id, equalTo: MusicItemID(id))
         if let library = try? await request.response().items.first, library.playParameters != nil {
             songsByID[songID] = library
             return library
         }
-        return try await catalogSong(for: songID)
+        let catalog = try await catalogSong(for: songID)
+        songsByID[songID] = catalog
+        return catalog
     }
 
     func previewURL(for songID: String) async -> URL? {
@@ -252,7 +258,7 @@ private struct AppleMusicLibrarySongResponse: Decodable {
             throw AppError.message("Apple Music のアクセス許可とサブスクリプションが必要です")
         }
         for id in songIDs where songsByID[id] == nil {
-            _ = try await catalogSong(for: id)
+            songsByID[id] = try await catalogSong(for: id)
         }
     }
 

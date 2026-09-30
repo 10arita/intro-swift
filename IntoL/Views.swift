@@ -643,32 +643,8 @@ struct PlayView: View {
         StudioCard {
             VStack(alignment: .leading, spacing: 18) {
                 if model.serverConfigured {
-                    if source == .appleMusic || source == .appleMusicPreview {
-                        appleMusicPlaylistInput(requiresPlayback: source == .appleMusic)
-                    }
-                    RuleDialRow(title: "問題数", value: $model.roomSettings.questionCount, range: 1...50, suffix: "問")
-                    RuleDialRow(title: "解答権人数", value: $model.roomSettings.answerSlots, range: 1...4, suffix: "人",
-                                disabled: model.roomSettings.endless)
-                    DisclosureGroup("ルール詳細") {
-                        VStack(spacing: 12) {
-                            RuleDialRow(title: "勝利目標", value: $model.roomSettings.targetScore, range: 0...500, step: 10, suffix: "点")
-                            RuleDialRow(title: "正解", value: $model.roomSettings.correctPoints, range: 10...50, step: 10, suffix: "点")
-                            RuleDialRow(title: "1st正解", value: $model.roomSettings.firstBonus, range: 0...50, step: 10, prefix: "+", suffix: "点")
-                            RuleDialRow(title: "誤答", value: $model.roomSettings.wrongPenalty, range: 0...50, step: 10, prefix: "−", suffix: "点")
-                            RuleDialRow(title: "1st誤答", value: $model.roomSettings.firstWrongPenalty, range: 0...50, step: 10, prefix: "−", suffix: "点")
-                            RuleDialRow(title: "ライフ", value: $model.roomSettings.lives, range: 0...10)
-                            Toggle("エンドレスモード", isOn: $model.roomSettings.endless)
-                            Text("エンドレスモードでは解答権人数に関係なく、全員で曲を止めて1人ずつ解答します。")
-                                .font(.caption).foregroundStyle(Studio.secondary)
-                            Text("0点は勝利目標なし、ライフ0は無制限です。")
-                                .font(.caption).foregroundStyle(Studio.secondary)
-                        }
-                        .padding(.top, 12)
-                    }
-                    .tint(Studio.accent)
                     PrimaryButton(title: "ルームを作る", symbol: "arrow.right",
-                                  disabled: model.busy || (source != .shared &&
-                                      (model.appleMusicSongs.isEmpty || (source == .appleMusic && !model.appleMusicPlayable)))) {
+                                  disabled: model.busy) {
                         Task { await model.createRoom() }
                     }
                     if let status = model.preparationStatus {
@@ -2151,15 +2127,15 @@ struct RoomGameView: View {
                                 Text("ゲームセット")
                                     .font(.system(size: 36, weight: .bold, design: .rounded))
                                     .foregroundStyle(Studio.primary)
-                                PrimaryButton(title: "もう一度遊ぶ", symbol: "arrow.clockwise",
+                                PrimaryButton(title: "ルームに戻る", symbol: "arrow.uturn.backward",
                                               disabled: room.hostId != model.rooms.playerId || model.roomRematchPending) {
                                     Task { await model.rematchRoom() }
                                 }
                                 if model.roomRematchPending {
-                                    ProgressView("新しい問題を準備中")
+                                    ProgressView("ルームに戻っています")
                                         .tint(Studio.accent)
                                 } else if room.hostId != model.rooms.playerId {
-                                    Text("ホストが再プレイを選ぶと同じルームで待機画面に戻ります")
+                                    Text("ホストがルームに戻ると待機画面に戻ります")
                                         .font(.subheadline).foregroundStyle(Studio.secondary)
                                 }
                                 PrimaryButton(title: "ホームへ戻る", symbol: "house") {
@@ -2358,15 +2334,8 @@ struct RoomGameView: View {
                     .font(.subheadline.bold()).foregroundStyle(Studio.accent)
                     .frame(minHeight: 44)
             }
-            Text("画像と音源の準備: \((room.assetsReadyIds ?? []).count) / \(room.players.count) 人")
+            Text("ホストがゲームを開始すると、全員の準備が始まります")
                 .font(.subheadline).foregroundStyle(Studio.secondary)
-            if let status = model.roomPreparationStatus {
-                Text(status).font(.caption).foregroundStyle(Studio.secondary)
-            }
-            if model.roomError != nil {
-                Button("準備を再試行") { model.retryRoomPreload() }
-                    .buttonStyle(SecondaryButtonStyle())
-            }
             let handicapped = room.players.compactMap { player -> String? in
                 let seconds = room.settings.handicapSeconds(for: player.id)
                 return seconds > 0 ? "\(player.name) \(seconds)秒" : nil
@@ -2378,6 +2347,31 @@ struct RoomGameView: View {
                     .multilineTextAlignment(.center)
             }
             if room.hostId == model.rooms.playerId {
+                if room.mode != "shared" {
+                    if model.appleMusicConnected {
+                        if model.appleMusicPlaylists.isEmpty {
+                            Button("プレイリストを読み込む") { Task { await model.loadAppleMusicPlaylists() } }
+                                .buttonStyle(SecondaryButtonStyle())
+                        } else {
+                            Picker("プレイリスト", selection: $model.selectedAppleMusicPlaylistID) {
+                                Text("選択してください").tag("")
+                                ForEach(model.appleMusicPlaylists) { list in Text(list.name).tag(list.id) }
+                            }
+                            .onChange(of: model.selectedAppleMusicPlaylistID) { _, id in
+                                Task { await model.selectAppleMusicPlaylist(id) }
+                            }
+                            .disabled(model.busy)
+                        }
+                        if !model.appleMusicSongs.isEmpty {
+                            Text("\(model.appleMusicSongs.count)曲を読み込みました")
+                                .font(.caption).foregroundStyle(Studio.secondary)
+                        }
+                    } else {
+                        Button("Apple Music に接続") { Task { await model.connectAppleMusic() } }
+                            .buttonStyle(SecondaryButtonStyle())
+                    }
+                }
+                roomRules.disabled(model.busy)
                 Button { showHandicapSettings = true } label: {
                     Label("ハンデを設定", systemImage: "timer")
                         .font(.subheadline.bold()).foregroundStyle(Studio.accent)
@@ -2395,16 +2389,42 @@ struct RoomGameView: View {
                             .font(.subheadline).foregroundStyle(Studio.accent)
                     }
                 }
-                PrimaryButton(title: "ゲームを始める", symbol: "play.fill",
-                              disabled: (room.assetsReadyIds ?? []).count < room.players.count) {
+                PrimaryButton(title: "ゲームを開始", symbol: "play.fill", disabled: model.busy) {
                     model.beginGameStart()
                     Task {
-                        await model.roomAction("start")
+                        await model.startRoom()
                         model.finishGameStart()
                     }
                 }
+                if let status = model.preparationStatus {
+                    ProgressView(status).tint(Studio.accent)
+                }
             }
         }
+    }
+
+    private var roomRules: some View {
+        VStack(spacing: 12) {
+            RuleDialRow(title: "問題数", value: $model.roomSettings.questionCount, range: 1...50, suffix: "問")
+            RuleDialRow(title: "解答権人数", value: $model.roomSettings.answerSlots, range: 1...4, suffix: "人",
+                        disabled: model.roomSettings.endless)
+            DisclosureGroup("ルール詳細") {
+                VStack(spacing: 12) {
+                    RuleDialRow(title: "勝利目標", value: $model.roomSettings.targetScore, range: 0...500, step: 10, suffix: "点")
+                    RuleDialRow(title: "正解", value: $model.roomSettings.correctPoints, range: 10...50, step: 10, suffix: "点")
+                    RuleDialRow(title: "1st正解", value: $model.roomSettings.firstBonus, range: 0...50, step: 10, prefix: "+", suffix: "点")
+                    RuleDialRow(title: "誤答", value: $model.roomSettings.wrongPenalty, range: 0...50, step: 10, prefix: "−", suffix: "点")
+                    RuleDialRow(title: "1st誤答", value: $model.roomSettings.firstWrongPenalty, range: 0...50, step: 10, prefix: "−", suffix: "点")
+                    RuleDialRow(title: "ライフ", value: $model.roomSettings.lives, range: 0...10)
+                    Toggle("エンドレスモード", isOn: $model.roomSettings.endless)
+                    Text("0点は勝利目標なし、ライフ0は無制限です。")
+                        .font(.caption).foregroundStyle(Studio.secondary)
+                }
+                .padding(.top, 12)
+            }
+            .tint(Studio.accent)
+        }
+        .font(.subheadline)
     }
 
     private func skipButton(_ room: RoomState) -> some View {

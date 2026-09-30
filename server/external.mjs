@@ -34,11 +34,16 @@ export async function searchItunes(term, limit = 25) {
 }
 export async function matchItunes(song) {
   const candidates = await searchItunes(`${song.title} ${song.artist}`, 20);
-  const title = baseTitle(song.title), artist = clean(String(song.artist || '').split(',')[0]);
-  const exact = candidates.find(s => baseTitle(s.title) === title && clean(s.artist) === artist);
-  const close = candidates.find(s => baseTitle(s.title) === title && artist &&
-    (clean(s.artist).includes(artist) || artist.includes(clean(s.artist))));
-  return exact || close || null;
+  const title = clean(song.title), artist = clean(song.artist);
+  if (!title || !artist) return null;
+  return candidates.find(candidate => {
+    if (clean(candidate.title) !== title || clean(candidate.artist) !== artist) return false;
+    const sourceDuration = Number(song.durationMS);
+    const matchDuration = Number(candidate.durationMS);
+    return !Number.isFinite(sourceDuration) || sourceDuration <= 0 ||
+      !Number.isFinite(matchDuration) || matchDuration <= 0 ||
+      Math.abs(sourceDuration - matchDuration) <= 3000;
+  }) || null;
 }
 export async function topSongs() {
   const feed = await json('https://rss.applemarketingtools.com/api/v2/jp/music/most-played/100/songs.json', 6 * 60 * 60_000);

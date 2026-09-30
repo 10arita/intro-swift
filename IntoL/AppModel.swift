@@ -75,6 +75,7 @@ struct SoloGame {
     @Published var appleMusicPlaylists: [AppleMusicPlaylist] = []
     @Published var appleMusicSongs: [Song] = []
     @Published var selectedAppleMusicPlaylistID = ""
+    private var playlistSelectionRevision = 0
     @Published var roomMode = "shared"
     @Published var itunesTerm = ""
     @Published var itunesSongs: [Song] = []
@@ -208,6 +209,7 @@ struct SoloGame {
             appleMusicPlayable = try await appleMusic.canPlay()
             appleMusicPlaylists = try await appleMusic.playlists()
             if !appleMusicPlaylists.contains(where: { $0.id == selectedAppleMusicPlaylistID }) {
+                playlistSelectionRevision += 1
                 selectedAppleMusicPlaylistID = ""
                 appleMusicSongs = []
             }
@@ -215,14 +217,21 @@ struct SoloGame {
     }
 
     func selectAppleMusicPlaylist(_ id: String) async {
-        guard !id.isEmpty, !busy else { return }
+        playlistSelectionRevision += 1
+        let revision = playlistSelectionRevision
         selectedAppleMusicPlaylistID = id
         appleMusicSongs = []
-        busy = true; defer { busy = false }
+        guard !id.isEmpty else { busy = false; return }
+        busy = true
+        defer { if revision == playlistSelectionRevision { busy = false } }
         do {
-            appleMusicSongs = try await appleMusic.songs(in: id)
+            let songs = try await appleMusic.songs(in: id)
+            guard revision == playlistSelectionRevision, selectedAppleMusicPlaylistID == id else { return }
+            appleMusicSongs = songs
             quizCorpus = appleMusicSongs.map(\.title)
-        } catch { alert = error.localizedDescription }
+        } catch {
+            if revision == playlistSelectionRevision { alert = error.localizedDescription }
+        }
     }
 
     func startAppleMusicSolo() async {
@@ -699,58 +708,17 @@ struct SoloGame {
 
     func createRoom() async {
         guard !busy else { return }
-        busy = true; defer { busy = false; preparationStatus = nil }
+        busy = true; defer { busy = false }
         rooms.baseURL = serverURL
         do {
-            var songs: [Song] = []
-            var corpus: [String] = []
-            if roomMode == "shared" {
-                songs = sharedSongs.isEmpty ? try await rooms.catalog() : sharedSongs
-            } else if roomMode == "applemusic" {
-                guard appleMusicConnected, appleMusicPlayable else {
-                    throw AppError.message("Apple Music 対戦にはアクセス許可とサブスクリプションが必要です")
-                }
-                guard !appleMusicSongs.isEmpty else { throw AppError.message("先に Apple Music のプレイリストを選んでください") }
-                let candidates = uniqueSongs(appleMusicSongs)
-                guard candidates.count >= roomSettings.questionCount else {
-                    throw AppError.message("プレイリストの曲数が問題数より少なくなっています")
-                }
-                preparationStatus = "Apple Music の曲を照合中 0 / \(roomSettings.questionCount)"
-                var catalogIDs = Set<String>()
-                for candidate in candidates.shuffled() {
-                    for song in await appleMusic.catalogSongs(for: [candidate]) where catalogIDs.insert(song.id).inserted {
-                        songs.append(song)
-                    }
-                    preparationStatus = "Apple Music の曲を照合中 \(songs.count) / \(roomSettings.questionCount)"
-                    if songs.count == roomSettings.questionCount { break }
-                }
-                guard songs.count == roomSettings.questionCount else {
-                    throw AppError.message("指定された問題数分の Apple Music の曲を用意できません（照合可能: \(songs.count) / \(roomSettings.questionCount) 曲）")
-                }
-                corpus = appleMusicSongs.map(\.title)
-            } else if roomMode == "sabitro" {
-                guard !appleMusicSongs.isEmpty else { throw AppError.message("先に Apple Music のプレイリストを選んでください") }
-                var seen = Set<String>()
-                for song in uniqueSongs(appleMusicSongs).shuffled() {
-                    if let match = try await rooms.matchItunes(song), match.playablePreview,
-                       !TitleRules.characters(match.title).isEmpty,
-                       seen.insert(match.id).inserted { songs.append(match) }
-                    if songs.count == roomSettings.questionCount { break }
-                }
-                guard songs.count == roomSettings.questionCount else {
-                    throw AppError.message("指定された問題数分の試聴曲を用意できません")
-                }
-                corpus = appleMusicSongs.map(\.title)
-            }
-            preparationStatus = "選択肢を準備中"
-            songs = await withArtistTopTitles(songs)
-            let state = try await rooms.create(name: nickname, settings: roomSettings, mode: roomMode,
-                                               songs: songs, corpus: corpus, badge: stats.selectedBadge,
-                                               avatar: roomAvatar)
+            let state = try await rooms.create(name: nickname, settings: RoomSettings(), mode: roomMode,
+                                               badge: stats.selectedBadge, avatar: roomAvatar,
+                                               deferQuestions: true)
             guard state.mode == roomMode else {
                 _ = try? await rooms.action("leave", id: state.id)
                 throw AppError.message("対戦サーバーを更新してから、この音源でルームを作成してください")
             }
+            roomSettings = RoomSettings()
             enterRoom(state)
         } catch { alert = error.localizedDescription }
     }
@@ -761,45 +729,68 @@ struct SoloGame {
         roomRematchPending = true
         defer { roomRematchPending = false }
         do {
-            let previous = Set(current.playedSongIDs ?? [])
-            var songs: [Song] = []
-            var corpus: [String] = []
-            if current.mode != "shared" {
-                guard !appleMusicSongs.isEmpty else {
-                    throw AppError.message("新しい問題を用意するため、プレイリストを選び直してください")
-                }
-                var fresh: [Song] = []
-                var used: [Song] = []
-                var seen = Set<String>()
-                for candidate in uniqueSongs(appleMusicSongs).shuffled() {
-                    let matches: [Song]
-                    if current.mode == "applemusic" {
-                        matches = await appleMusic.catalogSongs(for: [candidate])
-                    } else if let match = try await rooms.matchItunes(candidate), match.playablePreview,
-                              !TitleRules.characters(match.title).isEmpty {
-                        matches = [match]
-                    } else { matches = [] }
-                    for song in matches where seen.insert(song.id).inserted {
-                        if previous.contains(song.id) { used.append(song) }
-                        else { fresh.append(song) }
-                    }
-                    if fresh.count >= current.settings.questionCount { break }
-                }
-                songs = Array((fresh + used).prefix(current.settings.questionCount))
-                guard !fresh.isEmpty, songs.count == current.settings.questionCount else {
-                    throw AppError.message("新しい問題を用意できません。曲数を増やしてからお試しください")
-                }
-                songs = await withArtistTopTitles(songs)
-                corpus = appleMusicSongs.map(\.title)
-            }
-            let songData = try JSONEncoder().encode(songs)
-            let songList = try JSONSerialization.jsonObject(with: songData)
             guard room?.id == current.id, room?.phase == "finished" else { return }
-            receiveNetworkRoom(try await rooms.action("rematch", id: current.id,
-                payload: ["songs": songList, "corpus": corpus]))
+            receiveNetworkRoom(try await rooms.action("rematch", id: current.id))
+            roomSettings = RoomSettings()
         } catch {
             showRoomNotice(error.localizedDescription)
         }
+    }
+
+    func startRoom() async {
+        guard let current = room, current.phase == "lobby", current.hostId == rooms.playerId,
+              !busy else { return }
+        let selectedSettings = roomSettings
+        let selectedPlaylistSongs = appleMusicSongs
+        busy = true
+        defer { busy = false; preparationStatus = nil }
+        do {
+            var songs: [Song] = []
+            var corpus: [String] = []
+            if current.mode != "shared" {
+                guard !selectedPlaylistSongs.isEmpty else {
+                    throw AppError.message("先に Apple Music のプレイリストを選んでください")
+                }
+                if current.mode == "applemusic" {
+                    guard appleMusicConnected, appleMusicPlayable else {
+                        throw AppError.message("Apple Music のアクセス許可とサブスクリプションが必要です")
+                    }
+                }
+                let played = Set(current.playedSongIDs ?? [])
+                var fresh: [Song] = []
+                var used: [Song] = []
+                var seen = Set<String>()
+                let candidates = uniqueSongs(selectedPlaylistSongs).shuffled()
+                for (index, candidate) in candidates.enumerated() {
+                    preparationStatus = "プレイリストの曲を確認中 \(index + 1) / \(candidates.count)"
+                    let match: Song?
+                    if current.mode == "applemusic" {
+                        match = await appleMusic.catalogSongs(for: [candidate]).first
+                    } else {
+                        match = try await rooms.matchItunes(candidate)
+                    }
+                    if let match, (current.mode == "applemusic" || match.playablePreview),
+                       !TitleRules.characters(match.title).isEmpty, seen.insert(match.id).inserted {
+                        if played.contains(match.id) { used.append(match) }
+                        else { fresh.append(match) }
+                    }
+                    if fresh.count >= selectedSettings.questionCount { break }
+                }
+                songs = Array((fresh + used).prefix(selectedSettings.questionCount))
+                guard songs.count >= selectedSettings.questionCount else {
+                    throw AppError.message("指定された問題数分の曲を用意できません（照合可能: \(songs.count)曲）")
+                }
+                songs = await withArtistTopTitles(songs)
+                corpus = selectedPlaylistSongs.map(\.title)
+            }
+            let songData = try JSONEncoder().encode(songs)
+            let songList = try JSONSerialization.jsonObject(with: songData)
+            let settingsData = try JSONEncoder().encode(selectedSettings)
+            let rules = try JSONSerialization.jsonObject(with: settingsData)
+            guard room?.id == current.id, room?.phase == "lobby" else { return }
+            receiveNetworkRoom(try await rooms.action("start", id: current.id,
+                payload: ["settings": rules, "songs": songList, "corpus": corpus]))
+        } catch { showRoomNotice(error.localizedDescription) }
     }
 
     func joinRoom(_ code: String) async {
@@ -1018,7 +1009,7 @@ struct SoloGame {
         if old?.isAnswering(rooms.playerId) != true && state.isAnswering(rooms.playerId) {
             roomNotice = nil
         }
-        if state.phase == "lobby", preloadedRoomID != state.id,
+        if state.phase == "lobby", state.totalRounds > 0, preloadedRoomID != state.id,
            !(state.assetsReadyIds ?? []).contains(rooms.playerId) {
             preloadedRoomID = state.id
             roomPreloadTask?.cancel()

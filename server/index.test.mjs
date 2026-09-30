@@ -908,22 +908,23 @@ test('endless mode passes a second queued PUSH after the first queued player is 
   } finally { Date.now = realNow; }
 });
 
-test('rematch keeps the room and players while replacing questions and resetting scores', () => {
+test('returning to the lobby keeps played history across rule changes and resets scores', () => {
   const realNow = Date.now;
   let now = realNow();
   Date.now = () => now;
   try {
-    const songs = [1000000201, 1000000202].map(id => ({
+    const songs = [1000000201, 1000000202, 1000000203].map(id => ({
       id: `applemusic:${id}`, title: '花火', artist: 'Artist' }));
     const host = handle('POST', '/rooms', { playerId: 'rematch-host', name: 'Host',
-      mode: 'applemusic', songs, settings: { questionCount: 1, targetScore: 0 } }, new URLSearchParams()).body;
+      mode: 'applemusic', deferQuestions: true }, new URLSearchParams()).body;
     const path = `/rooms/${host.id}`;
     const guest = handle('POST', `${path}/join`, { playerId: 'rematch-guest', name: 'Guest' }, new URLSearchParams()).body;
     const act = (id, action, payload = {}) => handle('POST', `${path}/${action}`,
       { playerId: id, ...payload }, new URLSearchParams(),
       `Bearer ${id === 'rematch-host' ? host.sessionToken : guest.sessionToken}`);
-    for (const id of ['rematch-host', 'rematch-guest']) act(id, 'assets-ready');
-    act('rematch-host', 'start');
+    assert.equal(host.phase, 'lobby');
+    assert.equal(host.totalRounds, 0);
+    assert.equal(act('rematch-host', 'start', { settings: { questionCount: 1, targetScore: 0 }, songs }).body.phase, 'preparing');
     for (const id of ['rematch-host', 'rematch-guest']) act(id, 'ready');
     now += 6000;
     act('rematch-host', 'push');
@@ -934,22 +935,30 @@ test('rematch keeps the room and players while replacing questions and resetting
     assert.equal(finished.phase, 'finished');
     assert.equal(finished.players.find(p => p.id === 'rematch-host').score, 20);
     const firstSongID = finished.playedSongIDs[0];
-    assert.equal(act('rematch-guest', 'rematch', { songs }).status, 403);
-    assert.equal(act('rematch-host', 'rematch', { songs: [songs.find(song => song.id === firstSongID)] }).status, 409);
-    const rematched = act('rematch-host', 'rematch', { songs }).body;
+    assert.equal(act('rematch-guest', 'rematch').status, 403);
+    const rematched = act('rematch-host', 'rematch').body;
     assert.equal(rematched.id, host.id);
     assert.equal(rematched.phase, 'lobby');
     assert.equal(rematched.round, -1);
     assert.equal(rematched.gameNumber, 1);
-    assert.equal(rematched.preload.length, 1);
-    assert.notEqual(rematched.preload[0].id, firstSongID);
+    assert.equal(rematched.preload.length, 0);
+    assert.deepEqual(rematched.playedSongIDs, [firstSongID]);
     assert.deepEqual(rematched.players.map(p => [p.id, p.score, p.lives, p.roundResults]),
       [['rematch-host', 0, 3, []], ['rematch-guest', 0, 3, []]]);
     assert.deepEqual(rematched.assetsReadyIds, []);
     assert.equal(act('rematch-host', 'start').status, 409);
-    assert.equal(act('rematch-guest', 'assets-ready').status, 200);
-    assert.equal(act('rematch-host', 'assets-ready').status, 200);
-    assert.equal(act('rematch-host', 'start').body.phase, 'preparing');
+    const second = act('rematch-host', 'start', { settings: { questionCount: 2, lives: 5, targetScore: 0 }, songs }).body;
+    assert.equal(second.phase, 'preparing');
+    assert.equal(second.settings.lives, 5);
+    assert.ok(second.players.every(player => player.lives === 5));
+    assert.notEqual(second.current.id, firstSongID);
+    for (const id of ['rematch-host', 'rematch-guest']) act(id, 'ready');
+    now += 6000;
+    for (const id of ['rematch-host', 'rematch-guest']) act(id, 'skip');
+    const secondRound = act('rematch-host', 'next').body;
+    assert.equal(secondRound.phase, 'preparing');
+    assert.notEqual(secondRound.current.id, firstSongID);
+    assert.notEqual(secondRound.current.id, second.current.id);
   } finally { Date.now = realNow; }
 });
 

@@ -18,9 +18,12 @@ test('iTunes matching requires the title and artist, and Songle starts before th
     throw new Error(`Unexpected URL: ${address}`);
   };
   try {
-    const match = await matchItunes({ title: '怪獣の花唄 (Live)', artist: 'Vaundy' });
+    const match = await matchItunes({ title: '怪獣の花唄', artist: 'Vaundy' });
     assert.equal(match.id, 'itunes:2');
     assert.equal(match.genre, 'J-Pop');
+    assert.equal(await matchItunes({ title: '怪獣の花唄 (Live)', artist: 'Vaundy' }), null);
+    assert.equal(await matchItunes({ title: '怪獣の花唄', artist: 'Vaundy', durationMS: 190000 }), null);
+    assert.equal(await matchItunes({ title: '別の曲', artist: 'Vaundy' }), null);
     assert.deepEqual(await topSongs(), ['群青']);
     assert.equal(await chorusPosition({ durationMS: 220000, songleURL: 'https://www.youtube.com/watch?v=abc' }), 63626);
     assert.equal(fallbackChorus(180000), 56100);
