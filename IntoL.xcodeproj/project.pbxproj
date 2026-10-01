@@ -51,8 +51,8 @@
 		B00000000000000000000018 /* PlayerAvatar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerAvatar.swift; sourceTree = "<group>"; };
 		B00000000000000000000019 /* CloudProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudProfile.swift; sourceTree = "<group>"; };
 		B0000000000000000000001A /* CloudProfileService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudProfileService.swift; sourceTree = "<group>"; };
-		B0000000000000000000001C /* PlaylistPreparation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistPreparation.swift; sourceTree = "<group>"; };
 		B0000000000000000000001B /* IntoL.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = IntoL.entitlements; sourceTree = "<group>"; };
+		B0000000000000000000001C /* PlaylistPreparation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistPreparation.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -335,7 +335,7 @@
 				CLOUDKIT_CONTAINER_IDENTIFIER = "iCloud.$(PRODUCT_BUNDLE_IDENTIFIER)";
 				CODE_SIGN_ENTITLEMENTS = IntoL/IntoL.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20;
+				CURRENT_PROJECT_VERSION = 21;
 				DEVELOPMENT_TEAM = 846DPLLG2V;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = IntoL/Info.plist;
@@ -344,7 +344,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 4.9;
+				MARKETING_VERSION = 4.9.1;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -366,7 +366,7 @@
 				CLOUDKIT_CONTAINER_IDENTIFIER = "iCloud.$(PRODUCT_BUNDLE_IDENTIFIER)";
 				CODE_SIGN_ENTITLEMENTS = IntoL/IntoL.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20;
+				CURRENT_PROJECT_VERSION = 21;
 				DEVELOPMENT_TEAM = 846DPLLG2V;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = IntoL/Info.plist;
@@ -375,7 +375,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 4.9;
+				MARKETING_VERSION = 4.9.1;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
