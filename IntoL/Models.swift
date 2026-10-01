@@ -153,3 +153,31 @@ struct PlayerStats: Codable {
         if selectedBadge == nil { selectedBadge = badges.sorted().first }
     }
 }
+
+extension PlayerStats {
+    private enum CodingKeys: String, CodingKey {
+        case games, attempts, correct, totalPushSeconds, genres, badges, selectedBadge
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        games = try values.decodeIfPresent(Int.self, forKey: .games) ?? 0
+        attempts = try values.decodeIfPresent(Int.self, forKey: .attempts) ?? 0
+        correct = try values.decodeIfPresent(Int.self, forKey: .correct) ?? 0
+        totalPushSeconds = try values.decodeIfPresent(Double.self, forKey: .totalPushSeconds) ?? 0
+        genres = try values.decodeIfPresent([String: GenreRecord].self, forKey: .genres) ?? [:]
+        badges = try values.decodeIfPresent(Set<String>.self, forKey: .badges) ?? []
+        selectedBadge = try values.decodeIfPresent(String.self, forKey: .selectedBadge)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(games, forKey: .games)
+        try values.encode(attempts, forKey: .attempts)
+        try values.encode(correct, forKey: .correct)
+        try values.encode(totalPushSeconds, forKey: .totalPushSeconds)
+        try values.encode(genres, forKey: .genres)
+        try values.encode(badges.sorted(), forKey: .badges)
+        try values.encodeIfPresent(selectedBadge, forKey: .selectedBadge)
+    }
+}

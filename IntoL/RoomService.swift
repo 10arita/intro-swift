@@ -226,6 +226,7 @@ struct SavedProfile: Decodable {
     }
     let playerId: String
     var profileID: String
+    var onProfileCredentialsChange: (() -> Void)?
     private(set) var token: String?
     private var itunesMatches: [String: ItunesMatch] = [:]
     private var roomSocket: URLSessionWebSocketTask?
@@ -576,6 +577,21 @@ struct SavedProfile: Decodable {
     }
 
     private var profileKey: String { "profileToken:\(baseURL.trimmingCharacters(in: .whitespacesAndNewlines)):\(profileID)" }
+    var profileCredentialSnapshot: [String: String] {
+        guard !baseURL.isEmpty, let credential = Secrets.get(profileKey) else { return [:] }
+        return [baseURL.trimmingCharacters(in: .whitespacesAndNewlines): credential]
+    }
+
+    func restoreProfileIdentity(_ id: String, credentials: [String: String]) {
+        if profileID != id {
+            clear()
+            profileID = id
+            UserDefaults.standard.set(id, forKey: "profileID")
+        }
+        for (origin, credential) in credentials {
+            Secrets.set(credential, for: "profileToken:\(origin):\(id)")
+        }
+    }
     private func profileCredentials() async throws -> String {
         if let existing = Secrets.get(profileKey) { return existing }
         _ = try await profile()
@@ -677,29 +693,38 @@ struct SavedProfile: Decodable {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONSerialization.data(withJSONObject: ["id": profileID])
         }
+        request.timeoutInterval = 10
         let (data, response) = try await URLSession.shared.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200...299).contains(status) else {
             throw AppError.message("プロフィールの同期に失敗しました (\(status))")
         }
         let saved = try JSONDecoder().decode(SavedProfile.self, from: data)
-        if let token = saved.token { Secrets.set(token, for: profileKey) }
+        if let token = saved.token {
+            Secrets.set(token, for: profileKey)
+            onProfileCredentialsChange?()
+        }
         return saved
     }
 
-    func saveProfile(reviews: [ReviewSong], history: [SoloResult], stats: PlayerStats) async throws {
+    func legacyProfileIfAvailable() async throws -> SavedProfile? {
+        guard Secrets.get(profileKey) != nil else { return nil }
+        return try await profile()
+    }
+
+    func publishProfile(name: String, avatar: String?, stats: PlayerStats) async throws {
         if Secrets.get(profileKey) == nil { _ = try await profile() }
         var request = URLRequest(url: try endpoint("profile"))
         request.httpMethod = "PUT"
+        request.timeoutInterval = 10
         request.setValue("Bearer \(Secrets.get(profileKey) ?? "")", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        struct Body: Encodable {
-            let id: String
-            let reviews: [ReviewSong]
-            let history: [SoloResult]
-            let stats: PlayerStats
-        }
-        request.httpBody = try JSONEncoder().encode(Body(id: profileID, reviews: reviews, history: history, stats: stats))
+        // Personal history/reviews and detailed statistics are managed by CloudKit.
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "id": profileID, "name": name, "avatar": avatar ?? "",
+            "publicStats": ["games": stats.games, "attempts": stats.attempts, "correct": stats.correct,
+                            "badges": stats.badges.sorted(), "selectedBadge": stats.selectedBadge ?? ""]
+        ])
         let (_, response) = try await URLSession.shared.data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else {
             throw AppError.message("プロフィールを保存できません")

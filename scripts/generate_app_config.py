@@ -7,7 +7,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 
-ALLOWED_KEYS = {"APP_SERVER_URL"}
+ALLOWED_KEYS = {"APP_SERVER_URL", "APP_CLOUDKIT_ENABLED"}
 
 
 def read_env(path: Path) -> dict[str, str]:
@@ -50,7 +50,10 @@ def main() -> None:
             raise ValueError("APP_SERVER_URL must be an HTTPS origin without credentials, query, or fragment")
     config = {
         "APP_SERVER_URL": server_url,
+        "APP_CLOUDKIT_ENABLED": values.get("APP_CLOUDKIT_ENABLED", "false").lower(),
     }
+    if config["APP_CLOUDKIT_ENABLED"] not in {"true", "false"}:
+        raise ValueError("APP_CLOUDKIT_ENABLED must be true or false")
     destination.parent.mkdir(parents=True, exist_ok=True)
     with destination.open("wb") as output:
         plistlib.dump(config, output)

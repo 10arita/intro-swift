@@ -57,6 +57,15 @@ enum PlayerAvatar {
             try FileManager.default.removeItem(at: fileURL)
         }
     }
+
+    static func store(_ data: Data?) throws {
+        guard let data else { try remove(); return }
+        guard data.count <= maximumBytes, UIImage(data: data) != nil else {
+            throw AppError.message("保存されたアイコンの画像が無効です")
+        }
+        try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: fileURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+    }
 }
 
 struct PlayerAvatarView: View {

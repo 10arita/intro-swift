@@ -12,6 +12,7 @@ enum AppConfiguration {
     }()
 
     static var serverURL: String { values["APP_SERVER_URL"] ?? "" }
+    static var cloudKitEnabled: Bool { values["APP_CLOUDKIT_ENABLED"] == "true" }
 }
 
 enum AppError: LocalizedError {

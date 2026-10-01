@@ -209,11 +209,11 @@ function publicFriends(profile) {
   };
 }
 function publicProfile(profile, player = null) {
-  const stats = profile?.stats;
+  const stats = profile?.publicStats ?? profile?.stats;
   return {
     name: player?.name || profile?.name || 'プレイヤー',
     avatar: player?.avatar || profile?.avatar || null,
-    badge: player?.badge || profile?.stats?.selectedBadge || profile?.badge || null,
+    badge: player?.badge || stats?.selectedBadge || profile?.badge || null,
     stats: stats && typeof stats === 'object' ? {
       games: Number.isFinite(stats.games) ? stats.games : 0,
       attempts: Number.isFinite(stats.attempts) ? stats.attempts : 0,
@@ -441,6 +441,18 @@ export function handle(method, path, body, query, authorization, origin = 'https
     const profile = profiles.get(id);
     if (!profile || authorization?.replace(/^Bearer /, '') !== profile.secret) return fail(403, 'プロフィールを確認できません');
     if (method === 'PUT') {
+      if (typeof body.name === 'string') profile.name = body.name.trim().slice(0, 24) || 'プレイヤー';
+      if (typeof body.avatar === 'string') profile.avatar = playerAvatar(body.avatar);
+      if (body.publicStats && typeof body.publicStats === 'object') {
+        const stats = body.publicStats;
+        const count = value => Number.isSafeInteger(value) && value >= 0 ? value : 0;
+        profile.publicStats = {
+          games: count(stats.games), attempts: count(stats.attempts), correct: count(stats.correct),
+          selectedBadge: typeof stats.selectedBadge === 'string' ? stats.selectedBadge.slice(0, 24) : null,
+          badges: Array.isArray(stats.badges) ? [...new Set(stats.badges.filter(value => typeof value === 'string')
+            .map(value => value.slice(0, 24)))].slice(0, 8) : []
+        };
+      }
       if (Array.isArray(body.history)) profile.history = body.history.slice(0, 5);
       if (Array.isArray(body.reviews)) {
         const items = body.reviews.filter(item => item && typeof item === 'object' && item.song?.id)

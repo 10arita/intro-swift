@@ -1,6 +1,7 @@
 import SwiftUI
 import PhotosUI
 import MediaPlayer
+import CloudKit
 
 private enum MainTab { case play, review, friends, account }
 
@@ -147,8 +148,14 @@ struct RootView: View {
         .onChange(of: scenePhase) { _, phase in
             model.setAppActive(phase == .active)
             if phase == .active {
-                Task { await model.refreshFriends(reportErrors: false) }
+                Task {
+                    await model.syncProfile()
+                    await model.refreshFriends(reportErrors: false)
+                }
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .CKAccountChanged)) { _ in
+            model.cloudAccountChanged()
         }
     }
 
@@ -1719,10 +1726,16 @@ struct AccountView: View {
                             .accessibilityLabel("アイコンを設定")
                             field("プレイヤー名", text: $model.nickname, prompt: "プレイヤー")
                             appleMusicAccount
-                            if model.serverConfigured {
-                                Button("記録を同期") { Task { await model.syncProfile() } }
-                                    .buttonStyle(SecondaryButtonStyle())
+                            Button { Task { await model.syncProfile() } } label: {
+                                HStack(spacing: 8) {
+                                    if model.profileSyncing { ProgressView() }
+                                    Text(model.profileSyncing ? "iCloudに同期中" : "iCloudに同期")
+                                }
                             }
+                            .buttonStyle(SecondaryButtonStyle())
+                            .disabled(model.profileSyncing)
+                            Text("名前・アイコン・復習・記録・音量設定をiCloudに保存します。")
+                                .font(.caption).foregroundStyle(Studio.secondary)
                             if let status = model.profileSyncStatus {
                                 Text(status).font(.caption).foregroundStyle(Studio.secondary)
                             }

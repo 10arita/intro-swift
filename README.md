@@ -13,7 +13,11 @@ SwiftUI 製 iOS 17+ アプリと、Coolify 用 Node.js サーバーです。`rul
 
 1曲30秒の PUSH、1文字5秒の4択、解答権、誤答・ライフ・得点、全員スキップ、最終順位、ソロの0〜100点と15段階ランクを実装しています。回答中は正解の文字数を表示しません。対戦サーバーが PUSH の到着順を判定します。ほぼ同時の PUSH で解答権を取れなかった場合もルームに残り、画面内に結果を通知します。プレイヤー欄は4人分を横一列に表示し、現在の問題の正解を「○」、誤答を「×」、未回答を「−」で表示します。PUSH時刻は解答権の判定前に記録します。プレイヤー欄は各問題の開始時に得点の高い順に左から表示し、PUSHがあればPUSHした順に左から並び替えます。まだPUSHしていないプレイヤーは得点順に続き、PUSH順位は各プレイヤーの欄に表示します。出題タイマーは0.01秒単位、PUSH時刻と平均PUSH時間は0.001秒単位で表示します。誤答者はSKIP投票の成立条件から除外します。通常モードの解答権人数は1〜4人（初期値2人）で、空き枠があれば複数人が並行して解答できます。PUSHした本人の曲はすぐに止まり、正解者が出ても受付中はほかの人がPUSHできます。30秒経過、全枠使用、または回答可能な人がいなくなると受付を終了し、全員の出題曲を止めます。受付終了後も進行中の解答は各文字の5秒制限で続行し、すべて終わってから正解曲を再生します。複数正解時は正解者のPUSH受付順に順位を付けます。1st正解ボーナスは正解者の中で最初にPUSHしたプレイヤーに適用します。1st誤答ペナルティは従来どおり、その曲で最初にPUSHしたプレイヤーが誤答した場合にだけ適用します。エンドレスモードでは解答権人数に関係なく1人ずつ解答し、回答中は全員の曲と出題タイマーが止まります。僅差でPUSHした人は解答待ちになり、前の人が誤答または時間切れになるとPUSH順に解答できます。待機者がいなくなった誤答後は停止位置から曲を再開します。各ラウンドでは「第○曲目」と読み込み表示を挟み、対戦は全員の準備完了後に5秒のカウントダウンを始めます。端末は通信の往復時間からサーバー時計との差を推定して同じ開始時刻に合わせ、端末内に保存した音源は再生時刻を予約します。Apple Music は MusicKit が時刻指定再生を提供しないため、通信・バッファリング・音声出力の遅延まで完全に一致させることはできません。
 
-復習リストは「覚えてない」「覚えた」を各50曲、ソロ履歴は直近5回です。統計、ジャンル別正答率、8種類の称号、切断後5分以内の復帰、ホスト自動・手動交代にも対応しています。記録と進行中のルームはサーバーの `DATA_DIR` に保存します。新規の記録は端末単位で扱い、既存のプロフィールとフレンド情報は引き継ぎます。
+復習リストは「覚えてない」「覚えた」を各50曲、ソロ履歴は直近5回です。統計、ジャンル別正答率、8種類の称号、切断後5分以内の復帰、ホスト自動・手動交代にも対応しています。名前・アイコン・復習・履歴・統計・称号・音量設定はCloudKitのPrivate Databaseに保存し、端末にもキャッシュします。同じiCloudアカウントの別端末へプロフィールを復元できます。CloudKit未設定・未サインイン・オフライン時も端末で利用できます。ルームとフレンド申請・招待は引き続きサーバーの `DATA_DIR` に保存します。既存の端末とサーバーの個人記録はCloudKitへ取り込みます。
+
+## CloudKitの設定
+
+Apple Developer側の設定は別途必要です。[CloudKitの設定と動作確認](docs/cloudkit-setup.md)に、コンテナ作成、XcodeのiCloud設定、`.env` の `APP_CLOUDKIT_ENABLED=true`、初回同期、Productionへのスキーマ公開の手順をまとめています。現在のコンテナIDの既定値は `iCloud.com.intro.IntoL` です。CloudKit対応後も、対戦中の通信には既存のWebSocketを使います。
 
 曲名の長音符「ー」と英字同士を直接つなぐハイフンは回答対象です。その他の記号は解答不要で、英字同士をつながない `-`、`(`、`feat` 以降も省略できます。対戦の最終順位は得点、同点なら残ライフで決め、失格者は最下位にします。リザルトの1〜3位は淡い金・銀・銅で表示します。ホストはルール未設定のルームを作り、待機画面でプレイリストとルールを選んで「ゲームを開始」を押します。その後、全員が音源を準備し、準備完了で自動的にカウントダウンへ進みます。終了後の「ルームに戻る」は同じ参加者と未出題曲の履歴を保ったまま、ルール未設定の待機画面に戻ります。次の対戦ではルールを変更しても未出題曲を優先します。同じルームのプレイヤーにフレンド申請を送り、承認するとフレンドになります。待機中のルームからフレンドを招待でき、受け取った人は「フレンド」タブから6文字のコードを入力せずに参加できます。
 
@@ -48,7 +52,7 @@ SwiftUI 製 iOS 17+ アプリと、Coolify 用 Node.js サーバーです。`rul
 MusicKit for Swift を使います。Apple Music API の秘密鍵や手動の Developer Token はアプリに不要です。MusicKit が App ID を使って Developer Token を自動生成します。[Apple の設定手順](https://developer.apple.com/documentation/musickit/using-automatic-token-generation-for-apple-music-api)を参照してください。
 
 1. [Apple Developer の Certificates, Identifiers & Profiles](https://developer.apple.com/account/resources/identifiers/list) で、このアプリ用の **Explicit App ID** を作成するか既存の App ID を開き、**App Services → MusicKit** を有効にします。
-2. Xcode の **Targets → IntoL → Signing & Capabilities** で自分の Team を選び、Bundle Identifier をその App ID と完全に一致させます。リポジトリ内の `com.example.IntoL` は仮の値です。署名プロファイルを更新して実機にインストールします。
+2. Xcode の **Targets → IntoL → Signing & Capabilities** で自分の Team を選び、Bundle Identifier をその App ID と完全に一致させます。現在のリポジトリの値は `com.intro.IntoL` です。署名プロファイルを更新して実機にインストールします。
 3. Apple Music を利用できる Apple Account で iPhone にサインインし、Apple Music の有効なサブスクリプションを用意します。IntoL の「アカウント」で「Apple Music に接続」を押してライブラリへのアクセスを許可します。許可を拒否した場合は iPhone の設定から IntoL のメディアライブラリアクセスを変更します。
 4. 「プレイ」→「ひとりで」→「イントロ」→「Apple Music」からプレイリストを選びます。対戦する場合は全員が Apple Music に接続し、ホストは「みんなで」→「イントロ」→「Apple Musicで作る」を選び、ルームの待機画面でプレイリストを選びます。対戦ではライブラリ曲を Apple Music カタログに対応付け、曲名のバージョン表記・アーティスト・曲長が一致しない候補は除外します。参加者の地域で再生できない曲があると、そのラウンドの準備が完了しません。
 
@@ -58,7 +62,7 @@ Apple Music のプレイリストはイントロクイズで利用できます�
 
 1. `cp .env.example .env` を実行し、対戦またはサビトロを使う場合は `APP_SERVER_URL` を記入します。値が空欄でもデモは動きます。`.env` は Git の管理対象外です。値を変えたらアプリを再ビルドしてください。
 2. [IntoL.xcodeproj](IntoL.xcodeproj) を Xcode で開きます。
-3. **Targets → IntoL → Signing & Capabilities** で自分の Team を選び、`com.example.IntoL` を自分の Bundle Identifier に変えます。
+3. **Targets → IntoL → Signing & Capabilities** で自分の Team を選び、Bundle Identifierがご自身のApp IDと一致することを確認します。追加済みのiCloud capabilityに合わせて[CloudKitの設定](docs/cloudkit-setup.md)を行ってください。
 4. iPhone 実機を選んで **Run**（⌘R）します。必要に応じて iPhone のデベロッパモードを有効化し、Mac を信頼します。シミュレータでもデモの画面と一部音源は確認できますが、Apple Music の実再生は実機で確認してください。
 5. まず設定なしで「プレイ」→「ひとりで」→「イントロ」→「オリジナル音源」→「プレイ開始」→ PUSH → 4択 → 結果 → 復習を確認します。
    「ショートカット」アプリから「ひとりで練習」を実行すると、同じオリジナル音源のソロ練習を直接始められます。
@@ -80,6 +84,12 @@ cd server
 npm ci
 npm test
 npm run test:socket
+```
+
+CloudKit同期データの統合テスト（Mac上で実行。iCloudの設定は不要）:
+
+```sh
+sh scripts/test_cloud_profile.sh
 ```
 
 ローカル起動は Node.js 22 以降で `cd server && node index.mjs` です。iPhone からアクセスする場合は HTTPS の Coolify 環境を使います。

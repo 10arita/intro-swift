@@ -1058,6 +1058,34 @@ test('profile needs its secret and stores five results', () => {
   assert.equal(loaded.body.secret, undefined);
 });
 
+test('CloudKit public summary does not overwrite legacy personal data and is visible in the room profile', () => {
+  const query = new URLSearchParams();
+  const registered = handle('POST', '/profile', { id: 'cloudkit-summary-profile' }, query).body;
+  const auth = `Bearer ${registered.token}`;
+  const personal = { id: registered.id, reviews: [{ song: { id: 'personal-song' }, savedAt: 1 }],
+    history: [{ id: 'personal-result' }], stats: { games: 7, totalPushSeconds: 123, genres: { Pop: { attempts: 3 } } } };
+  handle('PUT', '/profile', personal, query, auth);
+  const publication = { id: registered.id, name: 'Cloud player', avatar: '',
+    publicStats: { games: 10, attempts: 20, correct: 15, selectedBadge: 'はじめの一歩',
+      badges: ['はじめの一歩'], reviews: ['must-not-be-stored'], genres: { secret: true } } };
+  assert.equal(handle('PUT', '/profile', publication, query).status, 403);
+  assert.equal(handle('PUT', '/profile', publication, query, auth).status, 200);
+  const stored = handle('GET', '/profile', {}, new URLSearchParams({ id: registered.id }), auth).body;
+  assert.deepEqual(stored.reviews, personal.reviews);
+  assert.deepEqual(stored.history, personal.history);
+  assert.deepEqual(stored.stats, personal.stats);
+  assert.equal(stored.publicStats.reviews, undefined);
+  assert.equal(stored.publicStats.genres, undefined);
+  const room = handle('POST', '/rooms', { playerId: 'cloudkit-summary-player', profileId: registered.id,
+    profileToken: registered.token, name: 'Cloud player', settings: { questionCount: 1 } }, query).body;
+  const visible = handle('GET', '/player-profile', {}, new URLSearchParams({ roomId: room.id,
+    playerId: 'cloudkit-summary-player', targetPlayerId: 'cloudkit-summary-player' }), `Bearer ${room.sessionToken}`).body;
+  assert.equal(visible.stats.games, 10);
+  assert.equal(visible.badge, 'はじめの一歩');
+  assert.equal(visible.reviews, undefined);
+  assert.equal(visible.stats.totalPushSeconds, undefined);
+});
+
 test('Apple Music rooms hide the title, accept readiness, and allow a lobby host transfer', () => {
   const song = { id: 'applemusic:1000000004', title: '怪獣の花唄', artist: 'Vaundy',
     previewURL: null, durationMS: 220000, genre: 'Pop' };

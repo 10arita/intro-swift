@@ -28,32 +28,36 @@ struct SoloGame {
     @Published var searchTerm = ""
     @Published var searchSongs: [Song] = []
     @Published var sharedSongs: [Song] = []
-    @Published var game: SoloGame? { didSet { updateBGM() } }
+    @Published var game: SoloGame? { didSet { updateBGM(); if game == nil { scheduleProfileSync() } } }
     @Published var lastResult: SoloResult?
     @Published var reviews: [ReviewSong] = []
     @Published var history: [SoloResult] = []
     @Published var stats = PlayerStats()
-    @Published var busy = false
+    @Published var busy = false { didSet { if !busy { scheduleProfileSync() } } }
     @Published var preparationStatus: String?
     @Published var alert: String?
     let serverURL = AppConfiguration.serverURL
     var serverConfigured: Bool { !serverURL.isEmpty }
     @Published var nickname = UserDefaults.standard.string(forKey: "nickname") ?? "プレイヤー" {
-        didSet { UserDefaults.standard.set(nickname, forKey: "nickname") }
+        didSet { UserDefaults.standard.set(nickname, forKey: "nickname"); persist() }
     }
     @Published private(set) var avatarData: Data? = PlayerAvatar.load()
     var roomAvatar: String? { avatarData?.base64EncodedString() }
 
     func setAvatar(_ image: UIImage, crop: CGRect) throws {
         avatarData = try PlayerAvatar.save(image, crop: crop)
+        persist()
     }
 
     func removeAvatar() throws {
         try PlayerAvatar.remove()
         avatarData = nil
+        persist()
     }
-    @Published var room: RoomState? { didSet { updateBGM() } }
-    @Published var roomID: String? = UserDefaults.standard.string(forKey: "roomID")
+    @Published var room: RoomState? { didSet { updateBGM(); if room == nil { scheduleProfileSync() } } }
+    @Published var roomID: String? = UserDefaults.standard.string(forKey: "roomID") {
+        didSet { if roomID == nil { scheduleProfileSync() } }
+    }
     @Published var roomSettings = RoomSettings()
     @Published var roomAnswer = ""
     @Published var roomOptions: [String] = []
@@ -79,23 +83,27 @@ struct SoloGame {
     @Published var itunesTerm = ""
     @Published var itunesSongs: [Song] = []
     @Published var profileSyncStatus: String?
+    @Published private(set) var profileSyncing = false
     @Published var bgmVolume = UserDefaults.standard.object(forKey: "bgmVolume") as? Double ?? 0.35 {
         didSet {
             UserDefaults.standard.set(bgmVolume, forKey: "bgmVolume")
             sound.bgmVolume = Float(bgmVolume)
             updateBGM()
+            persist()
         }
     }
     @Published var effectsVolume = UserDefaults.standard.object(forKey: "effectsVolume") as? Double ?? 0.8 {
         didSet {
             UserDefaults.standard.set(effectsVolume, forKey: "effectsVolume")
             sound.effectsVolume = Float(effectsVolume)
+            persist()
         }
     }
     @Published var songVolume = UserDefaults.standard.object(forKey: "songVolume") as? Double ?? 1.0 {
         didSet {
             UserDefaults.standard.set(songVolume, forKey: "songVolume")
             player.volume = Float(songVolume)
+            persist()
         }
     }
 
@@ -123,6 +131,18 @@ struct SoloGame {
     private var appleMusicPlaying = false
     private var appleMusicPauseTask: Task<Void, Never>?
     private var profileSaveTask: Task<Void, Never>?
+    private let cloudProfiles = CloudProfileService()
+    private var cloudProfile: CloudProfile?
+    private var applyingProfile = false
+    private var profileSyncAgain = false
+    private var profileAccountRevision = 0
+    private var profileCacheReadable = true
+    private var profileDeviceID: String = {
+        if let saved = Secrets.get("cloudProfileDeviceID") { return saved }
+        let created = UUID().uuidString
+        Secrets.set(created, for: "cloudProfileDeviceID")
+        return created
+    }()
     private var recordedRoomAttempts = Set<String>()
     private var recordedRoomGenres = Set<String>()
     private var chorusPositions: [String: Int] = [:]
@@ -141,6 +161,32 @@ struct SoloGame {
         sound.bgmVolume = Float(bgmVolume)
         sound.effectsVolume = Float(effectsVolume)
         player.volume = Float(songVolume)
+        do {
+            if let cached = try CloudProfileCache.load(owner: CloudProfileCache.owner) {
+                cloudProfile = cached
+                try applyProfile(cached)
+            } else {
+                // Keychain can survive uninstalling the app. Start a fresh counter stream when its cache is gone.
+                profileDeviceID = UUID().uuidString
+                Secrets.set(profileDeviceID, for: "cloudProfileDeviceID")
+                var initial = CloudProfile(nickname: nickname, avatar: avatarData, audio: profileAudio,
+                    reviews: reviews, history: history, stats: stats, serverProfileID: rooms.profileID)
+                if UserDefaults.standard.bool(forKey: "profileDirty") {
+                    // The old app treated dirty local data as authoritative, including removed reviews.
+                    initial.importedLegacyProfiles.insert(rooms.profileID)
+                }
+                cloudProfile = initial
+                try CloudProfileCache.save(initial, owner: CloudProfileCache.owner)
+                UserDefaults.standard.removeObject(forKey: "profileDirty")
+            }
+        } catch {
+            profileCacheReadable = false
+            profileSyncStatus = "端末のプロフィールを読み込めません: \(error.localizedDescription)"
+        }
+        rooms.onProfileCredentialsChange = { [weak self] in self?.scheduleProfileSync() }
+        if profileSyncStatus == nil {
+            profileSyncStatus = AppConfiguration.cloudKitEnabled ? "端末に保存済み・iCloud同期待ち" : CloudProfileError.notConfigured.localizedDescription
+        }
     }
 
     func setAppActive(_ active: Bool) {
@@ -156,6 +202,7 @@ struct SoloGame {
     func finishGameStart() {
         gameStartHolds = max(0, gameStartHolds - 1)
         updateBGM()
+        if gameStartHolds == 0 { scheduleProfileSync() }
     }
 
     func setReviewAudioPlaying(_ playing: Bool) {
@@ -543,42 +590,143 @@ struct SoloGame {
     }
 
     private func persist() {
-        UserDefaults.standard.set(true, forKey: "profileDirty")
+        guard !applyingProfile else { return }
+        saveLegacyProfileCache()
+        guard profileCacheReadable, var profile = cloudProfile else { return }
+        profile.capture(nickname: nickname, avatar: avatarData, audio: profileAudio,
+                        reviews: reviews, history: history, stats: stats, deviceID: profileDeviceID)
+        cloudProfile = profile
+        if saveLocalProfile() { profileSyncStatus = "端末に保存済み・iCloud同期待ち" }
+        scheduleProfileSync()
+    }
+
+    private var profileAudio: ProfileAudioSettings {
+        .init(bgm: bgmVolume, effects: effectsVolume, song: songVolume)
+    }
+
+    private func saveLegacyProfileCache() {
         UserDefaults.standard.set(try? JSONEncoder().encode(reviews), forKey: "reviews")
         UserDefaults.standard.set(try? JSONEncoder().encode(history), forKey: "history")
         UserDefaults.standard.set(try? JSONEncoder().encode(stats), forKey: "stats")
-        guard !serverURL.isEmpty else { return }
+    }
+
+    @discardableResult private func saveLocalProfile() -> Bool {
+        saveLegacyProfileCache()
+        guard let cloudProfile else { return false }
+        do {
+            try CloudProfileCache.save(cloudProfile, owner: CloudProfileCache.owner)
+            return true
+        } catch {
+            profileSyncStatus = "端末への保存に失敗しました: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    private var canSyncProfile: Bool {
+        game == nil && room == nil && roomID == nil && !busy && gameStartHolds == 0
+    }
+
+    private func scheduleProfileSync() {
+        guard !applyingProfile, profileCacheReadable, cloudProfile != nil else { return }
+        if profileSyncing { profileSyncAgain = true; return }
         profileSaveTask?.cancel()
         profileSaveTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(600))
             guard let self, !Task.isCancelled else { return }
-            self.rooms.baseURL = self.serverURL
-            do {
-                try await self.rooms.saveProfile(reviews: self.reviews, history: self.history, stats: self.stats)
-                UserDefaults.standard.set(false, forKey: "profileDirty")
-                self.profileSyncStatus = "サーバーに保存済み"
-            } catch { self.profileSyncStatus = "同期を再試行してください" }
+            self.profileSaveTask = nil
+            await self.syncProfile()
         }
     }
 
     func syncProfile() async {
-        guard !serverURL.isEmpty else { return }
+        guard profileCacheReadable else { return }
+        guard !profileSyncing else { profileSyncAgain = true; return }
+        guard canSyncProfile else {
+            profileSyncStatus = "端末に保存済み・操作終了後にiCloudへ同期します"
+            return
+        }
+        profileSyncing = true
+        profileSyncAgain = false
+        let revision = profileAccountRevision
+        defer {
+            profileSyncing = false
+            if profileSyncAgain { scheduleProfileSync() }
+        }
         rooms.baseURL = serverURL
+        var migrationPending = false
         do {
-            let saved = try await rooms.profile()
-            if UserDefaults.standard.bool(forKey: "profileDirty") || saved.stats == nil {
-                try await rooms.saveProfile(reviews: reviews, history: history, stats: stats)
-                UserDefaults.standard.set(false, forKey: "profileDirty")
-            } else if let stored = saved.stats {
-                reviews = saved.reviews
-                history = saved.history
-                stats = stored
-                UserDefaults.standard.set(try? JSONEncoder().encode(reviews), forKey: "reviews")
-                UserDefaults.standard.set(try? JSONEncoder().encode(history), forKey: "history")
-                UserDefaults.standard.set(try? JSONEncoder().encode(stats), forKey: "stats")
+            let owner = try await cloudProfiles.accountID()
+            guard revision == profileAccountRevision, canSyncProfile else { return }
+            if let previousOwner = CloudProfileCache.owner, previousOwner != owner {
+                let replacement = try CloudProfileCache.load(owner: owner) ?? CloudProfile()
+                try applyProfile(replacement)
+                cloudProfile = replacement
+                friendsState = nil
+                locallyInvitedFriendIDs = []
             }
-            profileSyncStatus = "サーバーに保存済み"
-        } catch { profileSyncStatus = "同期できません: \(error.localizedDescription)" }
+            // Claim guest data only for the first account; later accounts get isolated caches.
+            CloudProfileCache.owner = owner
+            guard var local = cloudProfile else { return }
+            if !local.importedLegacyProfiles.contains(rooms.profileID), !serverURL.isEmpty {
+                let identity = rooms.profileID
+                do {
+                    if let saved = try await rooms.legacyProfileIfAvailable() {
+                        local.importLegacy(reviews: saved.reviews, history: saved.history,
+                                           stats: saved.stats, profileID: identity)
+                    } else { local.importedLegacyProfiles.insert(identity) }
+                } catch { migrationPending = true }
+                guard revision == profileAccountRevision, canSyncProfile else { return }
+                // Include edits made while the legacy request was in flight.
+                if let current = cloudProfile { local = local.merging(current) }
+            }
+            local.serverCredentials = rooms.profileCredentialSnapshot
+            cloudProfile = local
+            try applyProfile(local)
+            guard saveLocalProfile() else { return }
+            profileSyncStatus = "iCloudに同期中…"
+            let saved = try await cloudProfiles.synchronize(local, accountID: owner)
+            guard revision == profileAccountRevision, canSyncProfile else { return }
+            let merged = saved.merging(cloudProfile ?? local)
+            let needsUpload = try merged.encoded() != saved.encoded()
+            try applyProfile(merged)
+            cloudProfile = merged
+            guard saveLocalProfile() else { return }
+            profileSyncAgain = profileSyncAgain || needsUpload
+            profileSyncStatus = needsUpload ? "端末に保存済み・iCloud同期待ち" : "iCloudに保存済み"
+            if migrationPending { profileSyncStatus = "iCloudに保存済み・旧サーバーの記録は次回取り込みます" }
+        } catch is CancellationError {
+            profileSyncStatus = "端末に保存済み・iCloud同期待ち"
+        } catch {
+            profileSyncStatus = CloudProfileService.status(for: error)
+        }
+        // Only the public-facing summary is copied to the room server for friend/profile screens.
+        if revision == profileAccountRevision, canSyncProfile, !serverURL.isEmpty {
+            do { try await rooms.publishProfile(name: nickname, avatar: roomAvatar, stats: stats) }
+            catch { /* CloudKit success and offline play do not depend on the room server. */ }
+        }
+    }
+
+    func cloudAccountChanged() {
+        profileAccountRevision += 1
+        profileSyncStatus = "iCloudアカウントを確認しています"
+        scheduleProfileSync()
+    }
+
+    private func applyProfile(_ profile: CloudProfile) throws {
+        guard profile.avatar.value == nil || (profile.avatar.value!.count <= PlayerAvatar.maximumBytes &&
+            UIImage(data: profile.avatar.value!) != nil) else { throw CloudProfileError.invalidProfile }
+        if avatarData != profile.avatar.value { try PlayerAvatar.store(profile.avatar.value) }
+        applyingProfile = true
+        defer { applyingProfile = false }
+        nickname = profile.nickname.value
+        avatarData = profile.avatar.value
+        reviews = profile.reviews
+        history = profile.history
+        stats = profile.stats
+        bgmVolume = min(1, max(0, profile.audio.value.bgm))
+        effectsVolume = min(1, max(0, profile.audio.value.effects))
+        songVolume = min(1, max(0, profile.audio.value.song))
+        rooms.restoreProfileIdentity(profile.serverProfileID, credentials: profile.serverCredentials)
     }
 
     private func playAudio(_ song: Song, offsetMS: Int = 0) {
