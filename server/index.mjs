@@ -703,7 +703,6 @@ export function handle(method, path, body, query, authorization, origin = 'https
   } else if (action === 'rematch') {
     if (room.hostId !== playerId || room.phase !== 'finished') return fail(403, 'ホストのみ再プレイできます');
     room.songs = [];
-    room.settings = settings();
     room.corpus = seedTitles;
     room.gameNumber = (room.gameNumber || 0) + 1;
     room.phase = 'lobby'; room.round = -1;

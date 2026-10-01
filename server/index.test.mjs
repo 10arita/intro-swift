@@ -924,6 +924,7 @@ test('returning to the lobby keeps played history across rule changes and resets
       `Bearer ${id === 'rematch-host' ? host.sessionToken : guest.sessionToken}`);
     assert.equal(host.phase, 'lobby');
     assert.equal(host.totalRounds, 0);
+    assert.equal(act('rematch-host', 'handicaps', { handicaps: { 'rematch-guest': 2 } }).status, 200);
     assert.equal(act('rematch-host', 'start', { settings: { questionCount: 1, targetScore: 0 }, songs }).body.phase, 'preparing');
     for (const id of ['rematch-host', 'rematch-guest']) act(id, 'ready');
     now += 6000;
@@ -941,6 +942,9 @@ test('returning to the lobby keeps played history across rule changes and resets
     assert.equal(rematched.phase, 'lobby');
     assert.equal(rematched.round, -1);
     assert.equal(rematched.gameNumber, 1);
+    assert.equal(rematched.settings.questionCount, 1);
+    assert.equal(rematched.settings.targetScore, 0);
+    assert.equal(rematched.settings.handicaps['rematch-guest'], 2);
     assert.equal(rematched.preload.length, 0);
     assert.deepEqual(rematched.playedSongIDs, [firstSongID]);
     assert.deepEqual(rematched.players.map(p => [p.id, p.score, p.lives, p.roundResults]),

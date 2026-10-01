@@ -345,56 +345,48 @@ struct PlayView: View {
     }
 
     private var selectionFlow: some View {
-        ScrollViewReader { scrollProxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    HStack {
-                        Button(action: goBack) {
-                            Label("戻る", systemImage: "chevron.left")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(Studio.accent)
-                                .frame(minHeight: 44)
-                        }
-                        .buttonStyle(StudioPressStyle())
-                        Spacer()
-                        Text("IntoL").font(.title3.bold()).foregroundStyle(Studio.primary)
-                    }
-                    HStack(spacing: 6) {
-                        ForEach(0..<3) { index in
-                            Capsule().fill(index <= (source != nil ? 2 : kind != nil ? 1 : 0) ? Studio.accent : Studio.line).frame(height: 3)
-                        }
-                    }.accessibilityLabel("ステップ \(source != nil ? 3 : kind != nil ? 2 : 1) / 3")
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(selectionPath)
-                            .font(.caption.weight(.semibold))
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack {
+                    Button(action: goBack) {
+                        Label("戻る", systemImage: "chevron.left")
+                            .font(.subheadline.weight(.semibold))
                             .foregroundStyle(Studio.accent)
-                        Text(pageTitle)
-                            .font(.system(.largeTitle, design: .rounded, weight: .bold))
-                            .foregroundStyle(Studio.primary)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Text(pageDescription)
-                            .font(.subheadline)
-                            .foregroundStyle(Studio.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(minHeight: 44)
                     }
-                    stepContent
+                    .buttonStyle(StudioPressStyle())
+                    Spacer()
+                    Text("IntoL").font(.title3.bold()).foregroundStyle(Studio.primary)
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, party == .together && source != .join ? 88 : 20)
-                .frame(maxWidth: 640)
-                .frame(maxWidth: .infinity)
-                .animation(reduceMotion ? .none : Studio.spring, value: kind)
-                .animation(reduceMotion ? .none : Studio.spring, value: source)
-            }
-            .scrollDismissesKeyboard(.interactively)
-            .scrollBounceBehavior(.basedOnSize)
-            .onChange(of: model.preparationStatus) { _, status in
-                guard status != nil, party == .together, source != .join else { return }
-                withAnimation(reduceMotion ? nil : Studio.spring) {
-                    scrollProxy.scrollTo("roomPreparationStatus", anchor: .bottom)
+                HStack(spacing: 6) {
+                    ForEach(0..<3) { index in
+                        Capsule().fill(index <= (source != nil ? 2 : kind != nil ? 1 : 0) ? Studio.accent : Studio.line).frame(height: 3)
+                    }
+                }.accessibilityLabel("ステップ \(source != nil ? 3 : kind != nil ? 2 : 1) / 3")
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(selectionPath)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Studio.accent)
+                    Text(pageTitle)
+                        .font(.system(.largeTitle, design: .rounded, weight: .bold))
+                        .foregroundStyle(Studio.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(pageDescription)
+                        .font(.subheadline)
+                        .foregroundStyle(Studio.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
+                stepContent
             }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
+            .frame(maxWidth: 640)
+            .frame(maxWidth: .infinity)
+            .animation(reduceMotion ? .none : Studio.spring, value: kind)
+            .animation(reduceMotion ? .none : Studio.spring, value: source)
         }
+        .scrollDismissesKeyboard(.interactively)
+        .scrollBounceBehavior(.basedOnSize)
     }
 
     private var selectionPath: String {
@@ -461,11 +453,11 @@ struct PlayView: View {
                 PlayOptionButton(title: "試聴曲を検索", subtitle: "曲名やアーティストから探す", symbol: "magnifyingglass") { source = .itunes }
                 PlayOptionButton(title: "Apple Musicプレイリスト", subtitle: "試聴曲と照合して遊ぶ", symbol: "music.note.list") { source = .appleMusicPreview }
             } else if kind == .intro {
-                PlayOptionButton(title: "共有音源で作る", subtitle: "登録された曲で対戦", symbol: "music.note.list") { selectRoomSource(.shared) }
-                PlayOptionButton(title: "Apple Musicで作る", subtitle: "全員が Apple Music で再生", symbol: "music.note.list") { selectRoomSource(.appleMusic) }
+                PlayOptionButton(title: "共有音源で作る", subtitle: "登録された曲で対戦", symbol: "music.note.list", disabled: model.busy) { createRoom(using: .shared) }
+                PlayOptionButton(title: "Apple Musicで作る", subtitle: "全員が Apple Music で再生", symbol: "music.note.list", disabled: model.busy) { createRoom(using: .appleMusic) }
                 PlayOptionButton(title: "ルームに参加", subtitle: "6文字のIDを入力", symbol: "person.badge.plus") { source = .join }
             } else {
-                PlayOptionButton(title: "Apple Musicプレイリストから作る", subtitle: "iTunes の試聴曲で対戦", symbol: "music.note.list") { selectRoomSource(.appleMusicPreview) }
+                PlayOptionButton(title: "Apple Musicプレイリストから作る", subtitle: "iTunes の試聴曲で対戦", symbol: "music.note.list", disabled: model.busy) { createRoom(using: .appleMusicPreview) }
                 PlayOptionButton(title: "ルームに参加", subtitle: "6文字のIDを入力", symbol: "person.badge.plus") { source = .join }
             }
         }
@@ -484,7 +476,7 @@ struct PlayView: View {
         } else if source == .join {
             joinContent
         } else {
-            roomContent
+            EmptyView()
         }
     }
 
@@ -639,34 +631,6 @@ struct PlayView: View {
         }
     }
 
-    private var roomContent: some View {
-        StudioCard {
-            VStack(alignment: .leading, spacing: 18) {
-                if model.serverConfigured {
-                    PrimaryButton(title: "ルームを作る", symbol: "arrow.right",
-                                  disabled: model.busy) {
-                        Task { await model.createRoom() }
-                    }
-                    if let status = model.preparationStatus {
-                        HStack(spacing: 8) {
-                            ProgressView().tint(Studio.accent)
-                            Text(status).font(.caption).foregroundStyle(Studio.secondary)
-                        }
-                        .id("roomPreparationStatus")
-                    }
-                    if source == .appleMusic && !model.appleMusicPlayable {
-                        Text("Apple Music 対戦には全員のサブスクリプションが必要です")
-                            .font(.caption).foregroundStyle(Studio.secondary)
-                    }
-                } else {
-                    Text("対戦は現在利用できません")
-                        .foregroundStyle(Studio.secondary)
-                }
-            }
-            .font(.subheadline)
-        }
-    }
-
     private var joinContent: some View {
         StudioCard {
             VStack(alignment: .leading, spacing: 16) {
@@ -716,14 +680,15 @@ struct PlayView: View {
         }
     }
 
-    private func selectRoomSource(_ value: PlaySource) {
-        source = value
+    private func createRoom(using value: PlaySource) {
+        let mode: String
         switch value {
-        case .shared: model.roomMode = "shared"
-        case .appleMusic: model.roomMode = "applemusic"
-        case .appleMusicPreview: model.roomMode = "sabitro"
-        default: break
+        case .shared: mode = "shared"
+        case .appleMusic: mode = "applemusic"
+        case .appleMusicPreview: mode = "sabitro"
+        default: return
         }
+        Task { await model.createRoom(mode: mode) }
     }
 
     private func goBack() {

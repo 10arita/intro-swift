@@ -76,7 +76,6 @@ struct SoloGame {
     @Published var appleMusicSongs: [Song] = []
     @Published var selectedAppleMusicPlaylistID = ""
     private var playlistSelectionRevision = 0
-    @Published var roomMode = "shared"
     @Published var itunesTerm = ""
     @Published var itunesSongs: [Song] = []
     @Published var profileSyncStatus: String?
@@ -706,15 +705,15 @@ struct SoloGame {
         return songs.filter { seen.insert($0.id).inserted }
     }
 
-    func createRoom() async {
+    func createRoom(mode: String) async {
         guard !busy else { return }
         busy = true; defer { busy = false }
         rooms.baseURL = serverURL
         do {
-            let state = try await rooms.create(name: nickname, settings: RoomSettings(), mode: roomMode,
+            let state = try await rooms.create(name: nickname, settings: RoomSettings(), mode: mode,
                                                badge: stats.selectedBadge, avatar: roomAvatar,
                                                deferQuestions: true)
-            guard state.mode == roomMode else {
+            guard state.mode == mode else {
                 _ = try? await rooms.action("leave", id: state.id)
                 throw AppError.message("対戦サーバーを更新してから、この音源でルームを作成してください")
             }
@@ -731,7 +730,7 @@ struct SoloGame {
         do {
             guard room?.id == current.id, room?.phase == "finished" else { return }
             receiveNetworkRoom(try await rooms.action("rematch", id: current.id))
-            roomSettings = RoomSettings()
+            roomSettings = current.settings
         } catch {
             showRoomNotice(error.localizedDescription)
         }
@@ -907,6 +906,8 @@ struct SoloGame {
 
     private func enterRoom(_ state: RoomState) {
         locallyInvitedFriendIDs.removeAll()
+        if state.phase == "lobby", (state.gameNumber ?? 0) > 0,
+           state.hostId == rooms.playerId { roomSettings = state.settings }
         roomID = state.id
         UserDefaults.standard.set(state.id, forKey: "roomID")
         room = state
@@ -980,6 +981,11 @@ struct SoloGame {
 
     private func receiveRoom(_ state: RoomState) {
         let old = room
+        if state.phase == "lobby", (state.gameNumber ?? 0) > 0,
+           state.hostId == rooms.playerId,
+           (old?.gameNumber != state.gameNumber || old?.hostId != state.hostId) {
+            roomSettings = state.settings
+        }
         if old?.id == state.id, old?.gameNumber != state.gameNumber {
             preloadedRoomID = nil
             preparedRoomRound = nil
