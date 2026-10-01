@@ -112,8 +112,10 @@ private struct AppleMusicLibrarySongResponse: Decodable {
     func catalogSongs(for source: [Song]) async -> [Song] {
         var result: [Song] = []
         for song in source {
+            guard !Task.isCancelled else { return result }
             guard let librarySong = songsByID[song.id],
                   let catalogSong = await catalogMatch(for: librarySong) else { continue }
+            guard !Task.isCancelled else { return result }
             let id = "applemusic:\(catalogSong.id)"
             songsByID[id] = catalogSong
             result.append(Song(id: id, title: catalogSong.title, artist: catalogSong.artistName,
@@ -126,6 +128,7 @@ private struct AppleMusicLibrarySongResponse: Decodable {
     }
 
     private func catalogMatch(for librarySong: MusicKit.Song) async -> MusicKit.Song? {
+        guard !Task.isCancelled else { return nil }
         func exact(_ candidate: MusicKit.Song) -> Bool {
             guard isCatalogID(String(describing: candidate.id)), candidate.playParameters != nil else { return false }
             func key(_ text: String) -> String {
@@ -143,10 +146,13 @@ private struct AppleMusicLibrarySongResponse: Decodable {
         if isCatalogID(libraryID), let song = try? await catalogSong(for: "applemusic:\(libraryID)"), exact(song) {
             return song
         }
+        guard !Task.isCancelled else { return nil }
         if let catalogID = await associatedCatalogID(for: libraryID), isCatalogID(catalogID),
+           !Task.isCancelled,
            let song = try? await catalogSong(for: "applemusic:\(catalogID)"), exact(song) {
             return song
         }
+        guard !Task.isCancelled else { return nil }
         if let isrc = librarySong.isrc {
             let request = MusicCatalogResourceRequest<MusicKit.Song>(matching: \.isrc, equalTo: Optional(isrc))
             if let song = try? await request.response().items.first(where: exact) { return song }
@@ -218,12 +224,14 @@ private struct AppleMusicLibrarySongResponse: Decodable {
     }
 
     private func catalogSong(for songID: String) async throws -> MusicKit.Song {
+        try Task.checkCancellation()
         guard songID.hasPrefix("applemusic:") else { throw AppError.message("Apple Music の曲IDが無効です") }
         let id = String(songID.dropFirst("applemusic:".count))
         let request = MusicCatalogResourceRequest<MusicKit.Song>(matching: \.id, equalTo: MusicItemID(id))
         guard let item = try await request.response().items.first, item.playParameters != nil else {
             throw AppError.message("この Apple Music の曲は再生できません")
         }
+        try Task.checkCancellation()
         return item
     }
 
