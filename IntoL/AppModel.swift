@@ -977,7 +977,13 @@ struct SoloGame {
                 payload: ["settings": rules, "songs": songList, "corpus": corpus]))
             preparedRoomSongs = nil
         } catch is CancellationError { }
-        catch { showRoomNotice(error.localizedDescription) }
+        catch {
+            guard room?.id == current.id, room?.gameNumber == current.gameNumber,
+                  room?.phase == "lobby", !Task.isCancelled else { return }
+            showRoomNotice(RoomService.isConnectionError(error)
+                ? "ゲームの開始を確認できません。接続を確認して再試行してください"
+                : error.localizedDescription)
+        }
     }
 
     func joinRoom(_ code: String) async {
@@ -1185,6 +1191,8 @@ struct SoloGame {
         }
         if state.phase == "countdown" &&
             (old?.id != state.id || old?.round != state.round || old?.phase != "countdown") {
+            if old?.id == state.id, old?.gameNumber == state.gameNumber,
+               old?.round == state.round, old?.phase == "preparing" { roomError = nil }
             sound.play(.question)
         }
         if let old, old.id == state.id, old.round == state.round {
@@ -1228,9 +1236,12 @@ struct SoloGame {
                     self.roomPreparationStatus = "準備完了"
                     self.roomError = nil
                 } catch {
-                    guard !Task.isCancelled else { return }
+                    guard !Task.isCancelled, self.room?.id == state.id,
+                          self.room?.gameNumber == state.gameNumber, self.room?.phase == "lobby" else { return }
                     self.roomPreparationStatus = nil
-                    self.roomError = error.localizedDescription
+                    self.roomError = RoomService.isConnectionError(error)
+                        ? "画像と音源の準備中に通信が途切れました。接続を確認して再試行してください"
+                        : error.localizedDescription
                 }
             }
         }
@@ -1286,7 +1297,12 @@ struct SoloGame {
                     guard self.room?.round == state.round, self.room?.phase == "preparing" else { return }
                     self.receiveNetworkRoom(try await self.rooms.action("ready", id: state.id))
                 } catch {
-                    if self.room?.round == state.round { self.roomError = error.localizedDescription }
+                    guard !Task.isCancelled, self.room?.id == state.id,
+                          self.room?.gameNumber == state.gameNumber, self.room?.round == state.round,
+                          self.room?.phase == "preparing" else { return }
+                    self.roomError = RoomService.isConnectionError(error)
+                        ? "音源の準備中に通信が途切れました。接続を確認して再試行してください"
+                        : error.localizedDescription
                 }
             }
         }

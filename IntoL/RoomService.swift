@@ -217,6 +217,8 @@ struct SavedProfile: Decodable {
 
 @MainActor final class RoomService {
     var baseURL = ""
+    private let session: URLSession
+    private var latestRoomState: RoomState?
     private(set) var serverClockOffsetMS = 0.0
     private var bestClockRTTMS = Double.infinity
     private var clockSampleAt = Date.distantPast
@@ -245,7 +247,8 @@ struct SavedProfile: Decodable {
         for pending in waiting { pending.continuation.resume(throwing: URLError(.networkConnectionLost)) }
     }
 
-    init() {
+    init(session: URLSession = .shared) {
+        self.session = session
         if let saved = UserDefaults.standard.string(forKey: "roomPlayerId") { playerId = saved }
         else { playerId = UUID().uuidString; UserDefaults.standard.set(playerId, forKey: "roomPlayerId") }
         // Keep the existing profile and friend graph when upgrading from account-based identity.
@@ -264,6 +267,7 @@ struct SavedProfile: Decodable {
     }
 
     private func sampleClock(_ state: RoomState, sentAt: Double, receivedAt: Double) {
+        remember(state)
         supportsChoiceRetry = state.supportsChoiceRetry == true
         let roundTrip = receivedAt - sentAt
         if roundTrip < bestClockRTTMS || Date.now.timeIntervalSince(clockSampleAt) > 30 {
@@ -271,6 +275,16 @@ struct SavedProfile: Decodable {
             bestClockRTTMS = roundTrip
             clockSampleAt = .now
         }
+    }
+
+    private func remember(_ state: RoomState) {
+        if let current = latestRoomState, current.id == state.id {
+            if state.serverNow < current.serverNow { return }
+            if state.serverNow == current.serverNow,
+               let sequence = state.sequence, let currentSequence = current.sequence,
+               sequence <= currentSequence { return }
+        }
+        latestRoomState = state
     }
 
     private func request(_ path: String, method: String = "GET", payload: [String: Any] = [:], authentication: String? = nil) async throws -> RoomState {
@@ -287,7 +301,7 @@ struct SavedProfile: Decodable {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
         let sentAt = Date.now.timeIntervalSince1970 * 1000
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         let receivedAt = Date.now.timeIntervalSince1970 * 1000
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         if !(200...299).contains(status) {
@@ -338,7 +352,7 @@ struct SavedProfile: Decodable {
         guard let url = components.url else { throw AppError.message("対戦サーバーに接続できません") }
         var request = URLRequest(url: url)
         if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
-        let task = URLSession.shared.webSocketTask(with: request)
+        let task = session.webSocketTask(with: request)
         let sentAt = Date.now.timeIntervalSince1970 * 1000
         roomSocket = task
         socketRoomID = id
@@ -365,6 +379,7 @@ struct SavedProfile: Decodable {
                 }
                 let envelope = try JSONDecoder().decode(RoomSocketMessage.self, from: data)
                 if envelope.type == "state", let state = envelope.state {
+                    remember(state)
                     if !socketReady {
                         sampleClock(state, sentAt: sentAt, receivedAt: Date.now.timeIntervalSince1970 * 1000)
                         socketReady = true
@@ -422,7 +437,7 @@ struct SavedProfile: Decodable {
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         let sentAt = Date.now.timeIntervalSince1970 * 1000
-        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+        let (bytes, response) = try await session.bytes(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         if status == 404 { throw RoomStreamError.unsupported }
         guard status == 200 else { throw AppError.message("ルームに接続できません (\(status))") }
@@ -435,6 +450,7 @@ struct SavedProfile: Decodable {
             guard line.hasPrefix("data: ") else { continue }
             let data = Data(line.dropFirst(6).utf8)
             let state = try JSONDecoder().decode(RoomState.self, from: data)
+            remember(state)
             if firstState {
                 sampleClock(state, sentAt: sentAt, receivedAt: Date.now.timeIntervalSince1970 * 1000)
                 firstState = false
@@ -541,21 +557,75 @@ struct SavedProfile: Decodable {
     func action(_ action: String, id: String, payload: [String: Any] = [:]) async throws -> RoomState {
         var payload = payload
         if action == "choose" { payload["actionId"] = UUID().uuidString }
-        if action != "leave", socketReady, socketRoomID == id, let roomSocket {
-            do { return try await socketAction(action, payload: payload, task: roomSocket) }
-            catch {
-                guard action == "choose", supportsChoiceRetry, Self.isConnectionError(error),
-                      !Task.isCancelled else { throw error }
-                // The server uses actionId to return the current state if the socket
-                // processed this answer before its acknowledgement was lost.
+        let previous = latestRoomState
+        do {
+            if action != "leave", socketReady, socketRoomID == id, let roomSocket {
+                return try await socketAction(action, payload: payload, task: roomSocket)
+            }
+            return try await request("rooms/\(id)/\(action)", method: "POST", payload: payload)
+        }
+        catch {
+            guard Self.isConnectionError(error), !Task.isCancelled else { throw error }
+            if action == "choose", supportsChoiceRetry {
+                // The server deduplicates answers by actionId when only the acknowledgement was lost.
                 return try await request("rooms/\(id)/\(action)", method: "POST", payload: payload)
             }
+            guard ["start", "ready", "assets-ready"].contains(action),
+                  let previous, previous.id == id else { throw error }
+            return try await recoverPreparationAction(action, id: id, payload: payload,
+                                                       previous: previous, originalError: error)
         }
-        do { return try await request("rooms/\(id)/\(action)", method: "POST", payload: payload) }
+    }
+
+    private func preparationActionCompleted(_ action: String, previous: RoomState, current: RoomState) -> Bool {
+        guard current.id == previous.id, current.gameNumber == previous.gameNumber else { return false }
+        switch action {
+        case "start":
+            return previous.phase == "lobby" && current.phase != "lobby" && current.round >= 0
+        case "ready":
+            return current.round > previous.round || current.round == previous.round &&
+                (current.readyIds.contains(playerId) || ["countdown", "listening", "answering", "reveal", "finished"].contains(current.phase))
+        case "assets-ready":
+            return (current.assetsReadyIds ?? []).contains(playerId) || current.phase != "lobby" && current.round >= 0
+        default:
+            return false
+        }
+    }
+
+    private func recoverPreparationAction(_ action: String, id: String, payload: [String: Any],
+                                          previous: RoomState, originalError: Error) async throws -> RoomState {
+        if let observed = latestRoomState, preparationActionCompleted(action, previous: previous, current: observed) {
+            return observed
+        }
+        let current: RoomState
+        do { current = try await state(id) }
         catch {
-            guard action == "choose", supportsChoiceRetry, Self.isConnectionError(error),
-                  !Task.isCancelled else { throw error }
+            try Task.checkCancellation()
+            if let observed = latestRoomState, preparationActionCompleted(action, previous: previous, current: observed) {
+                return observed
+            }
+            throw originalError
+        }
+        try Task.checkCancellation()
+        if let observed = latestRoomState, preparationActionCompleted(action, previous: previous, current: observed) {
+            return observed
+        }
+        if preparationActionCompleted(action, previous: previous, current: current) { return current }
+        // Never resend a start into a new game, or readiness into the next round.
+        guard current.id == previous.id, current.gameNumber == previous.gameNumber,
+              current.round == previous.round,
+              current.phase == (action == "ready" ? "preparing" : "lobby") else { throw originalError }
+        do {
             return try await request("rooms/\(id)/\(action)", method: "POST", payload: payload)
+        } catch {
+            guard Self.isConnectionError(error), !Task.isCancelled else { throw error }
+            if let observed = latestRoomState, preparationActionCompleted(action, previous: previous, current: observed) {
+                return observed
+            }
+            if let refreshed = try? await state(id), preparationActionCompleted(action, previous: previous, current: refreshed) {
+                return refreshed
+            }
+            throw error
         }
     }
 
@@ -570,6 +640,7 @@ struct SavedProfile: Decodable {
     }
     func clear() {
         disconnectSocket()
+        latestRoomState = nil
         supportsChoiceRetry = false
         token = nil
         Secrets.set(nil, for: "roomSessionToken")
