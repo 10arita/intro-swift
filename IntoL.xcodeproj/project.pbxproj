@@ -143,7 +143,9 @@
 					E00000000000000000000001 = {
 						CreatedOnToolsVersion = 26.0;
 						SystemCapabilities = {
-							com.apple.iCloud = { enabled = 1; };
+							com.apple.iCloud = {
+								enabled = 1;
+							};
 						};
 					};
 				};
@@ -329,7 +331,7 @@
 				CLOUDKIT_CONTAINER_IDENTIFIER = "iCloud.$(PRODUCT_BUNDLE_IDENTIFIER)";
 				CODE_SIGN_ENTITLEMENTS = IntoL/IntoL.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 19;
+				CURRENT_PROJECT_VERSION = 20;
 				DEVELOPMENT_TEAM = 846DPLLG2V;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = IntoL/Info.plist;
@@ -338,7 +340,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 4.8.2;
+				MARKETING_VERSION = 4.9;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -360,7 +362,7 @@
 				CLOUDKIT_CONTAINER_IDENTIFIER = "iCloud.$(PRODUCT_BUNDLE_IDENTIFIER)";
 				CODE_SIGN_ENTITLEMENTS = IntoL/IntoL.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 19;
+				CURRENT_PROJECT_VERSION = 20;
 				DEVELOPMENT_TEAM = 846DPLLG2V;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = IntoL/Info.plist;
@@ -369,7 +371,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 4.8.2;
+				MARKETING_VERSION = 4.9;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
