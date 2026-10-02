@@ -16,6 +16,7 @@ enum AppError: LocalizedError {
 }
 
 enum Secrets {
-    static func get(_ key: String) -> String? { nil }
-    static func set(_ value: String?, for key: String) { }
+    static var values: [String: String] = [:]
+    static func get(_ key: String) -> String? { values[key] }
+    static func set(_ value: String?, for key: String) { values[key] = value }
 }

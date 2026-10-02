@@ -68,3 +68,22 @@ test('approved friends and room invitations survive a server restart', () => {
     assert.deepEqual(second, { status: 200, friends: 1, invites: 1 });
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
+
+test('registration retry credentials survive a server restart after a lost acknowledgement', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'intol-registration-'));
+  const registrationToken = 'a13c43fa-3204-4b86-bba2-e6d6c411c0c6';
+  try {
+    run(`
+      import { handle, saveStateNow } from './index.mjs';
+      const created = handle('POST', '/profile', { id: 'registration-restart', registrationToken: '${registrationToken}' }, new URLSearchParams());
+      saveStateNow();
+      console.log(JSON.stringify({ status: created.status }));
+    `, directory);
+    const restored = run(`
+      import { handle } from './index.mjs';
+      const retried = handle('POST', '/profile', { id: 'registration-restart', registrationToken: '${registrationToken}' }, new URLSearchParams());
+      console.log(JSON.stringify({ status: retried.status, token: retried.body.token }));
+    `, directory);
+    assert.deepEqual(restored, { status: 200, token: registrationToken });
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});

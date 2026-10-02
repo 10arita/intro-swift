@@ -638,6 +638,11 @@ struct SavedProfile: Decodable {
            underlying !== error { return isConnectionError(underlying) }
         return false
     }
+
+    static func isExpiredSession(_ error: Error) -> Bool {
+        guard let failure = error as? RoomHTTPError else { return false }
+        return failure.status == 403 || failure.status == 404
+    }
     func clear() {
         disconnectSocket()
         latestRoomState = nil
@@ -648,6 +653,7 @@ struct SavedProfile: Decodable {
     }
 
     private var profileKey: String { "profileToken:\(baseURL.trimmingCharacters(in: .whitespacesAndNewlines)):\(profileID)" }
+    private var profileRegistrationKey: String { "profileRegistration:\(baseURL.trimmingCharacters(in: .whitespacesAndNewlines)):\(profileID)" }
     var profileCredentialSnapshot: [String: String] {
         guard !baseURL.isEmpty, let credential = Secrets.get(profileKey) else { return [:] }
         return [baseURL.trimmingCharacters(in: .whitespacesAndNewlines): credential]
@@ -759,13 +765,21 @@ struct SavedProfile: Decodable {
         if let existingToken {
             request.setValue("Bearer \(existingToken)", forHTTPHeaderField: "Authorization")
         } else {
+            // Persist before sending so a lost request or acknowledgement can be retried.
+            let registration = Secrets.get(profileRegistrationKey) ?? UUID().uuidString
+            if Secrets.get(profileRegistrationKey) == nil {
+                Secrets.set(registration, for: profileRegistrationKey)
+            }
+            guard Secrets.get(profileRegistrationKey) == registration else {
+                throw AppError.message("プロフィールの登録情報を端末に保存できません")
+            }
             request.url = try endpoint("profile")
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try JSONSerialization.data(withJSONObject: ["id": profileID])
+            request.httpBody = try JSONSerialization.data(withJSONObject: ["id": profileID, "registrationToken": registration])
         }
         request.timeoutInterval = 10
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200...299).contains(status) else {
             throw AppError.message("プロフィールの同期に失敗しました (\(status))")
@@ -773,6 +787,10 @@ struct SavedProfile: Decodable {
         let saved = try JSONDecoder().decode(SavedProfile.self, from: data)
         if let token = saved.token {
             Secrets.set(token, for: profileKey)
+            guard Secrets.get(profileKey) == token else {
+                throw AppError.message("プロフィールの認証情報を端末に保存できません")
+            }
+            Secrets.set(nil, for: profileRegistrationKey)
             onProfileCredentialsChange?()
         }
         return saved

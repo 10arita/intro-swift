@@ -31,6 +31,7 @@ struct CloudProfile: Codable {
     var history: [SoloResult]
     // Each installation only increments its own counters. Repeated uploads are idempotent.
     var counters: [String: PlayerStats]
+    var roomStatisticsByDevice: [String: RoomStatisticsLedger]? = nil
     var serverProfileID: String
     var serverCredentials: [String: String] = [:]
     var importedLegacyProfiles: Set<String> = []
@@ -44,14 +45,15 @@ struct CloudProfile: Codable {
         self.audio = .init(value: audio, modifiedAt: .distantPast)
         selectedBadge = .init(value: stats.selectedBadge, modifiedAt: .distantPast)
         reviewEntries = [:]
-        for review in reviews { reviewEntries[review.id] = .init(value: review, modifiedAt: review.savedAt) }
+        for review in reviews { reviewEntries[review.id] = .init(value: review.portable, modifiedAt: review.savedAt) }
         self.history = history
         counters = ["legacy:\(serverProfileID)": stats]
         self.serverProfileID = serverProfileID
     }
 
     var reviews: [ReviewSong] {
-        let items = reviewEntries.values.compactMap(\.value).sorted {
+        let portable: [ReviewSong] = reviewEntries.values.compactMap { $0.value?.portable }
+        let items = portable.sorted {
             $0.savedAt == $1.savedAt ? $0.id < $1.id : $0.savedAt > $1.savedAt
         }
         return Array(items.filter { !$0.learned }.prefix(50)) + Array(items.filter(\.learned).prefix(50))
@@ -78,6 +80,7 @@ struct CloudProfile: Codable {
     mutating func capture(nickname: String, avatar: Data?, audio: ProfileAudioSettings,
                           reviews: [ReviewSong], history: [SoloResult], stats: PlayerStats,
                           deviceID: String, now: Date = .now) {
+        let reviews = reviews.map(\.portable)
         if self.nickname.value != nickname { self.nickname = .init(value: nickname, modifiedAt: now) }
         if self.avatar.value != avatar { self.avatar = .init(value: avatar, modifiedAt: now) }
         if self.audio.value != audio { self.audio = .init(value: audio, modifiedAt: now) }
@@ -129,6 +132,11 @@ struct CloudProfile: Codable {
         for (id, item) in local.counters {
             result.counters[id] = Self.maximum(result.counters[id] ?? .init(), item)
         }
+        for (id, ledger) in local.roomStatisticsByDevice ?? [:] {
+            var ledgers = result.roomStatisticsByDevice ?? [:]
+            ledgers[id] = (ledgers[id] ?? .init()).merging(ledger)
+            result.roomStatisticsByDevice = ledgers
+        }
         if serverProfileID == local.serverProfileID {
             result.serverCredentials.merge(local.serverCredentials) { current, _ in current }
         }
@@ -175,7 +183,7 @@ struct CloudProfile: Codable {
 
     private enum CodingKeys: String, CodingKey {
         case version, nickname, avatar, audio, selectedBadge, reviewEntries, history, counters
-        case serverProfileID, serverCredentials, importedLegacyProfiles
+        case serverProfileID, serverCredentials, importedLegacyProfiles, roomStatisticsByDevice
     }
 
     func encode(to encoder: Encoder) throws {
@@ -188,6 +196,7 @@ struct CloudProfile: Codable {
         try values.encode(reviewEntries, forKey: .reviewEntries)
         try values.encode(history, forKey: .history)
         try values.encode(counters, forKey: .counters)
+        try values.encodeIfPresent(roomStatisticsByDevice, forKey: .roomStatisticsByDevice)
         try values.encode(serverProfileID, forKey: .serverProfileID)
         try values.encode(serverCredentials, forKey: .serverCredentials)
         try values.encode(importedLegacyProfiles.sorted(), forKey: .importedLegacyProfiles)

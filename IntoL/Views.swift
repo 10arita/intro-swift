@@ -236,10 +236,14 @@ struct RootView: View {
         guard !openingPractice, shortcut.practiceRequest != nil else { return }
         openingPractice = true
         defer { openingPractice = false }
-        if model.searchSongs.isEmpty { await model.search() }
-        guard shortcut.practiceRequest != nil else { return }
         shortcut.practiceRequest = nil
-        if !model.searchSongs.isEmpty && model.game == nil { await model.startSolo() }
+        guard model.canStartSolo else {
+            model.alert = "先に現在のゲームまたはルームを終了してください"
+            return
+        }
+        model.searchTerm = ""
+        await model.search()
+        if !model.searchSongs.isEmpty { await model.startSolo() }
     }
 }
 
@@ -1217,7 +1221,7 @@ struct ReviewView: View {
         stopPlayback()
         activeSongID = song.id
         reviewPlayer.volume = Float(model.songVolume)
-        if let url = song.previewURL {
+        if let url = DemoCatalog.previewURL(for: song) {
             reviewPlayer.play(url)
             monitorPlayback(song.id, appleMusic: false)
             return
@@ -1312,7 +1316,7 @@ private struct ReviewSongRow: View {
                     .lineLimit(2)
                 Text(item.song.artist)
                     .font(.caption).foregroundStyle(Studio.secondary).lineLimit(1)
-                if item.song.previewURL != nil || item.song.id.hasPrefix("applemusic:") {
+                if DemoCatalog.previewURL(for: item.song) != nil || item.song.id.hasPrefix("applemusic:") {
                     Button(action: togglePlayback) {
                         HStack(spacing: 4) {
                             if isLoading { ProgressView().controlSize(.mini) }
@@ -2411,15 +2415,16 @@ struct RoomGameView: View {
     }
 
     private func skipButton(_ room: RoomState) -> some View {
-        let wasWrong = room.answerStatus == "wrong"
-        return Button(wasWrong ? "誤答済み・投票不要" :
+        let hasAnswered = room.answerStatus == "wrong" || room.answerStatus == "correct"
+        let disqualified = room.player(model.rooms.playerId)?.disqualified == true
+        return Button(hasAnswered ? "解答済み・投票不要" : disqualified ? "失格・投票不要" :
                room.skippedIds.contains(model.rooms.playerId) ? "スキップに投票済み" : "スキップに投票") {
             Task { await model.roomAction("skip") }
         }
         .font(.subheadline)
         .foregroundStyle(Studio.secondary)
         .frame(minHeight: 36)
-        .disabled(wasWrong || room.skippedIds.contains(model.rooms.playerId))
+        .disabled(hasAnswered || disqualified || room.skippedIds.contains(model.rooms.playerId))
     }
 
     private func compactPlayers(_ room: RoomState) -> some View {

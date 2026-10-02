@@ -268,14 +268,14 @@ function settleNormal(room, now = Date.now()) {
     room.audioStoppedAt ??= now;
   }
   const eligible = room.players.some(player => !player.disqualified && !room.pushed.has(player.id) && now - player.lastSeen < GRACE);
-  if (room.pushed.size >= room.settings.answerSlots || !eligible) room.pushClosed = true;
+  if (room.pushed.size >= room.settings.answerSlots || !eligible || allEligiblePlayersSkipped(room, now)) room.pushClosed = true;
   const active = room.answers.some(answer => answer.status === 'active');
   if (room.pushClosed && !active) reveal(room);
   else room.phase = active ? 'answering' : 'listening';
 }
 function allEligiblePlayersSkipped(room, now = Date.now()) {
   return room.players.filter(player => !player.disqualified && now - player.lastSeen < GRACE &&
-    !room.answers.some(answer => answer.playerId === player.id && answer.status === 'wrong'))
+    !room.answers.some(answer => answer.playerId === player.id && ['correct', 'wrong'].includes(answer.status)))
     .every(player => room.skipped.has(player.id));
 }
 function beginRound(room) {
@@ -370,7 +370,7 @@ function refresh(room) {
   if (room.phase === 'countdown' && now >= room.startAt) room.phase = 'listening';
   if (['listening', 'answering'].includes(room.phase)) {
     if (room.settings.endless) {
-      if (room.pausedAt == null && now >= room.roundDeadline) reveal(room);
+      if (allEligiblePlayersSkipped(room, now) || room.pausedAt == null && now >= room.roundDeadline) reveal(room);
     } else settleNormal(room, now);
   }
   if (room.phase === 'answering') {
@@ -431,8 +431,17 @@ export function handle(method, path, body, query, authorization, origin = 'https
   if (method === 'POST' && path === '/profile') {
     const id = String(body.id || '');
     if (!/^[A-Za-z0-9-]{1,64}$/.test(id)) return fail(400, 'プロフィールIDが無効です');
-    if (profiles.has(id)) return fail(409, '既存プロフィールです');
-    const profile = { id, secret: randomUUID(), reviews: [], history: [], stats: null };
+    const registrationToken = body.registrationToken;
+    if (registrationToken !== undefined &&
+        (typeof registrationToken !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(registrationToken))) {
+      return fail(400, '登録情報が無効です');
+    }
+    const existing = profiles.get(id);
+    if (existing) {
+      if (!registrationToken || existing.secret !== registrationToken) return fail(409, '既存プロフィールです');
+      return { status: 200, body: { ...existing, token: existing.secret, secret: undefined } };
+    }
+    const profile = { id, secret: registrationToken ?? randomUUID(), reviews: [], history: [], stats: null };
     profiles.set(id, profile);
     return { status: 201, body: { ...profile, token: profile.secret, secret: undefined } };
   }
@@ -704,6 +713,9 @@ export function handle(method, path, body, query, authorization, origin = 'https
     }
   } else if (action === 'skip') {
     if (!['listening','answering'].includes(room.phase) || player.disqualified) return fail(409, '今はスキップできません');
+    if (room.answers.some(answer => answer.playerId === playerId && ['correct', 'wrong'].includes(answer.status))) {
+      return fail(409, '解答済みのため投票は不要です');
+    }
     room.skipped.add(playerId);
     if (allEligiblePlayersSkipped(room)) {
       if (room.settings.endless) reveal(room);
@@ -735,6 +747,7 @@ export function handle(method, path, body, query, authorization, origin = 'https
     else {
       if (room.hostId === playerId) room.hostId = room.players.sort((a,b) => a.joinedAt - b.joinedAt)[0].id;
       if (attempt) wrong(room, player, attempt);
+      refresh(room);
     }
     return { status: 200, body: { left: true } };
   } else if (action && action !== 'join' && action !== 'heartbeat') return fail(404, '見つかりません');

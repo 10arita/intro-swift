@@ -133,6 +133,9 @@ struct SoloGame {
     private var lastRoomPhase: String?
     private var preparedRoomRound: Int?
     private var roomPreloadTask: Task<Void, Never>?
+    private let roomRoundPreparation = RoomPreparationTask()
+    private var roomAudioRevision = 0
+    private var leavingRoomID: String?
     private var preloadedRoomID: String?
     private var appIsActive = false
     private var gameStartHolds = 0
@@ -153,8 +156,7 @@ struct SoloGame {
         Secrets.set(created, for: "cloudProfileDeviceID")
         return created
     }()
-    private var recordedRoomAttempts = Set<String>()
-    private var recordedRoomGenres = Set<String>()
+    private var roomStatistics = RoomStatisticsLedger()
     private var chorusPositions: [String: Int] = [:]
     private var chorusLookups: [String: Task<Int?, Never>] = [:]
     private var revealAudioTask: Task<Void, Never>?
@@ -181,6 +183,7 @@ struct SoloGame {
                 Secrets.set(profileDeviceID, for: "cloudProfileDeviceID")
                 var initial = CloudProfile(nickname: nickname, avatar: avatarData, audio: profileAudio,
                     reviews: reviews, history: history, stats: stats, serverProfileID: rooms.profileID)
+                initial.roomStatisticsByDevice = [profileDeviceID: roomStatistics]
                 if UserDefaults.standard.bool(forKey: "profileDirty") {
                     // The old app treated dirty local data as authoritative, including removed reviews.
                     initial.importedLegacyProfiles.insert(rooms.profileID)
@@ -355,6 +358,7 @@ struct SoloGame {
     }
 
     private func launchSolo(songs source: [Song], playlist: String) async throws {
+        guard canStartSolo else { throw AppError.message("先に現在のゲームまたはルームを終了してください") }
         let candidates = uniqueSongs(source)
         let limit = min(10, candidates.count)
         preparationStatus = "選択肢を準備中"
@@ -368,6 +372,7 @@ struct SoloGame {
             if let first = songs.first { try await appleMusic.prepare(first.id) }
         }
         try Task.checkCancellation()
+        guard canStartSolo else { throw AppError.message("先に現在のゲームまたはルームを終了してください") }
         lastResult = nil
         game = SoloGame(songs: songs, playlist: playlist)
         beginRound()
@@ -570,7 +575,7 @@ struct SoloGame {
 
     func saveReview(_ song: Song) {
         guard !reviews.contains(where: { $0.id == song.id }) else { return }
-        reviews.insert(ReviewSong(song: song), at: 0)
+        reviews.insert(ReviewSong(song: song.portableReviewSong), at: 0)
         trimReviews()
         persist()
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -603,6 +608,9 @@ struct SoloGame {
         guard profileCacheReadable, var profile = cloudProfile else { return }
         profile.capture(nickname: nickname, avatar: avatarData, audio: profileAudio,
                         reviews: reviews, history: history, stats: stats, deviceID: profileDeviceID)
+        var ledgers = profile.roomStatisticsByDevice ?? [:]
+        ledgers[profileDeviceID] = roomStatistics
+        profile.roomStatisticsByDevice = ledgers
         cloudProfile = profile
         if saveLocalProfile() { profileSyncStatus = "端末に保存済み・iCloud同期待ち" }
         scheduleProfileSync()
@@ -731,6 +739,7 @@ struct SoloGame {
         reviews = profile.reviews
         history = profile.history
         stats = profile.stats
+        roomStatistics = profile.roomStatisticsByDevice?[profileDeviceID] ?? .init()
         bgmVolume = min(1, max(0, profile.audio.value.bgm))
         effectsVolume = min(1, max(0, profile.audio.value.effects))
         songVolume = min(1, max(0, profile.audio.value.song))
@@ -773,6 +782,7 @@ struct SoloGame {
             appleMusicPauseTask = Task { [weak self] in
                 await previous?.value
                 await active?.value
+                guard !Task.isCancelled else { return }
                 self?.appleMusic.pause()
             }
         } else { player.pause() }
@@ -781,6 +791,7 @@ struct SoloGame {
     private func stopAudio() {
         revealAudioTask?.cancel(); revealAudioTask = nil
         musicTask?.cancel(); musicTask = nil
+        appleMusicPauseTask?.cancel(); appleMusicPauseTask = nil
         appleMusic.stop(); appleMusicPlaying = false
         player.stop()
     }
@@ -1085,11 +1096,9 @@ struct SoloGame {
                 return
             }
             catch {
-                if error.localizedDescription.contains("ルームが見つかりません") ||
-                    error.localizedDescription.contains("セッションを確認できません") {
-                    self.roomID = nil
-                    UserDefaults.standard.removeObject(forKey: "roomID")
-                    rooms.clear()
+                guard !Task.isCancelled, self.roomID == roomID else { return }
+                if RoomService.isExpiredSession(error) {
+                    clearLocalRoom()
                     return
                 }
                 roomError = "ルームへの再接続を試しています…"
@@ -1099,6 +1108,16 @@ struct SoloGame {
     }
 
     private func enterRoom(_ state: RoomState) {
+        leavingRoomID = nil
+        roomRoundPreparation.cancel()
+        roomAudioRevision += 1
+        lastRoomPhase = nil
+        lastRoomRound = nil
+        preparedRoomRound = nil
+        roomAudioStarted = false
+        roomAudioStarting = false
+        scheduledRoomAudio?.cancel()
+        scheduledRoomAudio = nil
         preparedRoomSongs = nil
         locallyInvitedFriendIDs.removeAll()
         if state.phase == "lobby", (state.gameNumber ?? 0) > 0,
@@ -1156,7 +1175,14 @@ struct SoloGame {
                     let state = try await self.rooms.state(id)
                     self.receiveNetworkRoom(state)
                     if self.roomError == "接続を確認しています…" { self.roomError = nil }
-                } catch { self.roomError = "接続を確認しています…" }
+                } catch {
+                    guard !Task.isCancelled, self.roomID == id else { break }
+                    if RoomService.isExpiredSession(error) {
+                        self.clearLocalRoom()
+                        break
+                    }
+                    self.roomError = "接続を確認しています…"
+                }
                 if Task.isCancelled { break }
                 try? await Task.sleep(for: .seconds(streamSupported ? retrySeconds : 2))
                 if streamSupported { retrySeconds = min(retrySeconds * 2, 8) }
@@ -1165,6 +1191,7 @@ struct SoloGame {
     }
 
     private func receiveNetworkRoom(_ state: RoomState) {
+        guard !Task.isCancelled, roomID == state.id, leavingRoomID != state.id else { return }
         if let current = room, current.id == state.id {
             if state.serverNow < current.serverNow { return }
             if state.serverNow == current.serverNow,
@@ -1182,6 +1209,9 @@ struct SoloGame {
             roomSettings = state.settings
         }
         if old?.id == state.id, old?.gameNumber != state.gameNumber {
+            roomRoundPreparation.cancel()
+            lastRoomRound = nil
+            lastRoomPhase = nil
             preparedRoomSongs = nil
             preloadedRoomID = nil
             preparedRoomRound = nil
@@ -1245,38 +1275,21 @@ struct SoloGame {
                 }
             }
         }
-        let key = "\(state.id):\(state.gameNumber ?? 0):\(state.round)"
-        if state.round >= 0 && state.pushedIds.contains(rooms.playerId) && !recordedRoomAttempts.contains(key) {
-            recordedRoomAttempts.insert(key)
-            stats.attempts += 1
-            stats.totalPushSeconds += max(0, min(30, (state.serverNow - (state.startAt ?? state.serverNow)) / 1000))
-            persist()
-        }
-        if state.phase == "reveal" && state.pushedIds.contains(rooms.playerId) && !recordedRoomGenres.contains(key) {
-            recordedRoomGenres.insert(key)
-            let genre = state.current?.genre ?? "その他"
-            var record = stats.genres[genre] ?? GenreRecord()
-            record.attempts += 1
-            if state.correctPlayerIDs.contains(rooms.playerId) { record.correct += 1; stats.correct += 1 }
-            stats.genres[genre] = record
-            stats.awardBadges()
-            persist()
-        }
-        if state.phase == "finished" {
-            var finished = Set(UserDefaults.standard.stringArray(forKey: "finishedRoomIDs") ?? [])
-            let gameKey = "\(state.id):\(state.gameNumber ?? 0)"
-            if !finished.contains(gameKey) {
-                finished.insert(gameKey)
-                UserDefaults.standard.set(Array(finished.suffix(100)), forKey: "finishedRoomIDs")
-                stats.games += 1
-                stats.awardBadges()
-                persist()
-            }
-        }
+        let gameKey = "\(state.id):\(state.gameNumber ?? 0)"
+        let disclosed = state.phase == "reveal" || state.phase == "finished"
+        let event = RoomStatsEvent(gameID: "\(serverURL):\(gameKey):\(rooms.playerId)", round: state.round,
+            pushed: state.pushedIds.contains(rooms.playerId), pushTimeMS: state.player(rooms.playerId)?.pushTimeMS,
+            result: disclosed ? (state.correctPlayerIDs.contains(rooms.playerId) ? "correct" : "wrong") : nil,
+            genre: state.current?.genre, finished: state.phase == "finished",
+            previouslyFinished: (UserDefaults.standard.stringArray(forKey: "finishedRoomIDs") ?? []).contains(gameKey))
+        if roomStatistics.record(event, stats: &stats) { persist() }
         roomOptions = state.options
         roomAnswer = state.answerProgress
         roomSecondsLeft = remainingTime(state)
         if state.round != lastRoomRound {
+            roomRoundPreparation.cancel()
+            preparedRoomRound = nil
+            roomAudioRevision += 1
             stopAudio()
             roomAudioStarted = false
             roomAudioStarting = false
@@ -1286,7 +1299,7 @@ struct SoloGame {
         }
         if state.phase == "preparing" && preparedRoomRound != state.round {
             preparedRoomRound = state.round
-            Task { [weak self] in
+            roomRoundPreparation.start { [weak self] in
                 guard let self else { return }
                 do {
                     if state.mode == "applemusic", let id = state.current?.id {
@@ -1294,8 +1307,12 @@ struct SoloGame {
                     } else if let url = state.current?.previewURL {
                         try await self.player.prepare(url)
                     }
-                    guard self.room?.round == state.round, self.room?.phase == "preparing" else { return }
-                    self.receiveNetworkRoom(try await self.rooms.action("ready", id: state.id))
+                    try Task.checkCancellation()
+                    guard self.matchesRoomRound(state), self.room?.phase == "preparing" else { return }
+                    let ready = try await self.rooms.action("ready", id: state.id)
+                    try Task.checkCancellation()
+                    guard self.matchesRoomRound(state) else { return }
+                    self.receiveNetworkRoom(ready)
                 } catch {
                     guard !Task.isCancelled, self.room?.id == state.id,
                           self.room?.gameNumber == state.gameNumber, self.room?.round == state.round,
@@ -1356,7 +1373,8 @@ struct SoloGame {
         let finishedOwnAnswer = !state.settings.endless && old?.isAnswering(rooms.playerId) == true && !state.isAnswering(rooms.playerId)
         if (resumedFromRelay || finishedOwnAnswer) && !state.questionAudioClosed &&
            ["listening", "answering"].contains(state.phase) {
-            Task { [weak self] in await self?.startRoomAudio(state) }
+            scheduledRoomAudio?.cancel()
+            scheduledRoomAudio = Task { [weak self] in await self?.startRoomAudio(state) }
         }
         if state.phase == "reveal" && lastRoomPhase != "reveal" {
             scheduledRoomAudio?.cancel()
@@ -1373,17 +1391,19 @@ struct SoloGame {
     }
 
     private func startRoomAudio(_ state: RoomState) async {
+        let revision = roomAudioRevision
         while roomAudioStarting {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, matchesRoomRound(state), roomAudioRevision == revision else { return }
             try? await Task.sleep(for: .milliseconds(100))
         }
-        guard let playbackState = room, playbackState.round == state.round,
+        guard !Task.isCancelled, matchesRoomRound(state), roomAudioRevision == revision,
+              let playbackState = room,
               ["countdown", "listening", "answering"].contains(playbackState.phase),
               playbackState.pausedAt == nil, !playbackState.questionAudioClosed,
               !playbackState.isAnswering(rooms.playerId),
               let current = playbackState.current else { return }
         roomAudioStarting = true
-        defer { roomAudioStarting = false }
+        defer { if roomAudioRevision == revision { roomAudioStarting = false } }
         do {
             let elapsed = max(0, rooms.serverNowMS - (playbackState.startAt ?? rooms.serverNowMS))
             if playbackState.mode == "applemusic" {
@@ -1393,16 +1413,18 @@ struct SoloGame {
                 do { try player.startPrepared(preview, offset: elapsed / 1000) }
                 catch {
                     try await player.prepare(preview)
+                    try Task.checkCancellation()
+                    guard matchesRoomRound(state), roomAudioRevision == revision else { return }
                     try player.startPrepared(preview, offset: elapsed / 1000)
                 }
             } else { throw AppError.message("この曲の音源がありません") }
-            guard room?.round == state.round else { return }
+            guard !Task.isCancelled, matchesRoomRound(state), roomAudioRevision == revision else { return }
             roomAudioStarted = true
             roomError = nil
             if room?.pausedAt != nil || room?.questionAudioClosed == true || room?.isAnswering(rooms.playerId) == true { pauseAudio() }
             if room?.phase == "reveal" || room?.phase == "finished" { stopAudio() }
         } catch {
-            guard room?.round == state.round, !Task.isCancelled else { return }
+            guard matchesRoomRound(state), roomAudioRevision == revision, !Task.isCancelled else { return }
             roomAudioStarted = false
             roomError = state.mode == "applemusic" && RoomService.isConnectionError(error)
                 ? "Apple Music との通信が途切れました。再生を再試行してください"
@@ -1505,6 +1527,7 @@ struct SoloGame {
 
     func retryRoomRound() {
         guard let room, room.phase == "preparing" else { return }
+        roomRoundPreparation.cancel()
         preparedRoomRound = nil
         roomError = nil
         receiveRoom(room)
@@ -1526,7 +1549,18 @@ struct SoloGame {
         revealAudio(song)
     }
 
-    func leaveRoom() async {
+    var canStartSolo: Bool {
+        GameSessionAvailability.canStartSolo(gameActive: game != nil, roomActive: room != nil, roomID: roomID)
+    }
+
+    private func matchesRoomRound(_ state: RoomState) -> Bool {
+        roomID == state.id && leavingRoomID != state.id &&
+            room?.gameNumber == state.gameNumber && room?.round == state.round
+    }
+
+    private func cancelRoomWork() {
+        roomRoundPreparation.cancel()
+        roomAudioRevision += 1
         preparedRoomSongs = nil
         roomNoticeTask?.cancel(); roomNoticeTask = nil
         roomNotice = nil; roomPushPending = false
@@ -1536,12 +1570,28 @@ struct SoloGame {
         roomSyncTask?.cancel(); roomSyncTask = nil
         roomTicker?.cancel(); roomTicker = nil
         scheduledRoomAudio?.cancel()
-        if let roomID { _ = try? await rooms.action("leave", id: roomID) }
         stopAudio()
         scheduledRoomAudio = nil
+        roomAudioStarting = false
+    }
+
+    private func clearLocalRoom() {
+        cancelRoomWork()
         room = nil; roomID = nil; rooms.clear()
+        leavingRoomID = nil
         locallyInvitedFriendIDs.removeAll()
         UserDefaults.standard.removeObject(forKey: "roomID")
         lastRoomPhase = nil; lastRoomRound = nil; preparedRoomRound = nil; roomAudioStarted = false; roomAudioStarting = false
+        roomError = nil
+        scheduleProfileSync()
+    }
+
+    func leaveRoom() async {
+        guard let departingRoomID = roomID, leavingRoomID != departingRoomID else { return }
+        leavingRoomID = departingRoomID
+        cancelRoomWork()
+        _ = try? await rooms.action("leave", id: departingRoomID)
+        guard roomID == departingRoomID else { return }
+        clearLocalRoom()
     }
 }

@@ -14,6 +14,12 @@ struct Song: Codable, Identifiable, Hashable {
     var artistTopTitles: [String]? = nil
 
     var playablePreview: Bool { previewURL != nil }
+
+    var portableReviewSong: Song {
+        var copy = self
+        if id.hasPrefix("demo:") { copy.previewURL = nil }
+        return copy
+    }
 }
 
 enum TitleRules {
@@ -120,6 +126,122 @@ struct ReviewSong: Codable, Identifiable {
     var learned = false
     var savedAt = Date()
     var id: String { song.id }
+
+    var portable: ReviewSong {
+        var copy = self
+        copy.song = song.portableReviewSong
+        return copy
+    }
+}
+
+struct RoomStatsEvent {
+    let gameID: String
+    let round: Int
+    var pushed = false
+    var pushTimeMS: Double? = nil
+    var result: String? = nil
+    var genre: String? = nil
+    var finished = false
+    var previouslyFinished = false
+}
+
+enum GameSessionAvailability {
+    static func canStartSolo(gameActive: Bool, roomActive: Bool, roomID: String?) -> Bool {
+        !gameActive && !roomActive && roomID == nil
+    }
+}
+
+@MainActor final class RoomPreparationTask {
+    private var task: Task<Void, Never>?
+
+    func start(_ operation: @escaping @MainActor () async -> Void) {
+        cancel()
+        task = Task { await operation() }
+    }
+
+    func cancel() {
+        task?.cancel()
+        task = nil
+    }
+}
+
+/// Stored with the profile counters so restoring a room cannot record the same result twice.
+struct RoomStatisticsLedger: Codable {
+    private struct Round: Codable {
+        var attempt = false
+        var outcome = false
+    }
+    private struct Game: Codable {
+        var rounds: [String: Round] = [:]
+        var finished = false
+        var updatedAt = Date.distantPast
+    }
+    private var games: [String: Game] = [:]
+
+    @discardableResult mutating func record(_ event: RoomStatsEvent, stats: inout PlayerStats,
+                                            now: Date = .now) -> Bool {
+        var game = games[event.gameID] ?? Game()
+        var changed = false
+        if event.round >= 0 && event.pushed {
+            let key = String(event.round)
+            var round = game.rounds[key] ?? Round()
+            if !round.attempt {
+                stats.attempts += 1
+                let push = event.pushTimeMS ?? 0
+                stats.totalPushSeconds += push.isFinite ? max(0, min(30, push / 1000)) : 0
+                round.attempt = true
+                changed = true
+            }
+            if !round.outcome, let result = event.result {
+                let genre = event.genre ?? "その他"
+                stats.genres[genre, default: .init()].attempts += 1
+                if result == "correct" {
+                    stats.correct += 1
+                    stats.genres[genre, default: .init()].correct += 1
+                }
+                round.outcome = true
+                changed = true
+            }
+            game.rounds[key] = round
+        }
+        if event.finished && !game.finished {
+            if !event.previouslyFinished { stats.games += 1 }
+            game.finished = true
+            changed = true
+        }
+        guard changed else { return false }
+        stats.awardBadges()
+        game.updatedAt = now
+        games[event.gameID] = game
+        trim()
+        return true
+    }
+
+    func merging(_ other: Self) -> Self {
+        var merged = self
+        for (key, incoming) in other.games {
+            var game = merged.games[key] ?? Game()
+            game.finished = game.finished || incoming.finished
+            game.updatedAt = max(game.updatedAt, incoming.updatedAt)
+            for (index, value) in incoming.rounds {
+                let previous = game.rounds[index] ?? Round()
+                game.rounds[index] = Round(attempt: previous.attempt || value.attempt,
+                                          outcome: previous.outcome || value.outcome)
+            }
+            merged.games[key] = game
+        }
+        merged.trim()
+        return merged
+    }
+
+    private mutating func trim() {
+        guard games.count > 100 else { return }
+        let retained = games.keys.sorted {
+            let lhs = games[$0]!.updatedAt, rhs = games[$1]!.updatedAt
+            return lhs == rhs ? $0 < $1 : lhs > rhs
+        }.prefix(100)
+        games = Dictionary(uniqueKeysWithValues: retained.map { ($0, games[$0]!) })
+    }
 }
 
 struct GenreRecord: Codable {

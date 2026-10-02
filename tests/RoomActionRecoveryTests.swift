@@ -9,6 +9,7 @@ private final class TestRoomProtocol: URLProtocol {
     static var replies: [Reply] = []
     static var requests: [URLRequest] = []
     static var bodies: [[String: Any]] = []
+    static var onRequest: ((URLRequest, [String: Any]) -> Void)?
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -26,6 +27,7 @@ private final class TestRoomProtocol: URLProtocol {
             stream.close()
         }
         Self.bodies.append((try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:])
+        Self.onRequest?(request, Self.bodies.last!)
         precondition(!Self.replies.isEmpty, "Unexpected request: \(request.url!)")
         let reply = Self.replies.removeFirst()
         if let error = reply.error {
@@ -55,9 +57,11 @@ private final class TestRoomProtocol: URLProtocol {
     }
 
     @MainActor static func makeService() -> RoomService {
+        Secrets.values = [:]
         TestRoomProtocol.requests = []
         TestRoomProtocol.replies = []
         TestRoomProtocol.bodies = []
+        TestRoomProtocol.onRequest = nil
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [TestRoomProtocol.self]
         let service = RoomService(session: URLSession(configuration: configuration))
@@ -80,6 +84,8 @@ private final class TestRoomProtocol: URLProtocol {
         try await doNotRetryNewGameOrUnsafeAction()
         try await realFailuresRemainVisible()
         try await answerRetryKeepsActionID()
+        try await profileRegistrationRecovery()
+        try await expiredSessionErrors()
         print("Room action recovery tests passed")
     }
 
@@ -209,5 +215,47 @@ private final class TestRoomProtocol: URLProtocol {
         let first = TestRoomProtocol.bodies[0]["actionId"] as? String
         let retry = TestRoomProtocol.bodies[1]["actionId"] as? String
         precondition(first != nil && first == retry, "Answer retry must preserve the server's deduplication key")
+    }
+
+    @MainActor static func profileRegistrationRecovery() async throws {
+        let service = makeService()
+        let key = "profileRegistration:\(service.baseURL):\(service.profileID)"
+        TestRoomProtocol.onRequest = { request, body in
+            guard request.httpMethod == "POST" else { return }
+            precondition(body["registrationToken"] as? String == Secrets.get(key),
+                         "Registration credentials must be durable before sending the request")
+        }
+        TestRoomProtocol.replies = [.init(error: URLError(.networkConnectionLost))]
+        do { _ = try await service.profile(); preconditionFailure("The lost response must remain a connection error") }
+        catch { precondition(RoomService.isConnectionError(error)) }
+        let registration = Secrets.get(key)!
+        let firstBody = TestRoomProtocol.bodies[0]
+        // Recreate the service to simulate restarting after the server committed registration.
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [TestRoomProtocol.self]
+        let restored = RoomService(session: URLSession(configuration: configuration))
+        restored.baseURL = service.baseURL
+        precondition(restored.profileID == service.profileID)
+        TestRoomProtocol.replies = [.init(state: ["reviews": [], "history": [], "token": registration])]
+        _ = try await restored.profile()
+        precondition(NSDictionary(dictionary: firstBody).isEqual(to: TestRoomProtocol.bodies[1]),
+                     "Registration retries must preserve identity and the original credential")
+        precondition(Secrets.get(key) == nil && restored.profileCredentialSnapshot[service.baseURL] == registration)
+        TestRoomProtocol.replies = [.init(state: ["reviews": [], "history": []])]
+        _ = try await restored.profile()
+        precondition(TestRoomProtocol.requests.last?.httpMethod == "GET")
+        precondition(TestRoomProtocol.requests.last?.value(forHTTPHeaderField: "Authorization") == "Bearer \(registration)")
+    }
+
+    @MainActor static func expiredSessionErrors() async throws {
+        let service = makeService()
+        for status in [403, 404] {
+            TestRoomProtocol.replies = [.init(state: ["error": "参加していません"], status: status)]
+            do { _ = try await service.state("ABCDEF"); preconditionFailure("Expired membership must fail") }
+            catch { precondition(RoomService.isExpiredSession(error), "Session expiry must use HTTP status, not message text") }
+        }
+        TestRoomProtocol.replies = [.init(error: URLError(.networkConnectionLost))]
+        do { _ = try await service.state("ABCDEF"); preconditionFailure("Network failure must fail") }
+        catch { precondition(!RoomService.isExpiredSession(error)) }
     }
 }

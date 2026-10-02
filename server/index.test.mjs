@@ -617,6 +617,21 @@ test('PUSH order follows first press and leaves unpressed players in join order'
 });
 
 for (const endless of [false, true]) {
+  test(`SKIP quorum is recalculated when an unvoted player leaves in ${endless ? 'endless' : 'normal'} mode`, () => {
+    const realNow = Date.now;
+    let now = realNow();
+    Date.now = () => now;
+    try {
+      const { action, state } = startedThreePlayerRoom(endless);
+      now += 6000;
+      assert.equal(action('skip', 'relayA').body.phase, 'listening');
+      assert.equal(action('skip', 'relayB').body.phase, 'listening');
+      assert.equal(action('leave', 'relayC').status, 200);
+      assert.equal(state('relayA').phase, 'reveal');
+      assert.equal(state('relayA').players.length, 2);
+    } finally { Date.now = realNow; }
+  });
+
   test(`wrong player is excluded from SKIP quorum in ${endless ? 'endless' : 'normal'} mode`, () => {
     const realNow = Date.now;
     let now = realNow();
@@ -635,6 +650,71 @@ for (const endless of [false, true]) {
     } finally { Date.now = realNow; }
   });
 }
+
+for (const votesFirst of [false, true]) {
+  test(`correct players are excluded from SKIP quorum when votes arrive ${votesFirst ? 'before' : 'after'} the answer`, () => {
+    const realNow = Date.now;
+    let now = realNow();
+    Date.now = () => now;
+    try {
+      const { action, state } = startedThreePlayerRoom(false, { answerSlots: 3 });
+      now += 6000;
+      if (votesFirst) {
+        action('skip', 'relayB');
+        action('skip', 'relayC');
+      }
+      action('push', 'relayA');
+      action('choose', 'relayA', { choice: '花' });
+      const correct = action('choose', 'relayA', { choice: '火' });
+      assert.equal(correct.body.phase, votesFirst ? 'reveal' : 'listening');
+      if (!votesFirst) {
+        const unnecessary = action('skip', 'relayA');
+        assert.equal(unnecessary.status, 409);
+        assert.match(unnecessary.body.error, /解答済み/);
+        assert.equal(action('skip', 'relayB').body.phase, 'listening');
+        assert.equal(action('skip', 'relayC').body.phase, 'reveal');
+      }
+      assert.equal(state('relayB').phase, 'reveal');
+      assert.deepEqual(state('relayB').skippedIds, ['relayB', 'relayC']);
+      assert.deepEqual(state('relayB').correctPlayerIDs, ['relayA']);
+    } finally { Date.now = realNow; }
+  });
+}
+
+test('an active answer remains in the SKIP quorum and finishes after normal PUSH closes', () => {
+  const realNow = Date.now;
+  let now = realNow();
+  Date.now = () => now;
+  try {
+    const { action, state } = startedThreePlayerRoom(false, { answerSlots: 3 });
+    now += 6000;
+    action('push', 'relayA');
+    action('skip', 'relayB');
+    action('skip', 'relayC');
+    assert.equal(state('relayA').pushClosed, false, 'An unfinished answer still needs a vote');
+    const voted = action('skip', 'relayA');
+    assert.equal(voted.body.pushClosed, true);
+    assert.equal(voted.body.phase, 'answering');
+    action('choose', 'relayA', { choice: '花' });
+    assert.equal(action('choose', 'relayA', { choice: '火' }).body.phase, 'reveal');
+  } finally { Date.now = realNow; }
+});
+
+test('SKIP is recalculated after the unvoted host leaves and ownership transfers', () => {
+  const realNow = Date.now;
+  let now = realNow();
+  Date.now = () => now;
+  try {
+    const { action, state } = startedThreePlayerRoom(false);
+    now += 6000;
+    action('skip', 'relayB');
+    action('skip', 'relayC');
+    action('leave', 'relayA');
+    const remaining = state('relayB');
+    assert.equal(remaining.phase, 'reveal');
+    assert.equal(remaining.hostId, 'relayB');
+  } finally { Date.now = realNow; }
+});
 
 test('normal mode admits two parallel answers and reveals progress only after slots fill', () => {
   const realNow = Date.now;
@@ -1056,6 +1136,50 @@ test('profile needs its secret and stores five results', () => {
   assert.equal(loaded.body.history.length, 5);
   assert.equal(loaded.body.stats.games, 8);
   assert.equal(loaded.body.secret, undefined);
+});
+
+test('profile registration can be retried with its saved credential without exposing another profile', () => {
+  const query = new URLSearchParams();
+  const id = 'recoverable-profile';
+  const registrationToken = '172a2b48-e04b-4ec7-b445-a963470e7d80';
+  const otherToken = '172a2b48-e04b-4ec7-b445-a963470e7d81';
+  const register = handle('POST', '/profile', { id, registrationToken }, query);
+  assert.equal(register.status, 201);
+  assert.equal(register.body.token, registrationToken);
+  const auth = `Bearer ${registrationToken}`;
+  handle('PUT', '/profile', { id, stats: { games: 7 } }, query, auth);
+  const retry = handle('POST', '/profile', { id, registrationToken }, query);
+  assert.equal(retry.status, 200);
+  assert.equal(retry.body.token, registrationToken);
+  assert.deepEqual(retry.body.stats, { games: 7 }, 'A registration retry must not overwrite existing data');
+  assert.equal(retry.body.secret, undefined);
+  assert.equal(handle('POST', '/profile', { id, registrationToken: otherToken }, query).status, 409);
+  assert.equal(handle('POST', '/profile', { id }, query).status, 409);
+  assert.equal(handle('GET', '/profile', {}, new URLSearchParams({ id }), `Bearer ${otherToken}`).status, 403);
+  for (const value of ['short', '', null, 123]) {
+    assert.equal(handle('POST', '/profile', { id: 'invalid-registration', registrationToken: value }, query).status, 400);
+  }
+});
+
+test('expired guests receive a status that the client can use to clear restoration state', () => {
+  const realNow = Date.now;
+  let now = realNow();
+  Date.now = () => now;
+  try {
+    const query = new URLSearchParams();
+    const created = handle('POST', '/rooms', { playerId: 'expiry-host', name: 'Host', settings: { questionCount: 1 } }, query);
+    assert.equal(created.status, 201);
+    const host = created.body;
+    const path = `/rooms/${host.id}`;
+    const guest = handle('POST', `${path}/join`, { playerId: 'expiry-guest', name: 'Guest' }, query).body;
+    now += 299_000;
+    handle('GET', path, {}, new URLSearchParams({ playerId: 'expiry-host' }), `Bearer ${host.sessionToken}`);
+    now += 1_001;
+    handle('GET', path, {}, new URLSearchParams({ playerId: 'expiry-host' }), `Bearer ${host.sessionToken}`);
+    const expired = handle('GET', path, {}, new URLSearchParams({ playerId: 'expiry-guest' }), `Bearer ${guest.sessionToken}`);
+    assert.equal(expired.status, 403);
+    assert.equal(expired.body.error, '参加していません');
+  } finally { Date.now = realNow; }
 });
 
 test('CloudKit public summary does not overwrite legacy personal data and is visible in the room profile', () => {

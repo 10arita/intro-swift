@@ -24,4 +24,11 @@ enum DemoCatalog {
         guard !term.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return songs }
         return songs.filter { $0.title.localizedCaseInsensitiveContains(term) || $0.artist.localizedCaseInsensitiveContains(term) }
     }
+
+    static func previewURL(for song: Song, bundle: Bundle = .main) -> URL? {
+        guard song.id.hasPrefix("demo:") else { return song.previewURL }
+        let name = String(song.id.dropFirst("demo:".count))
+        guard entries.contains(where: { $0.0 == name }) else { return nil }
+        return bundle.url(forResource: name, withExtension: "wav", subdirectory: "Audio")
+    }
 }
