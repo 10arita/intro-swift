@@ -62,6 +62,18 @@ private struct AppleMusicLibrarySongResponse: Decodable {
 
     var isAuthorized: Bool { MusicAuthorization.currentStatus == .authorized }
     var isPlaying: Bool { player.state.playbackStatus == .playing }
+    var hasEnded: Bool {
+        player.state.playbackStatus == .stopped ||
+        (player.state.playbackStatus == .paused && duration > 0 && currentTime >= duration - 0.1)
+    }
+    var currentTime: TimeInterval {
+        let value = player.playbackTime
+        return value.isFinite ? max(0, value) : 0
+    }
+    var duration: TimeInterval {
+        guard let queuedSongID, let value = songsByID[queuedSongID]?.duration, value.isFinite else { return 0 }
+        return max(0, value)
+    }
 
     func authorize() async throws -> Bool {
         guard await MusicAuthorization.request() == .authorized else {
@@ -298,6 +310,15 @@ private struct AppleMusicLibrarySongResponse: Decodable {
     }
 
     func pause() { player.pause() }
+
+    func seek(to time: TimeInterval) async throws {
+        guard queuedSongID != nil, time.isFinite, duration > 0 else { return }
+        let request = playRequest
+        let target = min(max(0, time), duration)
+        player.playbackTime = target
+        if target < duration { try await player.play() }
+        if request == playRequest && Task.isCancelled { player.stop() }
+    }
 
     func stop() {
         playRequest += 1

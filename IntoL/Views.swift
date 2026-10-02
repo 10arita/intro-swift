@@ -1166,6 +1166,12 @@ struct ReviewView: View {
     @State private var playbackTask: Task<Void, Never>?
     @State private var playbackMonitor: Task<Void, Never>?
     @State private var playbackError: String?
+    @State private var usesAppleMusic = false
+    @State private var playbackPosition: TimeInterval = 0
+    @State private var playbackDuration: TimeInterval = 0
+    @State private var isScrubbing = false
+    @State private var isSeeking = false
+    @State private var seekTask: Task<Void, Never>?
 
     var body: some View {
         NavigationStack {
@@ -1192,6 +1198,10 @@ struct ReviewView: View {
                             ReviewSongRow(item: item,
                                           isPlaying: activeSongID == item.id && loadingSongID == nil,
                                           isLoading: loadingSongID == item.id,
+                                          playbackPosition: $playbackPosition,
+                                          playbackDuration: playbackDuration,
+                                          isScrubbing: $isScrubbing,
+                                          seek: { seekPlayback(to: $0) },
                                           togglePlayback: { togglePlayback(item.song) },
                                           toggleLearned: { model.toggleLearned(item.id) },
                                           remove: {
@@ -1269,13 +1279,19 @@ struct ReviewView: View {
 
     @MainActor private func monitorPlayback(_ songID: String, appleMusic: Bool) {
         playbackMonitor?.cancel()
+        usesAppleMusic = appleMusic
         playbackMonitor = Task {
             var started = false
             while !Task.isCancelled && activeSongID == songID {
                 let audible = appleMusic ? model.appleMusic.isPlaying : reviewPlayer.isActuallyPlaying
-                model.setReviewAudioPlaying(audible)
-                if (appleMusic && started && !audible && loadingSongID == nil) ||
-                   (!appleMusic && reviewPlayer.hasEnded) {
+                model.setReviewAudioPlaying(audible || (started && (isScrubbing || isSeeking)))
+                playbackDuration = appleMusic ? model.appleMusic.duration : reviewPlayer.duration
+                if !isScrubbing && !isSeeking {
+                    let currentTime = appleMusic ? model.appleMusic.currentTime : reviewPlayer.currentTime
+                    playbackPosition = min(currentTime, playbackDuration)
+                }
+                let ended = appleMusic ? started && model.appleMusic.hasEnded && loadingSongID == nil : reviewPlayer.hasEnded
+                if !isScrubbing && !isSeeking && ended {
                     stopPlayback()
                     return
                 }
@@ -1285,16 +1301,46 @@ struct ReviewView: View {
         }
     }
 
+    @MainActor private func seekPlayback(to time: TimeInterval) {
+        guard let songID = activeSongID, loadingSongID == nil, time.isFinite, playbackDuration > 0 else { return }
+        seekTask?.cancel()
+        let target = min(max(0, time), playbackDuration)
+        playbackPosition = target
+        isSeeking = true
+        seekTask = Task {
+            guard !Task.isCancelled, activeSongID == songID else { return }
+            do {
+                if usesAppleMusic { try await model.appleMusic.seek(to: target) }
+                else { await reviewPlayer.seek(to: target) }
+            } catch {
+                guard !Task.isCancelled, activeSongID == songID else { return }
+                stopPlayback()
+                playbackError = error.localizedDescription
+                return
+            }
+            guard !Task.isCancelled, activeSongID == songID else { return }
+            isSeeking = false
+            seekTask = nil
+        }
+    }
+
     @MainActor private func stopPlayback() {
         playbackTask?.cancel()
         playbackTask = nil
         playbackMonitor?.cancel()
         playbackMonitor = nil
+        seekTask?.cancel()
+        seekTask = nil
         reviewPlayer.stop()
         model.appleMusic.stop()
         model.setReviewAudioPlaying(false)
         activeSongID = nil
         loadingSongID = nil
+        usesAppleMusic = false
+        playbackPosition = 0
+        playbackDuration = 0
+        isScrubbing = false
+        isSeeking = false
     }
 }
 
@@ -1302,11 +1348,30 @@ private struct ReviewSongRow: View {
     let item: ReviewSong
     let isPlaying: Bool
     let isLoading: Bool
+    @Binding var playbackPosition: TimeInterval
+    let playbackDuration: TimeInterval
+    @Binding var isScrubbing: Bool
+    let seek: (TimeInterval) -> Void
     let togglePlayback: () -> Void
     let toggleLearned: () -> Void
     let remove: () -> Void
 
     var body: some View {
+        VStack(spacing: 8) {
+            songControls
+            if isPlaying || isLoading {
+                ReviewSeekBar(songTitle: item.song.title, position: $playbackPosition,
+                              duration: playbackDuration, isScrubbing: $isScrubbing,
+                              isLoading: isLoading, seek: seek)
+            }
+        }
+        .padding(12)
+        .background(Studio.surface, in: RoundedRectangle(cornerRadius: Studio.radius))
+        .overlay(RoundedRectangle(cornerRadius: Studio.radius).strokeBorder(Studio.line))
+        .buttonStyle(StudioPressStyle())
+    }
+
+    private var songControls: some View {
         HStack(spacing: 10) {
             Artwork(url: item.song.artworkURL, size: 48)
             VStack(alignment: .leading, spacing: 3) {
@@ -1352,10 +1417,48 @@ private struct ReviewSongRow: View {
             }
             .accessibilityLabel("\(item.song.title)を復習リストから削除")
         }
-        .padding(12)
-        .background(Studio.surface, in: RoundedRectangle(cornerRadius: Studio.radius))
-        .overlay(RoundedRectangle(cornerRadius: Studio.radius).strokeBorder(Studio.line))
-        .buttonStyle(StudioPressStyle())
+    }
+}
+
+private struct ReviewSeekBar: View {
+    let songTitle: String
+    @Binding var position: TimeInterval
+    let duration: TimeInterval
+    @Binding var isScrubbing: Bool
+    let isLoading: Bool
+    let seek: (TimeInterval) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Slider(value: Binding(
+                get: { min(max(0, position), duration > 0 ? duration : 1) },
+                set: {
+                    position = $0
+                    // Accessibility adjustments do not begin a drag gesture.
+                    if !isScrubbing { seek($0) }
+                }), in: 0...(duration > 0 ? duration : 1), onEditingChanged: { editing in
+                    isScrubbing = editing
+                    if !editing { seek(position) }
+                })
+                .tint(Studio.accent)
+                .frame(minHeight: 44)
+                .disabled(isLoading || duration <= 0)
+                .accessibilityLabel("\(songTitle)の再生位置")
+                .accessibilityValue("\(timeLabel(position)) / \(timeLabel(duration))")
+            HStack {
+                Text(timeLabel(position))
+                Spacer()
+                Text(duration > 0 ? timeLabel(duration) : "--:--")
+            }
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(Studio.secondary)
+            .accessibilityHidden(true)
+        }
+    }
+
+    private func timeLabel(_ time: TimeInterval) -> String {
+        let seconds = Int(max(0, time))
+        return String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 }
 

@@ -31,6 +31,14 @@ enum AppError: LocalizedError {
     var isActuallyPlaying: Bool {
         filePlayer?.isPlaying == true || player?.timeControlStatus == .playing
     }
+    var currentTime: TimeInterval {
+        let value = filePlayer?.currentTime ?? player?.currentTime().seconds ?? 0
+        return value.isFinite ? max(0, value) : 0
+    }
+    var duration: TimeInterval {
+        let value = filePlayer?.duration ?? player?.currentItem?.duration.seconds ?? 0
+        return value.isFinite ? max(0, value) : 0
+    }
     var hasEnded: Bool {
         if let filePlayer { return playing && !filePlayer.isPlaying }
         guard let player, let item = player.currentItem else { return false }
@@ -101,6 +109,20 @@ enum AppError: LocalizedError {
             throw AppError.message("音源の再生を予約できません")
         }
         playing = true
+    }
+
+    func seek(to time: TimeInterval) async {
+        guard time.isFinite, duration > 0 else { return }
+        let target = min(max(0, time), duration)
+        if let filePlayer {
+            filePlayer.currentTime = target
+            if playing && !filePlayer.isPlaying && target < duration { filePlayer.play() }
+        } else if let player {
+            let completed = await player.seek(to: CMTime(seconds: target, preferredTimescale: 600),
+                                              toleranceBefore: .zero, toleranceAfter: .zero)
+            guard completed, !Task.isCancelled, self.player === player else { return }
+            if playing && target < duration { player.play() }
+        }
     }
 
     func pause() { player?.pause(); filePlayer?.pause(); playing = false }
