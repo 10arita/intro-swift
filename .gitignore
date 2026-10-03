@@ -14,3 +14,4 @@ xcuserdata/
 server/data/
 server/node_modules/
 *.log
+uidraft
