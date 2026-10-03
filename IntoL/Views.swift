@@ -446,6 +446,35 @@ private struct CountdownBar: View {
     }
 }
 
+private struct PreparationProgressView: View {
+    let status: String
+    let progress: Double
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(status)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Studio.primary)
+                .fixedSize(horizontal: false, vertical: true)
+            ProgressView(value: min(1, max(0, progress)))
+                .progressViewStyle(.linear)
+                .tint(Studio.accent)
+                .environment(\.layoutDirection, .leftToRight)
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: progress)
+                .accessibilityLabel("ゲームの準備")
+        }
+        .padding(16)
+        .frame(maxWidth: 560, alignment: .leading)
+        .background(Studio.surface, in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Studio.line))
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity)
+        .background(Studio.background)
+    }
+}
+
 private struct PushButton: View {
     let action: () -> Void
     var size: CGFloat = 256
@@ -2287,6 +2316,11 @@ struct RoomGameView: View {
                 }
             }
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if model.room?.phase == "lobby", let progress = model.roomStartProgress {
+                PreparationProgressView(status: model.preparationStatus ?? "ゲームを準備中", progress: progress)
+            }
+        }
         .overlay {
             if showFriends {
                 FriendsView(inRoom: true, onClose: { showFriends = false })
@@ -2538,9 +2572,6 @@ struct RoomGameView: View {
                         await model.startRoom()
                         model.finishGameStart()
                     }
-                }
-                if let status = model.preparationStatus {
-                    ProgressView(status).tint(Studio.accent)
                 }
             }
         }

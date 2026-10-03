@@ -35,6 +35,7 @@ struct SoloGame {
     @Published var stats = PlayerStats()
     @Published var busy = false { didSet { if !busy { scheduleProfileSync() } } }
     @Published var preparationStatus: String?
+    @Published var roomStartProgress: Double?
     @Published var alert: String?
     let serverURL = AppConfiguration.serverURL
     var serverConfigured: Bool { !serverURL.isEmpty }
@@ -865,8 +866,9 @@ struct SoloGame {
     var totalCorrect: Int { stats.correct }
     var accuracy: Double { stats.accuracy }
 
-    private func withArtistTopTitles(_ songs: [Song]) async -> [Song] {
+    private func withArtistTopTitles(_ songs: [Song], progress: ((Int, Int) -> Void)? = nil) async -> [Song] {
         let artists = Array(Set(songs.map(\.artist)))
+        progress?(0, songs.count)
         let titles = await withTaskGroup(of: (String, [String]).self) { group in
             var next = 0
             var result: [String: [String]] = [:]
@@ -881,6 +883,7 @@ struct SoloGame {
             for _ in 0..<min(6, artists.count) { enqueue() }
             for await (artist, titles) in group {
                 result[artist] = titles
+                progress?(songs.filter { result[$0.artist] != nil }.count, songs.count)
                 enqueue()
             }
             return result
@@ -933,13 +936,21 @@ struct SoloGame {
               !busy else { return }
         let selectedSettings = roomSettings
         let selectedPlaylistSongs = appleMusicSongs
+        // Each question has a song-matching step and a choices step, followed by the start request.
+        let preparationSteps = Double(current.totalRounds == 0 && current.mode != "shared"
+            ? selectedSettings.questionCount * 2 + 1 : 1)
+        roomStartProgress = 0
+        preparationStatus = "ゲームの準備を開始しています"
         busy = true
-        defer { busy = false; preparationStatus = nil }
+        defer { busy = false; preparationStatus = nil; roomStartProgress = nil }
         do {
             // Restored rooms already have their questions. Starting them must not
             // resolve the playlist again or depend on its current selection.
             if current.totalRounds > 0 {
-                receiveNetworkRoom(try await rooms.action("start", id: current.id))
+                preparationStatus = "ゲームを開始中"
+                let started = try await rooms.action("start", id: current.id)
+                roomStartProgress = 1
+                receiveNetworkRoom(started)
                 return
             }
             var songs: [Song] = []
@@ -965,6 +976,7 @@ struct SoloGame {
                         requiresPreview: current.mode != "applemusic", cacheMisses: current.mode != "applemusic",
                         progress: { [weak self] ready, total in
                             self?.preparationStatus = "出題曲を準備中 \(ready) / \(total)"
+                            self?.roomStartProgress = Double(ready) / preparationSteps
                         }, resolve: { [appleMusic, rooms] candidate in
                             if current.mode == "applemusic" {
                                 return await appleMusic.catalogSongs(for: [candidate]).first
@@ -975,7 +987,10 @@ struct SoloGame {
                         throw AppError.message("指定された問題数分の曲を用意できません（照合可能: \(songs.count)曲）")
                     }
                     preparationStatus = "選択肢を準備中"
-                    songs = await withArtistTopTitles(songs)
+                    songs = await withArtistTopTitles(songs) { [weak self] ready, total in
+                        self?.preparationStatus = "選択肢を準備中 \(ready) / \(total)"
+                        self?.roomStartProgress = Double(selectedSettings.questionCount + ready) / preparationSteps
+                    }
                     try Task.checkCancellation()
                     preparedRoomSongs = PreparedRoomSongs(roomID: current.id, gameNumber: current.gameNumber,
                         source: selectedPlaylistSongs, count: selectedSettings.questionCount,
@@ -991,8 +1006,11 @@ struct SoloGame {
             guard room?.id == current.id, room?.phase == "lobby", room?.gameNumber == current.gameNumber,
                   room?.hostId == rooms.playerId else { return }
             preparationStatus = "ゲームを開始中"
-            receiveNetworkRoom(try await rooms.action("start", id: current.id,
-                payload: ["settings": rules, "songs": songList, "corpus": corpus]))
+            roomStartProgress = (preparationSteps - 1) / preparationSteps
+            let started = try await rooms.action("start", id: current.id,
+                payload: ["settings": rules, "songs": songList, "corpus": corpus])
+            roomStartProgress = 1
+            receiveNetworkRoom(started)
             preparedRoomSongs = nil
         } catch is CancellationError { }
         catch {
