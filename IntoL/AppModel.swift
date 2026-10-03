@@ -1004,12 +1004,18 @@ struct SoloGame {
         }
     }
 
-    func joinRoom(_ code: String) async {
-        guard !busy else { return }
+    @discardableResult
+    func joinRoom(_ code: String, reportErrors: Bool = true) async -> String? {
+        guard !busy else { return "処理中です。少し待ってから再試行してください" }
+        guard let normalized = RoomCode.pastedCode(in: code) else {
+            let message = "ルームコードは英字6文字で入力してください"
+            if reportErrors { alert = message }
+            return message
+        }
         busy = true; defer { busy = false }
         rooms.baseURL = serverURL
         do {
-            let state = try await rooms.join(code.trimmingCharacters(in: .whitespacesAndNewlines), name: nickname,
+            let state = try await rooms.join(normalized, name: nickname,
                                              badge: stats.selectedBadge, avatar: roomAvatar)
             if state.mode == "applemusic" {
                 guard appleMusicConnected, try await appleMusic.canPlay() else {
@@ -1018,7 +1024,11 @@ struct SoloGame {
                 }
             }
             enterRoom(state)
-        } catch { alert = error.localizedDescription }
+            return nil
+        } catch {
+            if reportErrors { alert = error.localizedDescription }
+            return error.localizedDescription
+        }
     }
 
     func refreshFriends(reportErrors: Bool = true) async {

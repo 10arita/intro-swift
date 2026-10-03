@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A0000000000000000000001D /* PlayFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001E /* PlayFlow.swift */; };
+		A0000000000000000000001E /* RoomCode.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001F /* RoomCode.swift */; };
 		A00000000000000000000001 /* IntoLApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000001 /* IntoLApp.swift */; };
 		A00000000000000000000002 /* Design.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000002 /* Design.swift */; };
 		A00000000000000000000003 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000003 /* Models.swift */; };
@@ -31,6 +33,8 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		B0000000000000000000001E /* PlayFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayFlow.swift; sourceTree = "<group>"; };
+		B0000000000000000000001F /* RoomCode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomCode.swift; sourceTree = "<group>"; };
 		B00000000000000000000001 /* IntoLApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntoLApp.swift; sourceTree = "<group>"; };
 		B00000000000000000000002 /* Design.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Design.swift; sourceTree = "<group>"; };
 		B00000000000000000000003 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
@@ -94,6 +98,8 @@
 				B00000000000000000000005 /* AppModel.swift */,
 				B00000000000000000000006 /* RoomService.swift */,
 				B00000000000000000000007 /* Views.swift */,
+				B0000000000000000000001E /* PlayFlow.swift */,
+				B0000000000000000000001F /* RoomCode.swift */,
 				B0000000000000000000000B /* DemoCatalog.swift */,
 				B0000000000000000000000C /* Audio */,
 				B00000000000000000000008 /* Assets.xcassets */,
@@ -233,6 +239,8 @@
 				A00000000000000000000005 /* AppModel.swift in Sources */,
 				A00000000000000000000006 /* RoomService.swift in Sources */,
 				A00000000000000000000007 /* Views.swift in Sources */,
+				A0000000000000000000001D /* PlayFlow.swift in Sources */,
+				A0000000000000000000001E /* RoomCode.swift in Sources */,
 				A00000000000000000000009 /* DemoCatalog.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

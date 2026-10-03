@@ -108,28 +108,40 @@ struct RootView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Group {
-            switch selectedTab {
-            case .play: PlayView(homeToken: playHomeToken, startsTogether: startsTogether)
-            case .review: ReviewView()
-            case .friends: FriendsView(onCreateRoom: {
-                startsTogether = true
-                playHomeToken += 1
-                selectedTab = .play
-            })
-            case .account: AccountView()
+        ZStack {
+            Group {
+                switch selectedTab {
+                case .play: PlayView(homeToken: playHomeToken, startsTogether: startsTogether)
+                case .review: ReviewView()
+                case .friends: FriendsView(onCreateRoom: {
+                    startsTogether = true
+                    playHomeToken += 1
+                    selectedTab = .play
+                })
+                case .account: AccountView()
+                }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if !showingSession { tabBar }
+            }
+            .offset(x: showingSession && !reduceMotion ? -80 : 0)
+            .opacity(showingSession ? 0 : 1)
+            .allowsHitTesting(!showingSession)
+            .accessibilityHidden(showingSession)
+            if model.room != nil {
+                RoomGameView()
+                    .transition(reduceMotion ? .opacity : .offset(x: 80).combined(with: .opacity))
+                    .zIndex(1)
+            } else if model.game != nil {
+                SoloGameView()
+                    .transition(reduceMotion ? .opacity : .offset(x: 80).combined(with: .opacity))
+                    .zIndex(1)
             }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) { tabBar }
         .background(Studio.background)
+        .animation(reduceMotion ? .easeOut(duration: 0.15) : .easeInOut(duration: 0.3), value: showingSession)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: selectedTab)
         .sensoryFeedback(.selection, trigger: selectedTab)
-        .fullScreenCover(isPresented: Binding(get: { model.game != nil }, set: { if !$0 { model.closeGame() } })) {
-            SoloGameView()
-        }
-        .fullScreenCover(isPresented: Binding(get: { model.room != nil }, set: { _ in })) {
-            RoomGameView().interactiveDismissDisabled()
-        }
         .alert("IntoL", isPresented: Binding(get: { model.alert != nil }, set: { if !$0 { model.alert = nil } })) {
             Button("OK", role: .cancel) { model.alert = nil }
         } message: {
@@ -168,6 +180,8 @@ struct RootView: View {
             model.cloudAccountChanged()
         }
     }
+
+    private var showingSession: Bool { model.room != nil || model.game != nil }
 
     private var tabBar: some View {
         Group {
@@ -257,510 +271,6 @@ struct RootView: View {
     }
 }
 
-private enum PlayParty { case solo, together }
-private enum PlayKind { case intro, sabitro }
-private enum PlaySource { case demo, shared, appleMusic, itunes, appleMusicPreview, join }
-
-struct PlayView: View {
-    let homeToken: Int
-    var startsTogether = false
-    @EnvironmentObject private var model: AppModel
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var party: PlayParty?
-    @State private var kind: PlayKind?
-    @State private var source: PlaySource?
-    @State private var roomCode = ""
-    @State private var sampleID: String?
-    @ScaledMetric(relativeTo: .headline) private var choiceHeight: CGFloat = 68
-
-    var body: some View {
-        NavigationStack {
-            Group {
-                if kind == nil { entryFlow }
-                else { selectionFlow }
-            }
-            .background(Studio.background)
-            .toolbar(.hidden, for: .navigationBar)
-            .animation(reduceMotion ? nil : Studio.spring, value: kind)
-            .sensoryFeedback(.selection, trigger: source)
-            .onChange(of: homeToken) { _, _ in resetToHome() }
-            .onAppear { if startsTogether { party = .together } }
-            .onDisappear {
-                if sampleID != nil { model.player.stop(); sampleID = nil }
-            }
-        }
-    }
-
-    // Both steps share this layout, so the capsule bounds never move during the crossfade.
-    private var entryFlow: some View {
-        GeometryReader { geometry in
-            ScrollView {
-                VStack(spacing: 24) {
-                    ZStack {
-                        VStack(spacing: 24) {
-                            Text("IntoL")
-                                .font(.system(size: 88, weight: .black, design: .rounded))
-                                .tracking(-5)
-                                .foregroundStyle(Studio.primary)
-                                .accessibilityAddTraits(.isHeader)
-                            HomeWaveform()
-                                .frame(maxWidth: 320)
-                                .frame(height: 104)
-                            Text("シンプルイントロクイズ")
-                                .font(.subheadline)
-                                .foregroundStyle(Studio.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .multilineTextAlignment(.center)
-                        }
-                        .scaleEffect(party == nil || reduceMotion ? 1 : 0.65, anchor: .top)
-                        .offset(y: party == nil || reduceMotion ? 0 : -64)
-                        .opacity(party == nil ? 1 : 0)
-                        .accessibilityHidden(party != nil)
-
-                        VStack(alignment: .leading, spacing: 28) {
-                            Button(action: goBack) {
-                                Label("戻る", systemImage: "chevron.left")
-                                    .font(.subheadline.weight(.semibold))
-                                    .frame(minHeight: 44)
-                            }
-                            .foregroundStyle(Studio.accent)
-                            .buttonStyle(StudioPressStyle())
-                            Text("モード選択")
-                                .font(.system(.largeTitle, design: .rounded, weight: .bold))
-                                .foregroundStyle(Studio.primary)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .accessibilityAddTraits(.isHeader)
-                            Text(party == nil ? "ひとりで" : selectionPath)
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(Studio.accent)
-                                .fixedSize(horizontal: false, vertical: true)
-                            Spacer(minLength: 0)
-                            Text("聴きたい部分を選んでください。")
-                                .font(.subheadline)
-                                .foregroundStyle(Studio.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .opacity(party == nil ? 0 : 1)
-                        .offset(y: party == nil && !reduceMotion ? -16 : 0)
-                        .allowsHitTesting(party != nil)
-                        .accessibilityHidden(party == nil)
-                    }
-                    .frame(minHeight: max(300, geometry.size.height * 0.57))
-
-                    ZStack {
-                        if party == nil {
-                            VStack(spacing: 16) {
-                                entryButton("ひとりで", symbol: "person.fill", primary: true) { party = .solo }
-                                entryButton("みんなで", symbol: "person.2.fill", disabled: !model.serverConfigured) { party = .together }
-                            }
-                            .transition(.opacity)
-                        } else {
-                            VStack(spacing: 16) {
-                                entryButton("イントロ", symbol: "play.fill", primary: true) { kind = .intro }
-                                entryButton("サビトロ", symbol: "waveform", disabled: !model.serverConfigured) { kind = .sabitro }
-                            }
-                            .transition(.opacity)
-                        }
-                    }
-                    Spacer(minLength: 16)
-                    Text(appVersion)
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundStyle(Studio.secondary)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .accessibilityLabel("アプリのバージョン \(appVersion)")
-                }
-                .padding(.horizontal, 28)
-                .padding(.vertical, 16)
-                .frame(minHeight: geometry.size.height)
-                .frame(maxWidth: 560)
-                .frame(maxWidth: .infinity)
-            }
-            .scrollBounceBehavior(.basedOnSize)
-            .animation(reduceMotion ? .easeOut(duration: 0.15) : .easeInOut(duration: 0.36), value: party)
-        }
-    }
-
-    private func entryButton(_ title: String, symbol: String, primary: Bool = false,
-                             disabled: Bool = false, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                Image(systemName: disabled ? "lock.fill" : symbol).accessibilityHidden(true)
-                Text(title)
-            }
-            .font(.system(.headline, design: .rounded, weight: .bold))
-            .foregroundStyle(disabled ? Studio.secondary : primary ? .white : Studio.accent)
-            .frame(maxWidth: .infinity, minHeight: choiceHeight)
-            .background(primary && !disabled ? Studio.accent : Studio.surface, in: Capsule())
-            .overlay(Capsule().strokeBorder(primary && !disabled ? .clear : Studio.line))
-            .contentShape(Capsule())
-        }
-        .buttonStyle(StudioPressStyle())
-        .disabled(disabled)
-        .accessibilityHint(disabled ? "サーバー設定が必要です" : "")
-    }
-
-    private var appVersion: String {
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
-        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"
-        return "v\(version) (\(build))"
-    }
-
-    private var selectionFlow: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack {
-                    Button(action: goBack) {
-                        Label("戻る", systemImage: "chevron.left")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Studio.accent)
-                            .frame(minHeight: 44)
-                    }
-                    .buttonStyle(StudioPressStyle())
-                    Spacer()
-                    Text("IntoL").font(.title3.bold()).foregroundStyle(Studio.primary)
-                }
-                HStack(spacing: 6) {
-                    ForEach(0..<3) { index in
-                        Capsule().fill(index <= (source != nil ? 2 : kind != nil ? 1 : 0) ? Studio.accent : Studio.line).frame(height: 3)
-                    }
-                }.accessibilityLabel("ステップ \(source != nil ? 3 : kind != nil ? 2 : 1) / 3")
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(selectionPath)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Studio.accent)
-                    Text(pageTitle)
-                        .font(.system(.largeTitle, design: .rounded, weight: .bold))
-                        .foregroundStyle(Studio.primary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(pageDescription)
-                        .font(.subheadline)
-                        .foregroundStyle(Studio.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                stepContent
-            }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 20)
-            .frame(maxWidth: 640)
-            .frame(maxWidth: .infinity)
-            .animation(reduceMotion ? .none : Studio.spring, value: kind)
-            .animation(reduceMotion ? .none : Studio.spring, value: source)
-        }
-        .scrollDismissesKeyboard(.interactively)
-        .scrollBounceBehavior(.basedOnSize)
-    }
-
-    private var selectionPath: String {
-        var parts: [String] = []
-        if let party { parts.append(party == .solo ? "ひとりで" : "みんなで") }
-        if let kind { parts.append(kind == .intro ? "イントロ" : "サビトロ") }
-        return parts.joined(separator: "  /  ")
-    }
-
-    private var pageTitle: String {
-        if party == nil { return "今日はどう遊ぶ？" }
-        if kind == nil { return "どんなクイズ？" }
-        if source == nil { return party == .solo ? "音源を選ぶ" : "遊び方を選ぶ" }
-        switch source {
-        case .demo: return "オリジナル音源"
-        case .shared: return "共有音源"
-        case .appleMusic: return "Apple Music"
-        case .itunes: return "試聴曲を探す"
-        case .appleMusicPreview: return "プレイリストから探す"
-        case .join: return "ルームに参加"
-        case nil: return ""
-        }
-    }
-
-    private var pageDescription: String {
-        if party == nil { return "まずは人数を選んでください。" }
-        if kind == nil { return "聴きたい部分を選んでください。" }
-        if source == nil { return "使う曲や参加方法を選んでください。" }
-        switch source {
-        case .demo: return "アプリに入っている曲ですぐに遊べます。"
-        case .shared: return "サーバーに登録された曲を使います。"
-        case .appleMusic: return "Apple Music のライブラリにあるプレイリストを使います。"
-        case .itunes: return "iTunes の試聴音源で遊びます。"
-        case .appleMusicPreview: return "Apple Music のプレイリストを iTunes の試聴音源に照合します。"
-        case .join: return "友だちから届いた6文字のIDを入力します。"
-        case nil: return ""
-        }
-    }
-
-    @ViewBuilder private var stepContent: some View {
-        if source == nil {
-            sourceChoices
-        } else {
-            detailContent
-        }
-    }
-
-    @ViewBuilder private var sourceChoices: some View {
-        VStack(spacing: 12) {
-            if party == .solo && kind == .intro {
-                PlayOptionButton(title: "オリジナル音源", subtitle: "すぐに始める", symbol: "music.note") { source = .demo }
-                PlayOptionButton(title: "共有音源", subtitle: model.serverConfigured ? "登録された曲で遊ぶ" : "サーバー設定が必要です", symbol: "music.note.list", disabled: !model.serverConfigured) { source = .shared }
-                PlayOptionButton(title: "Apple Music", subtitle: "自分のプレイリストで遊ぶ", symbol: "music.note.list") { source = .appleMusic }
-            } else if party == .solo {
-                PlayOptionButton(title: "試聴曲を検索", subtitle: "曲名やアーティストから探す", symbol: "magnifyingglass") { source = .itunes }
-                PlayOptionButton(title: "Apple Musicプレイリスト", subtitle: "試聴曲と照合して遊ぶ", symbol: "music.note.list") { source = .appleMusicPreview }
-            } else if kind == .intro {
-                PlayOptionButton(title: "共有音源で作る", subtitle: "登録された曲で対戦", symbol: "music.note.list", disabled: model.busy) { createRoom(using: .shared) }
-                PlayOptionButton(title: "Apple Musicで作る", subtitle: "全員が Apple Music で再生", symbol: "music.note.list", disabled: model.busy) { createRoom(using: .appleMusic) }
-                PlayOptionButton(title: "ルームに参加", subtitle: "6文字のIDを入力", symbol: "person.badge.plus") { source = .join }
-            } else {
-                PlayOptionButton(title: "Apple Musicプレイリストから作る", subtitle: "iTunes の試聴曲で対戦", symbol: "music.note.list", disabled: model.busy) { createRoom(using: .appleMusicPreview) }
-                PlayOptionButton(title: "ルームに参加", subtitle: "6文字のIDを入力", symbol: "person.badge.plus") { source = .join }
-            }
-        }
-    }
-
-    @ViewBuilder private var detailContent: some View {
-        if party == .solo {
-            switch source {
-            case .demo: demoContent
-            case .shared: sharedContent
-            case .appleMusic: appleMusicContent
-            case .itunes: itunesContent
-            case .appleMusicPreview: appleMusicPreviewContent
-            default: EmptyView()
-            }
-        } else if source == .join {
-            joinContent
-        } else {
-            EmptyView()
-        }
-    }
-
-    private var demoContent: some View {
-        StudioCard {
-            VStack(alignment: .leading, spacing: 16) {
-                searchField("曲名で絞り込む", text: $model.searchTerm) { Task { await model.search() } }
-                if model.searchSongs.isEmpty {
-                    Text("曲が見つかりません。検索語を変えてください。")
-                        .foregroundStyle(Studio.secondary)
-                } else {
-                    Text("\(model.searchSongs.count)曲から出題")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Studio.secondary)
-                    ForEach(model.searchSongs.prefix(3)) { song in SongRow(song: song) }
-                    PrimaryButton(title: "プレイ開始", symbol: "arrow.right", disabled: model.busy) {
-                        startGame { await model.startSolo() }
-                    }
-                    if let status = model.preparationStatus { Text(status).font(.caption).foregroundStyle(Studio.secondary) }
-                }
-            }
-        }
-    }
-
-    private var sharedContent: some View {
-        StudioCard {
-            VStack(alignment: .leading, spacing: 16) {
-                if model.serverConfigured {
-                    Button("曲を読み込む") { Task { await model.loadSharedSongs() } }
-                        .buttonStyle(SecondaryButtonStyle())
-                        .disabled(model.busy)
-                    if model.busy { ProgressView().tint(Studio.accent) }
-                    if !model.sharedSongs.isEmpty {
-                        Text("\(model.sharedSongs.count)曲を利用できます")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Studio.secondary)
-                        ForEach(model.sharedSongs.prefix(3)) { song in SongRow(song: song) }
-                        PrimaryButton(title: "プレイ開始", symbol: "arrow.right", disabled: model.busy) {
-                            startGame { await model.startSolo(shared: true) }
-                        }
-                        if let status = model.preparationStatus { Text(status).font(.caption).foregroundStyle(Studio.secondary) }
-                    }
-                } else {
-                    Text("共有音源は現在利用できません")
-                        .foregroundStyle(Studio.secondary)
-                }
-            }
-        }
-    }
-
-    private var appleMusicPreviewContent: some View {
-        StudioCard {
-            VStack(alignment: .leading, spacing: 16) {
-                appleMusicPlaylistInput(requiresPlayback: false)
-                if !model.appleMusicSongs.isEmpty {
-                    PrimaryButton(title: "プレイ開始", symbol: "arrow.right", disabled: model.busy) {
-                        startGame { await model.startSabitroSolo() }
-                    }
-                    if let status = model.preparationStatus { Text(status).font(.caption).foregroundStyle(Studio.secondary) }
-                }
-            }
-        }
-    }
-
-    private var appleMusicContent: some View {
-        StudioCard {
-            VStack(alignment: .leading, spacing: 16) {
-                appleMusicPlaylistInput()
-                if model.appleMusicConnected, !model.appleMusicSongs.isEmpty {
-                    ForEach(model.appleMusicSongs.prefix(3)) { song in SongRow(song: song) }
-                    PrimaryButton(title: "プレイ開始", symbol: "arrow.right",
-                                  disabled: !model.appleMusicPlayable || model.busy) {
-                        startGame { await model.startAppleMusicSolo() }
-                    }
-                    if let status = model.preparationStatus { Text(status).font(.caption).foregroundStyle(Studio.secondary) }
-                }
-            }
-        }
-    }
-
-    @ViewBuilder private func appleMusicPlaylistInput(requiresPlayback: Bool = true) -> some View {
-        if model.appleMusicConnected {
-            if model.appleMusicPlaylists.isEmpty {
-                Button("プレイリストを読み込む") { Task { await model.loadAppleMusicPlaylists() } }
-                    .buttonStyle(SecondaryButtonStyle())
-            } else {
-                Picker("プレイリスト", selection: $model.selectedAppleMusicPlaylistID) {
-                    Text("選択してください").tag("")
-                    ForEach(model.appleMusicPlaylists) { list in Text(list.name).tag(list.id) }
-                }
-                .tint(Studio.accent)
-                .onChange(of: model.selectedAppleMusicPlaylistID) { _, id in
-                    Task { await model.selectAppleMusicPlaylist(id) }
-                }
-            }
-            if model.busy { ProgressView().tint(Studio.accent) }
-            if !model.appleMusicSongs.isEmpty {
-                Text("\(model.appleMusicSongs.count)曲を読み込みました")
-                    .font(.subheadline).foregroundStyle(Studio.secondary)
-            }
-            if requiresPlayback && !model.appleMusicPlayable {
-                Text("再生には Apple Music のサブスクリプションが必要です")
-                    .font(.caption).foregroundStyle(Studio.secondary)
-            }
-        } else {
-            HStack(spacing: 12) {
-                AppleMusicIcon(size: 44)
-                Text("好きなプレイリストで遊ぼう")
-                    .font(.headline).foregroundStyle(Studio.primary)
-            }
-            Button("Apple Music に接続") { Task { await model.connectAppleMusic() } }
-                .buttonStyle(SecondaryButtonStyle()).disabled(model.busy)
-            Text(requiresPlayback ? "ライブラリへのアクセスとサブスクリプションが必要です。" : "プレイリストを選ぶにはライブラリへのアクセスが必要です。")
-                .font(.caption).foregroundStyle(Studio.secondary)
-        }
-    }
-
-    private var itunesContent: some View {
-        StudioCard {
-            VStack(alignment: .leading, spacing: 16) {
-                if model.serverConfigured {
-                    searchField("曲名・アーティスト", text: $model.itunesTerm) { Task { await model.searchItunes() } }
-                    if model.busy { ProgressView().tint(Studio.accent) }
-                    if !model.itunesSongs.isEmpty {
-                        Text("\(model.itunesSongs.count)曲が見つかりました")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Studio.secondary)
-                        ForEach(model.itunesSongs.prefix(3)) { song in
-                            HStack {
-                                SongRow(song: song)
-                                Button(sampleID == song.id ? "停止" : "試聴") {
-                                    if sampleID == song.id { model.player.stop(); sampleID = nil }
-                                    else if let url = song.previewURL { model.player.play(url); sampleID = song.id }
-                                }
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(Studio.accent)
-                                .frame(minWidth: 44, minHeight: 44)
-                            }
-                        }
-                        PrimaryButton(title: "プレイ開始", symbol: "arrow.right", disabled: model.busy) {
-                            model.player.stop()
-                            sampleID = nil
-                            startGame { await model.startItunesSolo() }
-                        }
-                        if let status = model.preparationStatus { Text(status).font(.caption).foregroundStyle(Studio.secondary) }
-                    }
-                } else {
-                    Text("試聴曲検索は現在利用できません")
-                        .foregroundStyle(Studio.secondary)
-                }
-            }
-        }
-    }
-
-    private var joinContent: some View {
-        StudioCard {
-            VStack(alignment: .leading, spacing: 16) {
-                if model.serverConfigured {
-                    TextField("6文字のルームID", text: $roomCode)
-                        .textInputAutocapitalization(.characters)
-                        .autocorrectionDisabled()
-                        .padding(.horizontal, 15)
-                        .frame(height: 52)
-                        .background(Studio.raised, in: RoundedRectangle(cornerRadius: 12))
-                        .accessibilityLabel("6文字のルームID")
-                    PrimaryButton(title: "参加する", symbol: "arrow.right", disabled: roomCode.trimmingCharacters(in: .whitespacesAndNewlines).count != 6 || model.busy) {
-                        Task { await model.joinRoom(roomCode) }
-                    }
-                } else {
-                    Text("対戦は現在利用できません")
-                        .foregroundStyle(Studio.secondary)
-                }
-            }
-        }
-    }
-
-    @MainActor private func startGame(_ action: @escaping @MainActor () async -> Void) {
-        model.beginGameStart()
-        Task {
-            defer { model.finishGameStart() }
-            await action()
-        }
-    }
-
-    private func searchField(_ prompt: String, text: Binding<String>, search: @escaping () -> Void) -> some View {
-        HStack(spacing: 10) {
-            TextField(prompt, text: text)
-                .submitLabel(.search)
-                .onSubmit(search)
-                .padding(.horizontal, 15)
-                .frame(height: 52)
-                .background(Studio.raised, in: RoundedRectangle(cornerRadius: 12))
-            Button(action: search) {
-                Image(systemName: "magnifyingglass")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                    .frame(width: 52, height: 52)
-                    .background(Studio.accent, in: RoundedRectangle(cornerRadius: 12))
-            }
-            .accessibilityLabel("検索")
-        }
-    }
-
-    private func createRoom(using value: PlaySource) {
-        let mode: String
-        switch value {
-        case .shared: mode = "shared"
-        case .appleMusic: mode = "applemusic"
-        case .appleMusicPreview: mode = "sabitro"
-        default: return
-        }
-        Task { await model.createRoom(mode: mode) }
-    }
-
-    private func goBack() {
-        model.player.stop()
-        sampleID = nil
-        if source != nil { source = nil }
-        else if kind != nil { kind = nil }
-        else { party = nil }
-    }
-
-    private func resetToHome() {
-        if sampleID != nil { model.player.stop(); sampleID = nil }
-        party = startsTogether ? .together : nil
-        kind = nil
-        source = nil
-        roomCode = ""
-    }
-}
-
 private struct RuleDialRow: View {
     let title: String
     @Binding var value: Int
@@ -839,49 +349,6 @@ private struct LandingButton: View {
     }
 }
 
-private struct PlayOptionButton: View {
-    let title: String
-    let subtitle: String
-    let symbol: String
-    var disabled = false
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 16) {
-                Group {
-                    if title.contains("Apple Music") { AppleMusicIcon() }
-                    else { Image(systemName: symbol).font(.system(size: 20, weight: .semibold)) }
-                }
-                    .foregroundStyle(disabled ? Studio.secondary : Studio.accent)
-                    .frame(width: 48, height: 48)
-                    .background(Studio.raised, in: RoundedRectangle(cornerRadius: 14))
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
-                        .font(.system(.headline, design: .rounded, weight: .bold))
-                        .foregroundStyle(Studio.primary)
-                    Text(subtitle)
-                        .font(.subheadline)
-                        .foregroundStyle(Studio.secondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                Image(systemName: disabled ? "lock.fill" : "chevron.right")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(disabled ? Studio.secondary : Studio.accent)
-                    .accessibilityHidden(true)
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
-            .background(Studio.surface, in: RoundedRectangle(cornerRadius: Studio.radius))
-            .overlay(RoundedRectangle(cornerRadius: Studio.radius).strokeBorder(Studio.line))
-        }
-        .buttonStyle(ScaleButtonStyle())
-        .disabled(disabled)
-        .accessibilityLabel("\(title)、\(subtitle)")
-    }
-}
-
 private struct SecondaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -895,7 +362,7 @@ private struct SecondaryButtonStyle: ButtonStyle {
     }
 }
 
-private struct SongRow: View {
+struct SongRow: View {
     let song: Song
     var body: some View {
         HStack(spacing: 12) {
@@ -910,7 +377,7 @@ private struct SongRow: View {
     }
 }
 
-private struct HomeWaveform: View {
+struct HomeWaveform: View {
     var body: some View {
         Canvas { context, size in
             func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
@@ -2061,6 +1528,7 @@ private struct FriendNotificationBanner<Content: View>: View {
 struct AccountView: View {
     @EnvironmentObject private var model: AppModel
     @State private var showRecords = false
+    @State private var showConnectionBenefits = false
     @State private var showAvatarSettings = false
     @State private var editingName = false
     @State private var draftName = ""
@@ -2284,24 +1752,44 @@ struct AccountView: View {
                 }
                 .disabled(model.profileSyncing)
                 .accessibilityHint("名前、アイコン、復習、記録、音量設定を同期")
+                Divider().overlay(Studio.line).padding(.horizontal, 16)
+                DisclosureGroup(isExpanded: $showConnectionBenefits) {
+                    VStack(alignment: .leading, spacing: 16) {
+                        connectionBenefit("Apple Music",
+                            description: "自分のプレイリストでイントロ・サビトロを遊べます。イントロの再生にはサブスクリプションが必要です。")
+                        connectionBenefit("iCloud",
+                            description: "名前・アイコン・復習リスト・プレイ記録・音量設定を保存し、同じiCloudアカウントのiPhoneで引き継げます。")
+                    }
+                    .padding(.bottom, 16)
+                } label: {
+                    Text("外部連携するとできること")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Studio.primary)
+                        .frame(minHeight: 44)
+                }
+                .tint(Studio.accent)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 4)
+                .animation(reduceMotion ? nil : Studio.spring, value: showConnectionBenefits)
             }
             .buttonStyle(StudioPressStyle())
             .background(Studio.surface, in: RoundedRectangle(cornerRadius: 16))
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text(model.appleMusicConnected
-                     ? model.appleMusicPlayable ? "Apple Music の曲を再生できます。タップして接続状態を更新します。" : "Apple Music の再生にはサブスクリプションが必要です。"
-                     : "Apple Music をタップすると、音楽ライブラリへのアクセスを許可できます。")
-                Text("名前・アイコン・復習・記録・音量設定をiCloudに保存します。")
-                if let status = model.profileSyncStatus { Text(status) }
-                if model.serverConfigured {
-                    Text("共有音源には、利用できる権利を持つ音声を登録してください。")
-                }
+            if let status = model.profileSyncStatus {
+                Text(status)
+                    .font(.caption)
+                    .foregroundStyle(Studio.secondary)
+                    .padding(.horizontal, 16)
             }
-            .font(.caption)
-            .foregroundStyle(Studio.secondary)
-            .padding(.horizontal, 16)
         }
+    }
+
+    private func connectionBenefit(_ title: String, description: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(Studio.primary)
+            Text(description).font(.subheadline).foregroundStyle(Studio.secondary)
+        }
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private var cloudSaved: Bool { model.profileSyncStatus?.hasPrefix("iCloudに保存済み") == true }
@@ -2519,6 +2007,69 @@ private struct AvatarCropView: View {
     }
 }
 
+private struct RoomExitConfirmation: View {
+    let isPresented: Bool
+    let isLeaving: Bool
+    let onCancel: () -> Void
+    let onLeave: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AccessibilityFocusState private var titleFocused: Bool
+
+    var body: some View {
+        ZStack {
+            if isPresented {
+                Color.black.opacity(0.32)
+                    .ignoresSafeArea()
+                    .onTapGesture { if !isLeaving { onCancel() } }
+                    .accessibilityHidden(true)
+                    .transition(.opacity)
+                VStack(spacing: 24) {
+                    Text("ルームを退室しますか？")
+                        .font(.system(.title3, design: .rounded, weight: .bold))
+                        .foregroundStyle(Studio.primary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityAddTraits(.isHeader)
+                        .accessibilityFocused($titleFocused)
+                    VStack(spacing: 12) {
+                        Button(role: .destructive, action: onLeave) {
+                            HStack(spacing: 10) {
+                                if isLeaving { ProgressView().tint(.white) }
+                                Text(isLeaving ? "退室しています…" : "退室する")
+                                    .font(.headline)
+                            }
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity, minHeight: 52)
+                            .background(Studio.accent, in: RoundedRectangle(cornerRadius: 14))
+                        }
+                        Button(action: onCancel) {
+                            Text("キャンセル")
+                                .font(.headline)
+                                .foregroundStyle(Studio.accent)
+                                .frame(maxWidth: .infinity, minHeight: 52)
+                                .background(Studio.raised, in: RoundedRectangle(cornerRadius: 14))
+                        }
+                    }
+                    .buttonStyle(StudioPressStyle())
+                    .disabled(isLeaving)
+                }
+                .padding(24)
+                .frame(maxWidth: 360)
+                .background(Studio.surface, in: RoundedRectangle(cornerRadius: 24))
+                .shadow(color: .black.opacity(0.12), radius: 24, y: 8)
+                .padding(24)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("room-exit-confirmation")
+                .accessibilityAction(.escape) { if !isLeaving { onCancel() } }
+                .transition(reduceMotion ? .opacity : .scale(scale: 0.85).combined(with: .opacity))
+                .onAppear { titleFocused = true }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .allowsHitTesting(isPresented)
+    }
+}
+
 struct RoomGameView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -2526,6 +2077,8 @@ struct RoomGameView: View {
     @State private var showFriends = false
     @State private var showHandicapSettings = false
     @State private var selectedProfile: PlayerProfileTarget?
+    @State private var showLeaveConfirmation = false
+    @State private var leavingRoom = false
 
     var body: some View {
         ZStack {
@@ -2535,7 +2088,7 @@ struct RoomGameView: View {
                     let compact = geometry.size.height < 700
                     VStack(spacing: 0) {
                         HStack {
-                            Button { Task { await model.leaveRoom() } } label: {
+                            Button { setLeaveConfirmation(true) } label: {
                                 Image(systemName: "xmark").font(.headline).foregroundStyle(Studio.primary)
                                     .frame(width: 44, height: 44).background(Studio.surface, in: Circle())
                             }
@@ -2698,6 +2251,12 @@ struct RoomGameView: View {
                     .background(Studio.background.ignoresSafeArea())
             }
         }
+        .allowsHitTesting(!showLeaveConfirmation)
+        .accessibilityHidden(showLeaveConfirmation)
+        .overlay {
+            RoomExitConfirmation(isPresented: showLeaveConfirmation, isLeaving: leavingRoom,
+                                 onCancel: { setLeaveConfirmation(false) }, onLeave: confirmLeaveRoom)
+        }
         .sheet(isPresented: $showVolumeSettings) {
             GameVolumeSettingsSheet()
                 .environmentObject(model)
@@ -2708,6 +2267,23 @@ struct RoomGameView: View {
         }
         .sheet(item: $selectedProfile) { target in
             PlayerProfileSheet(target: target).environmentObject(model)
+        }
+    }
+
+    private func setLeaveConfirmation(_ presented: Bool) {
+        guard !leavingRoom else { return }
+        withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.3, dampingFraction: 0.85)) {
+            showLeaveConfirmation = presented
+        }
+    }
+
+    private func confirmLeaveRoom() {
+        guard !leavingRoom else { return }
+        leavingRoom = true
+        Task { @MainActor in
+            await model.leaveRoom()
+            leavingRoom = false
+            setLeaveConfirmation(false)
         }
     }
 
@@ -2849,12 +2425,12 @@ struct RoomGameView: View {
                 .font(.system(size: 26, weight: .bold, design: .rounded))
                 .foregroundStyle(Studio.primary)
                 .multilineTextAlignment(.center)
-            Text("ルームIDを友だちに共有してください")
+            Text("ルームコードを友だちに共有してください")
                 .foregroundStyle(Studio.secondary)
-            ShareLink(item: room.id) {
+            ShareLink(item: "ルームコード: \(room.id)") {
                 Label("\(room.id) を共有", systemImage: "square.and.arrow.up")
-                    .font(.subheadline.bold())
-                    .foregroundStyle(Studio.accent)
+                    .font(.subheadline.bold()).foregroundStyle(Studio.accent)
+                    .frame(minHeight: 44)
             }
             Button { showFriends = true } label: {
                 Label("フレンドを招待", systemImage: "person.crop.circle.badge.plus")
@@ -2893,9 +2469,6 @@ struct RoomGameView: View {
                             Text("\(model.appleMusicSongs.count)曲を読み込みました")
                                 .font(.caption).foregroundStyle(Studio.secondary)
                         }
-                    } else {
-                        Button("Apple Music に接続") { Task { await model.connectAppleMusic() } }
-                            .buttonStyle(SecondaryButtonStyle())
                     }
                 }
                 roomRules.disabled(model.busy)
