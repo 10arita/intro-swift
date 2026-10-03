@@ -7,8 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		A0000000000000000000001D /* PlayFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001E /* PlayFlow.swift */; };
-		A0000000000000000000001E /* RoomCode.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001F /* RoomCode.swift */; };
 		A00000000000000000000001 /* IntoLApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000001 /* IntoLApp.swift */; };
 		A00000000000000000000002 /* Design.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000002 /* Design.swift */; };
 		A00000000000000000000003 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000003 /* Models.swift */; };
@@ -30,11 +28,11 @@
 		A0000000000000000000001A /* CloudProfileService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001A /* CloudProfileService.swift */; };
 		A0000000000000000000001B /* PlaylistPreparation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001C /* PlaylistPreparation.swift */; };
 		A0000000000000000000001C /* RevealAudioPlayback.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001D /* RevealAudioPlayback.swift */; };
+		A0000000000000000000001D /* PlayFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001E /* PlayFlow.swift */; };
+		A0000000000000000000001E /* RoomCode.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001F /* RoomCode.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		B0000000000000000000001E /* PlayFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayFlow.swift; sourceTree = "<group>"; };
-		B0000000000000000000001F /* RoomCode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomCode.swift; sourceTree = "<group>"; };
 		B00000000000000000000001 /* IntoLApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntoLApp.swift; sourceTree = "<group>"; };
 		B00000000000000000000002 /* Design.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Design.swift; sourceTree = "<group>"; };
 		B00000000000000000000003 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
@@ -59,6 +57,8 @@
 		B0000000000000000000001B /* IntoL.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = IntoL.entitlements; sourceTree = "<group>"; };
 		B0000000000000000000001C /* PlaylistPreparation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistPreparation.swift; sourceTree = "<group>"; };
 		B0000000000000000000001D /* RevealAudioPlayback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RevealAudioPlayback.swift; sourceTree = "<group>"; };
+		B0000000000000000000001E /* PlayFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayFlow.swift; sourceTree = "<group>"; };
+		B0000000000000000000001F /* RoomCode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomCode.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -356,7 +356,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 4.10.0;
+				MARKETING_VERSION = 5.0.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -387,7 +387,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 4.10.0;
+				MARKETING_VERSION = 5.0.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
