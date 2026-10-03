@@ -28,6 +28,8 @@ test('iTunes matching requires the title and artist, and Songle starts before th
     assert.equal(await chorusPosition({ durationMS: 220000, songleURL: 'https://www.youtube.com/watch?v=abc' }), 63626);
     assert.equal(fallbackChorus(180000), 56100);
     assert.equal(fallbackChorus(181234), 56495);
+    assert.equal(fallbackChorus(30000), 25000);
+    assert.equal(fallbackChorus(3000), 0);
   } finally { globalThis.fetch = original; }
 });
 
@@ -78,5 +80,23 @@ test('missing Songle chorus stays missing so the client can try a preview', asyn
   try {
     assert.equal(await chorusPosition({ durationMS: 180000,
       songleURL: 'https://www.youtube.com/watch?v=no-chorus' }), null);
+  } finally { globalThis.fetch = original; }
+});
+
+test('invalid Songle timestamps do not bypass preview fallback, and zero is a valid position', async () => {
+  const original = globalThis.fetch;
+  let start;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    chorusSegments: [{ isChorus: true, repeats: [{ start }] }]
+  }), { status: 200 });
+  try {
+    for (const value of [-1, 180000, 1e100]) {
+      start = value;
+      assert.equal(await chorusPosition({ durationMS: 180000,
+        songleURL: `https://www.youtube.com/watch?v=invalid-${value}` }), null);
+    }
+    start = 1000;
+    assert.equal(await chorusPosition({ durationMS: 180000,
+      songleURL: 'https://www.youtube.com/watch?v=chorus-at-start' }), 0);
   } finally { globalThis.fetch = original; }
 });

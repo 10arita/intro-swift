@@ -313,7 +313,7 @@ test('unsupported music providers cannot create rooms', () => {
   assert.equal(result.status, 400);
 });
 
-test('a retried Apple Music choice is applied once and its reveal has an integral chorus', () => {
+for (const chorusMS of [56494.88, 0]) test(`a retried Apple Music choice is applied once and retains chorus ${chorusMS}`, () => {
   const originalNow = Date.now;
   let now = originalNow();
   Date.now = () => now;
@@ -321,7 +321,7 @@ test('a retried Apple Music choice is applied once and its reveal has an integra
     const created = handle('POST', '/rooms', {
       playerId: 'retry-host', name: 'Host', mode: 'applemusic',
       songs: [{ id: 'applemusic:1234567890', title: '青い空', artist: 'Artist',
-        durationMS: 181234, chorusMS: 56494.88 }],
+        durationMS: 181234, chorusMS }],
       settings: { questionCount: 1 }
     }, new URLSearchParams());
     const path = `/rooms/${created.body.id}`;
@@ -343,39 +343,44 @@ test('a retried Apple Music choice is applied once and its reveal has an integra
     assert.equal(send('choose', { choice: 'い', actionId: 'second-letter' }).body.answerProgress, '青い');
     const completed = send('choose', { choice: '空', actionId: 'final-letter' });
     assert.equal(completed.body.phase, 'reveal');
-    assert.equal(completed.body.current.chorusMS, 56495);
+    assert.equal(completed.body.current.chorusMS, Math.round(chorusMS));
   } finally {
     Date.now = originalNow;
   }
 });
 
-test('Apple Music room reveals the Songle chorus position', async () => {
+for (const mode of ['applemusic', 'shared']) test(`${mode} room reveals the Songle chorus position`, async () => {
   const originalFetch = globalThis.fetch;
   const originalNow = Date.now;
   let now = originalNow();
   Date.now = () => now;
   const requests = [];
+  const songs = mode === 'applemusic'
+    ? [{ id: 'applemusic:1234567890', title: '青い空', artist: '歌手', durationMS: 180000 }]
+    : handle('GET', '/catalog', {}, new URLSearchParams()).body.songs;
+  const chorusStart = mode === 'applemusic' ? 65000 : 20000;
   globalThis.fetch = async url => {
     const address = new URL(url);
     requests.push(address);
-    if (address.pathname.endsWith('/songs/search.json')) return new Response(JSON.stringify([
-      { title: '青い空', artist: { name: '歌手' }, permalink: 'http://www.youtube.com/watch?v=apple-test' }
-    ]), { status: 200 });
+    if (address.pathname.endsWith('/songs/search.json')) return new Response(JSON.stringify(songs.map(song => ({
+      title: song.title, artist: { name: song.artist }, duration: song.durationMS,
+      permalink: `http://www.youtube.com/watch?v=${mode}-chorus-test`
+    }))), { status: 200 });
     if (address.pathname.endsWith('/song/chorus.json')) return new Response(JSON.stringify({
-      chorusSegments: [{ isChorus: true, repeats: [{ start: 65000 }] }]
+      chorusSegments: [{ isChorus: true, repeats: [{ start: chorusStart }] }]
     }), { status: 200 });
     throw new Error(`Unexpected URL: ${address}`);
   };
   try {
-    const song = { id: 'applemusic:1234567890', title: '青い空', artist: '歌手', durationMS: 180000 };
-    const created = handle('POST', '/rooms', { playerId: 'apple-chorus-host', name: 'Host', mode: 'applemusic',
-      songs: [song], settings: { questionCount: 1 } }, new URLSearchParams());
+    const playerId = `${mode}-chorus-host`;
+    const created = handle('POST', '/rooms', { playerId, name: 'Host', mode,
+      songs, settings: { questionCount: 1 } }, new URLSearchParams());
     assert.equal(created.status, 201);
     const id = created.body.id;
     const authorization = `Bearer ${created.body.sessionToken}`;
-    assert.equal(handle('POST', `/rooms/${id}/assets-ready`, { playerId: 'apple-chorus-host' },
+    assert.equal(handle('POST', `/rooms/${id}/assets-ready`, { playerId },
       new URLSearchParams(), authorization).status, 200);
-    const request = Readable.from([Buffer.from(JSON.stringify({ playerId: 'apple-chorus-host' }))]);
+    const request = Readable.from([Buffer.from(JSON.stringify({ playerId }))]);
     request.method = 'POST'; request.url = `/rooms/${id}/start`;
     request.headers = { host: 'localhost', authorization };
     const started = await new Promise(resolve => {
@@ -386,17 +391,18 @@ test('Apple Music room reveals the Songle chorus position', async () => {
       server.emit('request', request, response);
     });
     assert.equal(started.status, 200);
+    assert.equal(started.body.current.chorusMS, undefined, 'Do not disclose chorus metadata before reveal');
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(requests.length, 2);
-    assert.equal(requests[1].searchParams.get('url'), 'www.youtube.com/watch?v=apple-test');
-    const ready = handle('POST', `/rooms/${id}/ready`, { playerId: 'apple-chorus-host' },
+    assert.equal(requests[1].searchParams.get('url'), `www.youtube.com/watch?v=${mode}-chorus-test`);
+    const ready = handle('POST', `/rooms/${id}/ready`, { playerId },
       new URLSearchParams(), authorization);
     assert.equal(ready.body.phase, 'countdown');
     now += 5100;
-    const revealed = handle('POST', `/rooms/${id}/skip`, { playerId: 'apple-chorus-host' },
+    const revealed = handle('POST', `/rooms/${id}/skip`, { playerId },
       new URLSearchParams(), authorization);
     assert.equal(revealed.body.phase, 'reveal');
-    assert.equal(revealed.body.current.chorusMS, 63500);
+    assert.equal(revealed.body.current.chorusMS, chorusStart - 1500);
   } finally {
     globalThis.fetch = originalFetch;
     Date.now = originalNow;

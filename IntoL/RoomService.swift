@@ -101,9 +101,10 @@ struct RoomCurrent: Decodable {
     var song: Song? {
         guard let title, let artist else { return nil }
         let chorusPosition = chorusMS.flatMap { value -> Int? in
-            guard value.isFinite else { return nil }
+            guard value.isFinite, value >= 0 else { return nil }
             let maximum = min(Double(max(0, durationMS ?? 180_000)), 86_400_000)
-            return Int(max(0, min(maximum, value)).rounded())
+            guard value.rounded() < maximum else { return nil }
+            return Int(value.rounded())
         }
         return Song(id: id, title: title, artist: artist, artworkURL: artworkURL, previewURL: previewURL,
                     trackURL: trackURL,
@@ -479,7 +480,7 @@ struct SavedProfile: Decodable {
         request.timeoutInterval = 6
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(song)
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw AppError.message("iTunes 照合に失敗しました") }
         let match = try JSONDecoder().decode(ItunesMatch.self, from: data)
         itunesMatches[song.id] = match
@@ -498,7 +499,7 @@ struct SavedProfile: Decodable {
             request.timeoutInterval = 16
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try? JSONEncoder().encode(song)
-            if let (data, response) = try? await URLSession.shared.data(for: request),
+            if let (data, response) = try? await session.data(for: request),
                (response as? HTTPURLResponse)?.statusCode == 200,
                let decoded = try? JSONDecoder().decode(ChorusResponse.self, from: data) {
                 return decoded.positionMS
@@ -541,18 +542,16 @@ struct SavedProfile: Decodable {
             host + parts.percentEncodedPath + (parts.percentEncodedQuery.map { "?\($0)" } ?? ""))]
         guard let url = chorus.url, let map: SongleChorusMap = await songleResponse(url),
               let start = map.chorusSegments.first(where: \.isChorus)?.repeats.first?.start,
-              start.isFinite else { return nil }
-        return max(0, min(max(0, song.durationMS - 5000), Int((start - 1500).rounded())))
+              start.isFinite, start >= 0, start < Double(song.durationMS > 0 ? song.durationMS : 180_000) else { return nil }
+        let maximum = Double(max(0, song.durationMS > 0 ? song.durationMS - 5000 : 175_000))
+        return Int(max(0, min(maximum, (start - 1500).rounded())))
     }
     private func songleResponse<Value: Decodable>(_ url: URL) async -> Value? {
         var request = URLRequest(url: url)
         request.timeoutInterval = 8
-        guard let (data, response) = try? await URLSession.shared.data(for: request),
+        guard let (data, response) = try? await session.data(for: request),
               (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
         return try? JSONDecoder().decode(Value.self, from: data)
-    }
-    func fallbackChorus(_ song: Song) -> Int {
-        max(0, min(90_000, max(30_000, Int(Double(song.durationMS) * 0.32))) - 1500)
     }
     func action(_ action: String, id: String, payload: [String: Any] = [:]) async throws -> RoomState {
         var payload = payload

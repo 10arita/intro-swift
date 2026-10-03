@@ -52,7 +52,8 @@ export async function topSongs() {
 export function fallbackChorus(durationMS) {
   const duration = Number(durationMS);
   const playableDuration = Number.isFinite(duration) && duration > 0 ? duration : 180_000;
-  return Math.max(0, Math.round(Math.min(90_000, Math.max(30_000, playableDuration * .32)) - 1500));
+  const estimated = Math.min(90_000, Math.max(30_000, playableDuration * .32)) - 1500;
+  return Math.max(0, Math.round(Math.min(estimated, playableDuration - 5000)));
 }
 export async function chorusPosition(song) {
   if (!song?.songleURL && song?.title) {
@@ -88,7 +89,9 @@ export async function chorusPosition(song) {
   try {
     const data = await json(url, 24 * 60 * 60_000);
     const start = data.chorusSegments?.find(s => s.isChorus)?.repeats?.[0]?.start;
-    if (Number.isFinite(start)) return Math.max(0, Math.min(Math.max(0, Number(song.durationMS || 180_000) - 5000), Math.round(start - 1500)));
+    const duration = Number(song.durationMS) > 0 ? Number(song.durationMS) : 180_000;
+    if (Number.isFinite(start) && start >= 0 && start < duration)
+      return Math.max(0, Math.min(Math.max(0, duration - 5000), Math.round(start - 1500)));
   } catch { /* The client chooses an audio fallback. */ }
   return null;
 }

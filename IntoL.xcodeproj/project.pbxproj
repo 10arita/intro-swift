@@ -27,6 +27,7 @@
 		A00000000000000000000019 /* CloudProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000019 /* CloudProfile.swift */; };
 		A0000000000000000000001A /* CloudProfileService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001A /* CloudProfileService.swift */; };
 		A0000000000000000000001B /* PlaylistPreparation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001C /* PlaylistPreparation.swift */; };
+		A0000000000000000000001C /* RevealAudioPlayback.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001D /* RevealAudioPlayback.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -53,6 +54,7 @@
 		B0000000000000000000001A /* CloudProfileService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudProfileService.swift; sourceTree = "<group>"; };
 		B0000000000000000000001B /* IntoL.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = IntoL.entitlements; sourceTree = "<group>"; };
 		B0000000000000000000001C /* PlaylistPreparation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistPreparation.swift; sourceTree = "<group>"; };
+		B0000000000000000000001D /* RevealAudioPlayback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RevealAudioPlayback.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -87,6 +89,7 @@
 				B00000000000000000000019 /* CloudProfile.swift */,
 				B0000000000000000000001A /* CloudProfileService.swift */,
 				B0000000000000000000001C /* PlaylistPreparation.swift */,
+				B0000000000000000000001D /* RevealAudioPlayback.swift */,
 				B0000000000000000000001B /* IntoL.entitlements */,
 				B00000000000000000000005 /* AppModel.swift */,
 				B00000000000000000000006 /* RoomService.swift */,
@@ -226,6 +229,7 @@
 				A00000000000000000000019 /* CloudProfile.swift in Sources */,
 				A0000000000000000000001A /* CloudProfileService.swift in Sources */,
 				A0000000000000000000001B /* PlaylistPreparation.swift in Sources */,
+				A0000000000000000000001C /* RevealAudioPlayback.swift in Sources */,
 				A00000000000000000000005 /* AppModel.swift in Sources */,
 				A00000000000000000000006 /* RoomService.swift in Sources */,
 				A00000000000000000000007 /* Views.swift in Sources */,

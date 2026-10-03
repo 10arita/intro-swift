@@ -140,7 +140,6 @@ struct SoloGame {
     private var appIsActive = false
     private var gameStartHolds = 0
     private var reviewAudioPlaying = false
-    private var musicTask: Task<Void, Never>?
     private var appleMusicPlaying = false
     private var appleMusicPauseTask: Task<Void, Never>?
     private var profileSaveTask: Task<Void, Never>?
@@ -437,7 +436,7 @@ struct SoloGame {
                 self.game = current
             }
         }
-        if song.id.hasPrefix("applemusic:") {
+        if RevealAudioPlayback.hasFullAudio(song) {
             _ = chorusLookup(for: song)
         }
     }
@@ -746,37 +745,8 @@ struct SoloGame {
         rooms.restoreProfileIdentity(profile.serverProfileID, credentials: profile.serverCredentials)
     }
 
-    private func playAudio(_ song: Song, offsetMS: Int = 0) {
-        musicTask?.cancel()
-        if song.id.hasPrefix("applemusic:") {
-            appleMusicPlaying = true
-            let pause = appleMusicPauseTask
-            musicTask = Task { [weak self] in
-                guard let self else { return }
-                await pause?.value
-                guard !Task.isCancelled else { return }
-                do { try await self.playAppleMusicWithRetry(song, offsetMS: offsetMS) }
-                catch {
-                    guard !Task.isCancelled else { return }
-                    if self.room?.phase == "reveal", self.room?.current?.id == song.id {
-                        self.roomError = RoomService.isConnectionError(error)
-                            ? "Apple Music との通信が途切れました。再生を再試行してください"
-                            : error.localizedDescription
-                        return
-                    }
-                    if var game = self.game, game.current.id == song.id {
-                        game.warning = error.localizedDescription
-                        self.game = game
-                    } else { self.alert = error.localizedDescription }
-                }
-            }
-        } else if let url = song.previewURL {
-            player.play(url, offset: Double(offsetMS) / 1000)
-        }
-    }
-
     private func pauseAudio() {
-        let active = musicTask ?? (roomID == nil ? soloRoundTask : scheduledRoomAudio)
+        let active = revealAudioTask ?? (roomID == nil ? soloRoundTask : scheduledRoomAudio)
         if appleMusicPlaying {
             let previous = appleMusicPauseTask
             appleMusicPauseTask = Task { [weak self] in
@@ -790,47 +760,84 @@ struct SoloGame {
 
     private func stopAudio() {
         revealAudioTask?.cancel(); revealAudioTask = nil
-        musicTask?.cancel(); musicTask = nil
         appleMusicPauseTask?.cancel(); appleMusicPauseTask = nil
+        stopAudioPlayers()
+    }
+
+    private func stopAudioPlayers() {
         appleMusic.stop(); appleMusicPlaying = false
         player.stop()
     }
 
     private func revealAudio(_ song: Song) {
-        guard song.id.hasPrefix("applemusic:") else { playAudio(song); return }
-        if let position = song.chorusMS ?? chorusPositions[song.id] {
-            playAudio(song, offsetMS: position)
-            return
-        }
-        let lookup = chorusLookup(for: song)
         revealAudioTask?.cancel()
         revealAudioTask = Task { [weak self] in
-            let position = await lookup.value
-            guard let self, !Task.isCancelled else { return }
-            if self.roomID != nil {
-                guard self.room?.phase == "reveal", self.room?.current?.id == song.id else { return }
-            } else {
-                guard self.game?.stage == .reveal, self.game?.current.id == song.id else { return }
-            }
-            if let position {
-                self.playAudio(song, offsetMS: position)
-                return
-            }
-            if let preview = await self.appleMusic.previewURL(for: song.id), !Task.isCancelled {
-                do {
-                    try await self.player.prepare(preview)
-                    guard !Task.isCancelled, self.isRevealing(song) else { return }
+            guard let self else { return }
+            do {
+                try await RevealAudioPlayback.play(song, chorus: {
+                    if let cached = RevealAudioPlayback.validChorus(self.chorusPositions[song.id], durationMS: song.durationMS) {
+                        return cached
+                    }
+                    return await self.chorusLookup(for: song).value
+                }, preview: {
+                    if song.id.hasPrefix("itunes:") { return song.previewURL }
+                    if song.id.hasPrefix("applemusic:") {
+                        if let preview = song.previewURL { return preview }
+                        if let preview = await self.appleMusic.previewURL(for: song.id) { return preview }
+                    }
+                    guard !Task.isCancelled else { return nil }
+                    return try? await self.rooms.matchItunes(song)?.previewURL
+                }, playFullAudio: { position in
+                    try await self.playRevealFullAudio(song, positionMS: position)
+                }, playPreview: { preview in
                     self.appleMusic.stop()
                     self.appleMusicPlaying = false
-                    try self.player.startPrepared(preview)
-                    return
-                } catch {
-                    guard !Task.isCancelled, self.isRevealing(song) else { return }
-                    self.player.stop()
+                    try await self.player.prepare(preview)
+                    try Task.checkCancellation()
+                    guard self.isRevealing(song) else { throw CancellationError() }
+                    try await self.player.startPreparedAndWait(preview)
+                }, stopPlayback: { self.stopAudioPlayers() }, isCurrent: { self.isRevealing(song) })
+            } catch {
+                guard !Task.isCancelled, !(error is CancellationError), self.isRevealing(song) else { return }
+                self.stopAudioPlayers()
+                if self.roomID != nil { self.roomError = error.localizedDescription }
+                else if var game = self.game {
+                    game.warning = error.localizedDescription
+                    self.game = game
                 }
             }
-            guard !Task.isCancelled, self.isRevealing(song) else { return }
-            self.playAudio(song, offsetMS: self.rooms.fallbackChorus(song))
+        }
+    }
+
+    private func playRevealFullAudio(_ song: Song, positionMS: Int?) async throws {
+        try Task.checkCancellation()
+        guard isRevealing(song) else { throw CancellationError() }
+        let duration: TimeInterval
+        if song.id.hasPrefix("applemusic:") {
+            await appleMusicPauseTask?.value
+            try Task.checkCancellation()
+            player.stop()
+            try await appleMusic.prepare(song.id)
+            duration = appleMusic.duration
+        } else {
+            guard let url = song.previewURL else { throw AppError.message("この曲の音源がありません") }
+            appleMusic.stop()
+            appleMusicPlaying = false
+            try await player.prepare(url)
+            duration = player.duration
+        }
+        try Task.checkCancellation()
+        guard isRevealing(song) else { throw CancellationError() }
+        let durationMS = duration > 0 ? Int(min(duration * 1000, 86_400_000)) : song.durationMS
+        if let positionMS, RevealAudioPlayback.validChorus(positionMS, durationMS: durationMS) == nil {
+            throw AppError.message("サビ位置が音源の長さを超えています")
+        }
+        let offset = positionMS ?? RevealAudioPlayback.fallbackPosition(durationMS: durationMS)
+        if song.id.hasPrefix("applemusic:") {
+            appleMusicPlaying = true
+            try await playAppleMusicWithRetry(song, offsetMS: offset)
+        } else if let url = song.previewURL {
+            try await player.startPreparedAndWait(url, offset: Double(offset) / 1000)
         }
     }
 
@@ -1296,6 +1303,7 @@ struct SoloGame {
             scheduledRoomAudio?.cancel()
             scheduledRoomAudio = nil
             lastRoomRound = state.round
+            lastRoomPhase = nil
         }
         if state.phase == "preparing" && preparedRoomRound != state.round {
             preparedRoomRound = state.round

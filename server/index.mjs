@@ -149,7 +149,8 @@ function suppliedSongs(value, mode) {
       artistTopTitles: artistTopTitles(song.artistTopTitles),
       artworkURL: song.artworkURL || null, previewURL: mode === 'applemusic' ? null : song.previewURL,
       trackURL: song.trackURL || null, durationMS: Number(song.durationMS) || 180_000,
-      genre: song.genre || 'その他', songleURL: song.songleURL || null, chorusMS: song.chorusMS || null })) : [];
+      genre: song.genre || 'その他', songleURL: song.songleURL || null,
+      chorusMS: Number.isFinite(song.chorusMS) ? song.chorusMS : null })) : [];
 }
 function artistTopTitles(value) {
   return Array.isArray(value) ? value.filter(t => typeof t === 'string' && normalize(t)).slice(0, 6).map(t => t.slice(0, 150)) : [];
@@ -858,7 +859,7 @@ function closeRoomStreams(id) {
 function enrichStreamingChorus(id) {
   const room = rooms.get(id);
   const song = room && currentSong(room);
-  if (room?.mode === 'applemusic' && song) {
+  if (room && room.mode !== 'sabitro' && song && !Number.isFinite(song.chorusMS)) {
     chorusPosition(song).then(position => { song.chorusMS = position; persist(); }).catch(() => {});
   }
 }

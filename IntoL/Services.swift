@@ -27,6 +27,7 @@ enum AppError: LocalizedError {
     private var player: AVPlayer?
     private var filePlayer: AVAudioPlayer?
     private var preparedURL: URL?
+    private var preparedDuration: TimeInterval = 0
     @Published private(set) var playing = false
     var isActuallyPlaying: Bool {
         filePlayer?.isPlaying == true || player?.timeControlStatus == .playing
@@ -36,8 +37,8 @@ enum AppError: LocalizedError {
         return value.isFinite ? max(0, value) : 0
     }
     var duration: TimeInterval {
-        let value = filePlayer?.duration ?? player?.currentItem?.duration.seconds ?? 0
-        return value.isFinite ? max(0, value) : 0
+        let value = filePlayer?.duration ?? player?.currentItem?.duration.seconds ?? preparedDuration
+        return value.isFinite && value > 0 ? value : preparedDuration
     }
     var hasEnded: Bool {
         if let filePlayer { return playing && !filePlayer.isPlaying }
@@ -72,7 +73,7 @@ enum AppError: LocalizedError {
             playing = filePlayer.play()
             return
         }
-        if offset > 0 { player?.seek(to: CMTime(seconds: offset, preferredTimescale: 600)) }
+        player?.seek(to: CMTime(seconds: max(0, offset), preferredTimescale: 600))
         player?.play()
         playing = true
     }
@@ -80,6 +81,7 @@ enum AppError: LocalizedError {
     func prepare(_ url: URL) async throws {
         let asset = AVURLAsset(url: GameAssets.shared.audioURL(for: url))
         guard try await asset.load(.isPlayable) else { throw AppError.message("音源を準備できません") }
+        let duration = try? await asset.load(.duration).seconds
         try Task.checkCancellation()
         stop()
         if asset.url.isFileURL {
@@ -92,12 +94,49 @@ enum AppError: LocalizedError {
             player?.volume = volume
         }
         preparedURL = url
+        preparedDuration = duration.flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? 0
     }
 
     func startPrepared(_ url: URL, offset: Double = 0) throws {
         guard preparedURL == url else { throw AppError.message("音源の読み込みが完了していません") }
         play(url, offset: offset)
         guard playing else { throw AppError.message("音源を再生できません") }
+    }
+
+    /// Reveal playback must finish seeking and confirm playback before choosing a fallback.
+    func startPreparedAndWait(_ url: URL, offset: Double = 0) async throws {
+        try Task.checkCancellation()
+        guard preparedURL == url else { throw AppError.message("音源の読み込みが完了していません") }
+        try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.duckOthers])
+        try AVAudioSession.sharedInstance().setActive(true)
+        if filePlayer != nil {
+            try startPrepared(url, offset: offset)
+            return
+        }
+        guard let player, let item = player.currentItem else { throw AppError.message("音源を再生できません") }
+        for _ in 0..<80 {
+            try Task.checkCancellation()
+            guard self.player === player, preparedURL == url else { throw CancellationError() }
+            if item.status == .failed { throw item.error ?? AppError.message("音源を読み込めません") }
+            if item.status == .readyToPlay { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        guard item.status == .readyToPlay else { throw AppError.message("音源の読み込みが時間切れになりました") }
+        let seeked = await player.seek(to: CMTime(seconds: max(0, offset), preferredTimescale: 600),
+                                       toleranceBefore: .zero, toleranceAfter: .zero)
+        try Task.checkCancellation()
+        guard self.player === player, preparedURL == url else { throw CancellationError() }
+        guard seeked else { throw AppError.message("音源の再生位置を設定できません") }
+        player.play()
+        playing = true
+        for _ in 0..<80 {
+            try Task.checkCancellation()
+            guard self.player === player, preparedURL == url else { throw CancellationError() }
+            if item.status == .failed { throw item.error ?? AppError.message("音源を再生できません") }
+            if player.timeControlStatus == .playing { return }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        throw AppError.message("音源の再生開始を確認できません。接続を確認して再試行してください")
     }
 
     func schedule(_ url: URL, at date: Date) throws {
@@ -127,7 +166,10 @@ enum AppError: LocalizedError {
 
     func pause() { player?.pause(); filePlayer?.pause(); playing = false }
     func resume() { player?.play(); filePlayer?.play(); playing = true }
-    func stop() { player?.pause(); filePlayer?.stop(); player = nil; filePlayer = nil; preparedURL = nil; playing = false }
+    func stop() {
+        player?.pause(); filePlayer?.stop(); player = nil; filePlayer = nil
+        preparedURL = nil; preparedDuration = 0; playing = false
+    }
 }
 
 @MainActor final class GameSoundPlayer {
