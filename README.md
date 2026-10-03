@@ -57,7 +57,7 @@ MusicKit for Swift を使います。Apple Music API の秘密鍵や手動の De
 
 1. [Apple Developer の Certificates, Identifiers & Profiles](https://developer.apple.com/account/resources/identifiers/list) で、このアプリ用の **Explicit App ID** を作成するか既存の App ID を開き、**App Services → MusicKit** を有効にします。
 2. Xcode の **Targets → IntoL → Signing & Capabilities** で自分の Team を選び、Bundle Identifier をその App ID と完全に一致させます。現在のリポジトリの値は `com.intro.IntoL` です。署名プロファイルを更新して実機にインストールします。
-3. Apple Music を利用できる Apple Account で iPhone にサインインし、Apple Music の有効なサブスクリプションを用意します。IntoL の「アカウント」で「Apple Music に接続」を押してライブラリへのアクセスを許可します。許可を拒否した場合は iPhone の設定から IntoL のメディアライブラリアクセスを変更します。
+3. Apple Music を利用できる Apple Account で iPhone にサインインし、Apple Music の有効なサブスクリプションを用意します。IntoL の「アカウント」で外部連携の「Apple Music」行を押してライブラリへのアクセスを許可します。許可を拒否した場合は iPhone の設定から IntoL のメディアライブラリアクセスを変更します。
 4. 「プレイ」→「ひとりで」→「イントロ」→「Apple Music」からプレイリストを選びます。対戦する場合は全員が Apple Music に接続し、ホストは「みんなで」→「イントロ」→「Apple Musicで作る」を選び、ルームの待機画面でプレイリストを選びます。対戦ではライブラリ曲を Apple Music カタログに対応付け、曲名のバージョン表記・アーティスト・曲長が一致しない候補は除外します。参加者の地域で再生できない曲があると、そのラウンドの準備が完了しません。
 
 Apple Music のプレイリストはイントロクイズで利用できます。サビトロでは iTunes 試聴音源の検索か、Apple Music プレイリスト内の曲と試聴音源の照合を使います。Apple Music の正解発表では Songle にサビ情報がある場合はサビの1.5秒手前から、見つからない場合は曲の長さから推定した位置から再生します。ソロプレイでは対戦サーバーの設定がなくても端末から Songle に照会します。

@@ -15,15 +15,18 @@ private struct SystemMusicVolumeSlider: UIViewRepresentable {
 
 private struct VolumeSettingsControls: View {
     @EnvironmentObject private var model: AppModel
+    var showsCaptions = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             volumeSlider("BGM", value: $model.bgmVolume)
             volumeSlider("効果音", value: $model.effectsVolume)
             volumeSlider("曲（アプリ音源）", value: $model.songVolume)
-            Text("曲の音量はデモ曲・共有音源・試聴曲に適用されます。")
-                .font(.caption)
-                .foregroundStyle(Studio.secondary)
+            if showsCaptions {
+                Text("曲の音量はデモ曲・共有音源・試聴曲に適用されます。")
+                    .font(.caption)
+                    .foregroundStyle(Studio.secondary)
+            }
             if model.appleMusicConnected {
                 Divider()
                 Text("Apple Music の曲（端末音量）")
@@ -32,9 +35,11 @@ private struct VolumeSettingsControls: View {
                 SystemMusicVolumeSlider()
                     .frame(height: 30)
                     .accessibilityLabel("端末の音楽音量")
-                Text("サービスの曲は端末音量で調整します。BGMと効果音にも影響します。")
-                    .font(.caption)
-                    .foregroundStyle(Studio.secondary)
+                if showsCaptions {
+                    Text("サービスの曲は端末音量で調整します。BGMと効果音にも影響します。")
+                        .font(.caption)
+                        .foregroundStyle(Studio.secondary)
+                }
             }
         }
     }
@@ -99,14 +104,19 @@ struct RootView: View {
     @State private var openingPractice = false
     @State private var selectedTab: MainTab = .play
     @State private var playHomeToken = 0
+    @State private var startsTogether = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Group {
             switch selectedTab {
-            case .play: PlayView(homeToken: playHomeToken)
+            case .play: PlayView(homeToken: playHomeToken, startsTogether: startsTogether)
             case .review: ReviewView()
-            case .friends: FriendsView()
+            case .friends: FriendsView(onCreateRoom: {
+                startsTogether = true
+                playHomeToken += 1
+                selectedTab = .play
+            })
             case .account: AccountView()
             }
         }
@@ -188,9 +198,9 @@ struct RootView: View {
     }
 
     private func tabButton(_ title: String, symbol: String, tab: MainTab) -> some View {
-        let inviteCount = model.friendsState?.invites.count ?? 0
+        let inviteCount = (model.friendsState?.invites.count ?? 0) + (model.friendsState?.requests.count ?? 0)
         return Button {
-            if tab == .play { playHomeToken += 1 }
+            if tab == .play { startsTogether = false; playHomeToken += 1 }
             selectedTab = tab
         } label: {
             VStack(spacing: 4) {
@@ -227,7 +237,7 @@ struct RootView: View {
         .buttonStyle(.plain)
         .accessibilityLabel(title)
         .accessibilityValue(tab == .friends && inviteCount > 0
-            ? "\(selectedTab == tab ? "選択中、" : "")ルーム招待\(inviteCount)件"
+            ? "\(selectedTab == tab ? "選択中、" : "")招待・申請\(inviteCount)件"
             : (selectedTab == tab ? "選択中" : ""))
     }
 
@@ -247,31 +257,13 @@ struct RootView: View {
     }
 }
 
-private struct BrandHeader: View {
-    var body: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text("IntoL")
-                .font(.system(size: 42, weight: .black, design: .rounded))
-                .tracking(-2)
-                .foregroundStyle(Studio.primary)
-            Text("MUSIC QUIZ")
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
-                .tracking(2)
-                .foregroundStyle(Studio.accent)
-            Spacer()
-            Image(systemName: "waveform.path")
-                .font(.system(size: 28, weight: .light))
-                .foregroundStyle(Studio.accent)
-        }
-    }
-}
-
 private enum PlayParty { case solo, together }
 private enum PlayKind { case intro, sabitro }
 private enum PlaySource { case demo, shared, appleMusic, itunes, appleMusicPreview, join }
 
 struct PlayView: View {
     let homeToken: Int
+    var startsTogether = false
     @EnvironmentObject private var model: AppModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var party: PlayParty?
@@ -279,74 +271,133 @@ struct PlayView: View {
     @State private var source: PlaySource?
     @State private var roomCode = ""
     @State private var sampleID: String?
+    @ScaledMetric(relativeTo: .headline) private var choiceHeight: CGFloat = 68
 
     var body: some View {
         NavigationStack {
             Group {
-                if party == nil { landing }
+                if kind == nil { entryFlow }
                 else { selectionFlow }
             }
             .background(Studio.background)
             .toolbar(.hidden, for: .navigationBar)
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: party)
+            .animation(reduceMotion ? nil : Studio.spring, value: kind)
             .sensoryFeedback(.selection, trigger: source)
             .onChange(of: homeToken) { _, _ in resetToHome() }
+            .onAppear { if startsTogether { party = .together } }
             .onDisappear {
                 if sampleID != nil { model.player.stop(); sampleID = nil }
             }
         }
     }
 
-    private var landing: some View {
+    // Both steps share this layout, so the capsule bounds never move during the crossfade.
+    private var entryFlow: some View {
         GeometryReader { geometry in
             ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    BrandHeader()
-                    Spacer(minLength: 8)
-                    VStack(alignment: .leading, spacing: 12) {
-                        WaveMark()
-                        Text("あの曲、\n何秒でわかる？")
-                            .font(.system(.largeTitle, design: .rounded, weight: .bold))
-                            .foregroundStyle(Studio.primary)
-                        Text("聴いて、ひらめいて、PUSH。")
-                            .font(.subheadline).foregroundStyle(Studio.secondary)
-                    }
-                    VStack(spacing: 12) {
-                        PrimaryButton(title: "すぐに練習する", symbol: "play.fill", disabled: model.busy) {
-                            startGame {
-                                model.searchTerm = ""
-                                await model.search()
-                                await model.startSolo()
-                            }
+                VStack(spacing: 24) {
+                    ZStack {
+                        VStack(spacing: 24) {
+                            Text("IntoL")
+                                .font(.system(size: 88, weight: .black, design: .rounded))
+                                .tracking(-5)
+                                .foregroundStyle(Studio.primary)
+                                .accessibilityAddTraits(.isHeader)
+                            HomeWaveform()
+                                .frame(maxWidth: 320)
+                                .frame(height: 104)
+                            Text("シンプルイントロクイズ")
+                                .font(.subheadline)
+                                .foregroundStyle(Studio.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .multilineTextAlignment(.center)
                         }
-                        Text("オリジナル音源 · アカウント不要")
-                            .font(.caption).foregroundStyle(Studio.secondary)
+                        .scaleEffect(party == nil || reduceMotion ? 1 : 0.65, anchor: .top)
+                        .offset(y: party == nil || reduceMotion ? 0 : -64)
+                        .opacity(party == nil ? 1 : 0)
+                        .accessibilityHidden(party != nil)
+
+                        VStack(alignment: .leading, spacing: 28) {
+                            Button(action: goBack) {
+                                Label("戻る", systemImage: "chevron.left")
+                                    .font(.subheadline.weight(.semibold))
+                                    .frame(minHeight: 44)
+                            }
+                            .foregroundStyle(Studio.accent)
+                            .buttonStyle(StudioPressStyle())
+                            Text("モード選択")
+                                .font(.system(.largeTitle, design: .rounded, weight: .bold))
+                                .foregroundStyle(Studio.primary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityAddTraits(.isHeader)
+                            Text(party == nil ? "ひとりで" : selectionPath)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(Studio.accent)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 0)
+                            Text("聴きたい部分を選んでください。")
+                                .font(.subheadline)
+                                .foregroundStyle(Studio.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .opacity(party == nil ? 0 : 1)
+                        .offset(y: party == nil && !reduceMotion ? -16 : 0)
+                        .allowsHitTesting(party != nil)
+                        .accessibilityHidden(party == nil)
                     }
-                    VStack(alignment: .leading, spacing: 10) {
-                        SectionCaption(title: "遊び方を選ぶ")
-                        PlayOptionButton(title: "ひとりで", subtitle: "好きな音源で、自分のペースで", symbol: "person.fill") { party = .solo }
-                        PlayOptionButton(title: "みんなで", subtitle: model.serverConfigured ? "ルームを作成・参加して対戦" : "サーバー設定が必要です", symbol: "person.2.fill", disabled: !model.serverConfigured) { party = .together }
+                    .frame(minHeight: max(300, geometry.size.height * 0.57))
+
+                    ZStack {
+                        if party == nil {
+                            VStack(spacing: 16) {
+                                entryButton("ひとりで", symbol: "person.fill", primary: true) { party = .solo }
+                                entryButton("みんなで", symbol: "person.2.fill", disabled: !model.serverConfigured) { party = .together }
+                            }
+                            .transition(.opacity)
+                        } else {
+                            VStack(spacing: 16) {
+                                entryButton("イントロ", symbol: "play.fill", primary: true) { kind = .intro }
+                                entryButton("サビトロ", symbol: "waveform", disabled: !model.serverConfigured) { kind = .sabitro }
+                            }
+                            .transition(.opacity)
+                        }
                     }
-                    Spacer(minLength: 0)
+                    Spacer(minLength: 16)
+                    Text(appVersion)
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Studio.secondary)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .accessibilityLabel("アプリのバージョン \(appVersion)")
                 }
-                .padding(24)
-                .frame(minHeight: geometry.size.height, alignment: .topLeading)
+                .padding(.horizontal, 28)
+                .padding(.vertical, 16)
+                .frame(minHeight: geometry.size.height)
                 .frame(maxWidth: 560)
                 .frame(maxWidth: .infinity)
             }
             .scrollBounceBehavior(.basedOnSize)
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                HStack {
-                    Spacer()
-                    Text(appVersion)
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundStyle(Studio.secondary.opacity(0.75))
-                        .accessibilityLabel("アプリのバージョン \(appVersion)")
-                }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 8)
-            }
+            .animation(reduceMotion ? .easeOut(duration: 0.15) : .easeInOut(duration: 0.36), value: party)
         }
+    }
+
+    private func entryButton(_ title: String, symbol: String, primary: Bool = false,
+                             disabled: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: disabled ? "lock.fill" : symbol).accessibilityHidden(true)
+                Text(title)
+            }
+            .font(.system(.headline, design: .rounded, weight: .bold))
+            .foregroundStyle(disabled ? Studio.secondary : primary ? .white : Studio.accent)
+            .frame(maxWidth: .infinity, minHeight: choiceHeight)
+            .background(primary && !disabled ? Studio.accent : Studio.surface, in: Capsule())
+            .overlay(Capsule().strokeBorder(primary && !disabled ? .clear : Studio.line))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(StudioPressStyle())
+        .disabled(disabled)
+        .accessibilityHint(disabled ? "サーバー設定が必要です" : "")
     }
 
     private var appVersion: String {
@@ -438,16 +489,7 @@ struct PlayView: View {
     }
 
     @ViewBuilder private var stepContent: some View {
-        if kind == nil {
-            VStack(spacing: 12) {
-                PlayOptionButton(title: "イントロ", subtitle: "曲の始まりを聴いて答える", symbol: "play.fill") {
-                    kind = .intro
-                }
-                PlayOptionButton(title: "サビトロ", subtitle: model.serverConfigured ? "試聴音源を聴いて答える" : "サーバー設定が必要です", symbol: "waveform", disabled: !model.serverConfigured) {
-                    kind = .sabitro
-                }
-            }
-        } else if source == nil {
+        if source == nil {
             sourceChoices
         } else {
             detailContent
@@ -712,7 +754,7 @@ struct PlayView: View {
 
     private func resetToHome() {
         if sampleID != nil { model.player.stop(); sampleID = nil }
-        party = nil
+        party = startsTogether ? .together : nil
         kind = nil
         source = nil
         roomCode = ""
@@ -865,6 +907,33 @@ private struct SongRow: View {
             Spacer()
             Image(systemName: "waveform").foregroundStyle(Studio.accent).font(.caption)
         }
+    }
+}
+
+private struct HomeWaveform: View {
+    var body: some View {
+        Canvas { context, size in
+            func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+                CGPoint(x: 2 + x * max(0, size.width - 4), y: y * size.height)
+            }
+            var path = Path()
+            path.move(to: point(0, 0.58))
+            path.addLine(to: point(0.20, 0.58))
+            path.addCurve(to: point(0.34, 0.58),
+                          control1: point(0.25, 0.35), control2: point(0.28, 0.35))
+            path.addLine(to: point(0.40, 0.58))
+            path.addLine(to: point(0.43, 0.66))
+            path.addLine(to: point(0.47, 0.08))
+            path.addLine(to: point(0.52, 0.88))
+            path.addLine(to: point(0.57, 0.58))
+            path.addLine(to: point(0.63, 0.58))
+            path.addCurve(to: point(0.78, 0.58),
+                          control1: point(0.67, 0.29), control2: point(0.73, 0.29))
+            path.addLine(to: point(1, 0.58))
+            context.stroke(path, with: .color(Studio.accent),
+                           style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+        }
+        .accessibilityHidden(true)
     }
 }
 
@@ -1159,6 +1228,7 @@ private struct ResultSummary: View {
 
 struct ReviewView: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @StateObject private var reviewPlayer = PreviewPlayer()
     @State private var learned = false
     @State private var activeSongID: String?
@@ -1173,28 +1243,44 @@ struct ReviewView: View {
     @State private var isSeeking = false
     @State private var seekTask: Task<Void, Never>?
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var frames: [ReviewFrame: CGRect] = [:]
+    @State private var flights: [ReviewFlight] = []
+    @State private var learnedPop = 0
+    @State private var unlearnedPop = 0
+
+    private var items: [ReviewSong] { model.reviews.filter { $0.learned == learned } }
+
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    Text("復習")
-                        .font(.system(size: 36, weight: .bold, design: .rounded))
-                        .foregroundStyle(Studio.primary)
-                    Text("出会った曲を、次は思い出せるように。")
-                        .foregroundStyle(Studio.secondary)
-                    Picker("状態", selection: $learned) {
-                        Text("覚えてない").tag(false)
-                        Text("覚えた").tag(true)
-                    }
-                    .pickerStyle(.segmented)
-                    let items = model.reviews.filter { $0.learned == learned }
-                    if items.isEmpty {
-                        ContentUnavailableView(learned ? "まだありません" : "保存した曲はありません", systemImage: "bookmark",
-                                               description: Text("正解発表の画面から曲を保存できます。"))
+            ZStack(alignment: .topLeading) {
+                VStack(alignment: .leading, spacing: 0) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("復習")
+                            .font(.system(size: 36, weight: .bold, design: .rounded))
+                            .foregroundStyle(Studio.primary)
+                            .accessibilityAddTraits(.isHeader)
+                        if !dynamicTypeSize.isAccessibilitySize {
+                            Text("出会った曲を、次は思い出せるように。")
+                                .foregroundStyle(Studio.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        HStack(spacing: 4) {
+                            reviewSegment(false)
+                            reviewSegment(true)
+                        }
+                        .padding(4)
+                        .background(Studio.raised, in: RoundedRectangle(cornerRadius: 16))
+                        Text("左にスワイプして削除")
+                            .font(.caption)
                             .foregroundStyle(Studio.secondary)
-                            .frame(maxWidth: .infinity, minHeight: 220)
-                    } else {
-                        ForEach(items) { item in
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(20)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                    List {
+                        ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                             ReviewSongRow(item: item,
                                           isPlaying: activeSongID == item.id && loadingSongID == nil,
                                           isLoading: loadingSongID == item.id,
@@ -1203,27 +1289,121 @@ struct ReviewView: View {
                                           isScrubbing: $isScrubbing,
                                           seek: { seekPlayback(to: $0) },
                                           togglePlayback: { togglePlayback(item.song) },
-                                          toggleLearned: { model.toggleLearned(item.id) },
-                                          remove: {
-                                              if activeSongID == item.id { stopPlayback() }
-                                              model.removeReview(item.id)
-                                          })
+                                          toggleLearned: { moveReview(item) })
+                                .modifier(ReviewEntrance(index: index))
+                                .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 12, trailing: 20))
+                                .listRowSeparator(.hidden)
+                                .listRowBackground(Color.clear)
+                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                    Button("削除", role: .destructive) { removeReview(item) }
+                                }
+                                .accessibilityAction(named: "復習リストから削除") { removeReview(item) }
+                        }
+                    }
+                    .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
+                    .environment(\.defaultMinListRowHeight, 0)
+                    .overlay {
+                        if items.isEmpty {
+                            ContentUnavailableView(learned ? "まだありません" : "保存した曲はありません", systemImage: "bookmark",
+                                                   description: Text("正解発表の画面から曲を保存できます。"))
+                                .foregroundStyle(Studio.secondary)
                         }
                     }
                 }
-                .padding(20)
-                .frame(maxWidth: 640)
-                .frame(maxWidth: .infinity)
+                ForEach(flights) { flight in
+                    ReviewFlyingArtwork(flight: flight) { finishFlight(flight) }
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
             }
+            .coordinateSpace(name: "review")
+            .onPreferenceChange(ReviewFramePreference.self) { frames = $0 }
+            .frame(maxWidth: 640)
+            .frame(maxWidth: .infinity)
             .background(Studio.background)
             .toolbar(.hidden, for: .navigationBar)
             .onChange(of: learned) { _, _ in stopPlayback() }
-            .onDisappear { stopPlayback() }
+            .onChange(of: reduceMotion) { _, enabled in
+                if enabled { flights.removeAll() }
+            }
+            .onDisappear { stopPlayback(); flights.removeAll() }
             .alert("曲を再生できません", isPresented: Binding(
                 get: { playbackError != nil }, set: { if !$0 { playbackError = nil } })) {
                     Button("OK", role: .cancel) { playbackError = nil }
                 } message: { Text(playbackError ?? "") }
         }
+    }
+
+    private func reviewSegment(_ value: Bool) -> some View {
+        let count = model.reviews.filter { $0.learned == value }.count
+        return Button {
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { learned = value }
+        } label: {
+            Group {
+                if dynamicTypeSize.isAccessibilitySize {
+                    VStack(spacing: 4) {
+                        Text(value ? "覚えた" : "覚えてない")
+                            .fixedSize(horizontal: false, vertical: true)
+                            .multilineTextAlignment(.center)
+                        countBadge(count)
+                    }
+                } else {
+                    HStack(spacing: 6) {
+                        Text(value ? "覚えた" : "覚えてない")
+                        countBadge(count)
+                    }
+                }
+            }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(learned == value ? Studio.accent : Studio.secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .fixedSize(horizontal: false, vertical: true)
+            .background(learned == value ? Studio.surface : .clear, in: RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(StudioPressStyle())
+        .background(ReviewFrameReader(key: .segment(value)))
+        .modifier(ReviewTabPop(trigger: value ? learnedPop : unlearnedPop))
+        .accessibilityLabel("\(value ? "覚えた" : "覚えてない")、\(count)曲")
+        .accessibilityAddTraits(learned == value ? [.isSelected] : [])
+    }
+
+    private func countBadge(_ count: Int) -> some View {
+        Text("\(count)")
+            .font(.caption.weight(.bold).monospacedDigit())
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(Studio.accent.opacity(0.09), in: Capsule())
+            .contentTransition(.numericText())
+    }
+
+    private func moveReview(_ item: ReviewSong) {
+        guard model.reviews.contains(where: { $0.id == item.id && $0.learned == item.learned }) else { return }
+        if activeSongID == item.id { stopPlayback() }
+        // Persist immediately. The decoration is independent of data, including when the tab is closed mid-flight.
+        if !reduceMotion, let start = frames[.artwork(item.id)], let target = frames[.segment(!item.learned)] {
+            flights.append(ReviewFlight(song: item.song, learned: !item.learned, start: start,
+                                       destination: CGPoint(x: target.midX, y: target.midY)))
+        } else {
+            popSegment(!item.learned)
+        }
+        withAnimation(reduceMotion ? nil : Studio.spring) { model.toggleLearned(item.id) }
+    }
+
+    private func removeReview(_ item: ReviewSong) {
+        if activeSongID == item.id { stopPlayback() }
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.28)) { model.removeReview(item.id) }
+    }
+
+    private func finishFlight(_ flight: ReviewFlight) {
+        flights.removeAll { $0.id == flight.id }
+        popSegment(flight.learned)
+    }
+
+    private func popSegment(_ value: Bool) {
+        if value { learnedPop += 1 } else { unlearnedPop += 1 }
     }
 
     @MainActor private func togglePlayback(_ song: Song) {
@@ -1344,6 +1524,111 @@ struct ReviewView: View {
     }
 }
 
+private enum ReviewFrame: Hashable {
+    case artwork(String)
+    case segment(Bool)
+}
+
+private struct ReviewFramePreference: PreferenceKey {
+    static var defaultValue: [ReviewFrame: CGRect] { [:] }
+    static func reduce(value: inout [ReviewFrame: CGRect], nextValue: () -> [ReviewFrame: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
+    }
+}
+
+private struct ReviewFrameReader: View {
+    let key: ReviewFrame
+    var body: some View {
+        GeometryReader { geometry in
+            Color.clear.preference(key: ReviewFramePreference.self,
+                                   value: [key: geometry.frame(in: .named("review"))])
+        }
+    }
+}
+
+private struct ReviewEntrance: ViewModifier {
+    let index: Int
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var appeared = false
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(appeared || reduceMotion ? 1 : 0)
+            .offset(y: appeared || reduceMotion ? 0 : 18)
+            .task {
+                guard !appeared else { return }
+                if !reduceMotion {
+                    do { try await Task.sleep(for: .milliseconds(min(index, 7) * 45)) }
+                    catch { return }
+                }
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.32)) { appeared = true }
+            }
+    }
+}
+
+private struct ReviewTabPop: ViewModifier {
+    let trigger: Int
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var popped = false
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(popped && !reduceMotion ? 1.07 : 1)
+            .sensoryFeedback(.success, trigger: trigger)
+            .task(id: trigger) {
+                guard trigger > 0, !reduceMotion else { return }
+                withAnimation(.spring(response: 0.2, dampingFraction: 0.5)) { popped = true }
+                do { try await Task.sleep(for: .milliseconds(150)) }
+                catch { return }
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.5)) { popped = false }
+            }
+    }
+}
+
+private struct ReviewFlight: Identifiable {
+    let id = UUID()
+    let song: Song
+    let learned: Bool
+    let start: CGRect
+    let destination: CGPoint
+}
+
+private struct ReviewFlyingArtwork: View {
+    let flight: ReviewFlight
+    let onArrival: () -> Void
+    @State private var progress: CGFloat = 0
+
+    var body: some View {
+        Artwork(url: flight.song.artworkURL, size: flight.start.width)
+            .modifier(ReviewFlightMotion(start: CGPoint(x: flight.start.midX, y: flight.start.midY),
+                                        end: flight.destination, progress: progress))
+            .task {
+                withAnimation(.easeInOut(duration: 0.52)) { progress = 1 }
+                do { try await Task.sleep(for: .milliseconds(520)) }
+                catch { return }
+                onArrival()
+            }
+    }
+}
+
+private struct ReviewFlightMotion: AnimatableModifier {
+    let start: CGPoint
+    let end: CGPoint
+    var progress: CGFloat
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(1 - progress * 0.82)
+            .opacity(1 - progress * progress * 0.7)
+            .position(x: start.x + (end.x - start.x) * progress,
+                      y: start.y + (end.y - start.y) * progress - sin(progress * .pi) * 48)
+    }
+}
+
 private struct ReviewSongRow: View {
     let item: ReviewSong
     let isPlaying: Bool
@@ -1354,7 +1639,6 @@ private struct ReviewSongRow: View {
     let seek: (TimeInterval) -> Void
     let togglePlayback: () -> Void
     let toggleLearned: () -> Void
-    let remove: () -> Void
 
     var body: some View {
         VStack(spacing: 8) {
@@ -1374,6 +1658,7 @@ private struct ReviewSongRow: View {
     private var songControls: some View {
         HStack(spacing: 10) {
             Artwork(url: item.song.artworkURL, size: 48)
+                .background(ReviewFrameReader(key: .artwork(item.id)))
             VStack(alignment: .leading, spacing: 3) {
                 Text(item.song.title)
                     .font(.subheadline.weight(.semibold))
@@ -1401,21 +1686,14 @@ private struct ReviewSongRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             Button(action: toggleLearned) {
-                Text(item.learned ? "戻す" : "覚えた")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Studio.accent)
-                    .padding(.horizontal, 8)
-                    .frame(minWidth: 44, minHeight: 44)
-                    .background(Studio.raised, in: RoundedRectangle(cornerRadius: 10))
-            }
-            .accessibilityLabel(item.learned ? "覚えてないに戻す" : "覚えたに変更")
-            Button(role: .destructive, action: remove) {
-                Image(systemName: "trash")
-                    .font(.system(size: 16))
-                    .foregroundStyle(Studio.accent)
+                Image(systemName: item.learned ? "arrow.uturn.backward" : "checkmark")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(item.learned ? Studio.accent : .white)
                     .frame(width: 44, height: 44)
+                    .background(item.learned ? Studio.raised : Studio.accent, in: Circle())
             }
-            .accessibilityLabel("\(item.song.title)を復習リストから削除")
+            .accessibilityLabel(item.learned ? "\(item.song.title)を覚えてないに戻す" : "\(item.song.title)を覚えたに変更")
+
         }
     }
 }
@@ -1577,147 +1855,206 @@ private struct PlayerProfileSheet: View {
 
 struct FriendsView: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var inRoom = false
     var onClose: (() -> Void)? = nil
+    var onCreateRoom: (() -> Void)? = nil
     @State private var selectedProfile: PlayerProfileTarget?
+
+    private var notificationCount: Int {
+        (model.friendsState?.invites.count ?? 0) + (model.friendsState?.requests.count ?? 0)
+    }
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    HStack {
-                        Text("フレンド")
-                            .font(.system(size: 36, weight: .bold, design: .rounded))
-                            .foregroundStyle(Studio.primary)
-                        Spacer()
-                        Button { Task { await model.refreshFriends() } } label: {
-                            Image(systemName: "arrow.clockwise").frame(width: 44, height: 44)
-                        }
-                        .accessibilityLabel("フレンド情報を更新")
-                        .disabled(!model.serverConfigured)
-                        if inRoom {
-                            Button("閉じる") { onClose?() }
-                                .frame(minWidth: 44, minHeight: 44)
-                        }
-                    }
-                    if !model.serverConfigured {
-                        StudioCard {
-                            Text("フレンド機能には対戦サーバーへの接続が必要です")
-                                .foregroundStyle(Studio.secondary)
-                        }
-                    } else if let state = model.friendsState {
-                        StudioCard {
-                            VStack(alignment: .leading, spacing: 12) {
-                                SectionCaption(title: "ルーム招待")
-                                if state.invites.isEmpty {
-                                    Text("届いている招待はありません").foregroundStyle(Studio.secondary)
-                                }
-                                ForEach(state.invites) { invite in
-                                    HStack(spacing: 10) {
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(invite.fromName).font(.subheadline.bold())
-                                            Text("\(invite.mode == "shared" ? "共有音源" : invite.mode == "applemusic" ? "Apple Music" : "サビトロ") のルーム")
-                                                .font(.caption).foregroundStyle(Studio.secondary)
-                                        }
-                                        Spacer()
-                                        Button("参加") { Task { await model.joinInvite(invite.id) } }
-                                            .buttonStyle(SecondaryButtonStyle())
-                                            .disabled(model.busy || model.room != nil)
-                                    }
-                                    .frame(minHeight: 44)
-                                    if invite.id != state.invites.last?.id { Divider() }
-                                }
-                                if model.room != nil && !state.invites.isEmpty {
-                                    Text("別のルームに参加するには、現在のルームを退出してください")
-                                        .font(.caption).foregroundStyle(Studio.secondary)
-                                }
+            GeometryReader { geometry in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        HStack {
+                            Text("フレンド")
+                                .font(.system(size: 36, weight: .bold, design: .rounded))
+                                .foregroundStyle(Studio.primary)
+                                .accessibilityAddTraits(.isHeader)
+                            Spacer()
+                            Button { Task { await model.refreshFriends() } } label: {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.system(size: 18, weight: .medium))
+                                    .frame(width: 44, height: 44)
+                            }
+                            .accessibilityLabel("フレンド情報を更新")
+                            .disabled(!model.serverConfigured || model.friendsLoading)
+                            if inRoom {
+                                Button("閉じる") { onClose?() }
+                                    .frame(minWidth: 44, minHeight: 44)
                             }
                         }
-                        StudioCard {
-                            VStack(alignment: .leading, spacing: 12) {
-                                SectionCaption(title: "フレンド申請")
-                                if state.requests.isEmpty {
-                                    Text("届いている申請はありません").foregroundStyle(Studio.secondary)
-                                }
-                                ForEach(state.requests) { request in
-                                    HStack(spacing: 8) {
-                                        Text(request.fromName).font(.subheadline.bold())
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                        Button("承認") {
-                                            Task { await model.respondToFriendRequest(request.id, accept: true) }
-                                        }
-                                        .buttonStyle(SecondaryButtonStyle())
-                                        Button("拒否") {
-                                            Task { await model.respondToFriendRequest(request.id, accept: false) }
-                                        }
-                                        .font(.subheadline).foregroundStyle(Studio.secondary)
-                                    }
-                                    .frame(minHeight: 44)
-                                    .disabled(model.friendsLoading)
-                                    if request.id != state.requests.last?.id { Divider() }
-                                }
-                            }
-                        }
-                        StudioCard {
-                            VStack(alignment: .leading, spacing: 12) {
-                                SectionCaption(title: "フレンドリスト")
-                                if state.friends.isEmpty {
-                                    Text("同じルームのプレイヤーに申請を送ると、ここに表示されます")
-                                        .foregroundStyle(Studio.secondary)
-                                }
-                                ForEach(state.friends) { friend in
-                                    HStack(spacing: 8) {
-                                        Image(systemName: "person.crop.circle")
-                                            .foregroundStyle(Studio.accent)
-                                        Button {
-                                            selectedProfile = PlayerProfileTarget(id: friend.id, name: friend.name, roomID: nil)
-                                        } label: {
-                                            Text(friend.name)
-                                                .font(.subheadline.bold())
-                                                .foregroundStyle(Studio.primary)
-                                        }
-                                        .buttonStyle(.plain)
-                                        .accessibilityLabel("\(friend.name)のプロフィールを見る")
-                                        Spacer()
-                                        if model.room?.phase == "lobby" {
-                                            if model.room?.players.contains(where: { $0.friendProfileId == friend.id }) == true {
-                                                Text("参加中").font(.caption).foregroundStyle(Studio.secondary)
-                                            } else {
-                                                let invited = model.hasInvitedFriend(friend.id)
-                                                Button(invited ? "招待済み" : "招待") {
-                                                    Task { await model.inviteFriend(friend.id) }
-                                                }
-                                                    .buttonStyle(SecondaryButtonStyle())
-                                                    .disabled(model.friendsLoading || invited)
+                        if let state = model.friendsState {
+                            if !state.invites.isEmpty {
+                                FriendNotificationBanner(title: "📩 ルーム招待が\(state.invites.count)件届いています") {
+                                    ForEach(state.invites) { invite in
+                                        HStack(spacing: 12) {
+                                            VStack(alignment: .leading, spacing: 4) {
+                                                Text(invite.fromName).font(.subheadline.bold())
+                                                Text("\(invite.mode == "shared" ? "共有音源" : invite.mode == "applemusic" ? "Apple Music" : "サビトロ") のルーム")
+                                                    .font(.caption).foregroundStyle(Studio.secondary)
                                             }
+                                            Spacer()
+                                            Button("参加") { Task { await model.joinInvite(invite.id) } }
+                                                .buttonStyle(SecondaryButtonStyle())
+                                                .disabled(model.busy || model.room != nil)
                                         }
+                                        if invite.id != state.invites.last?.id { Divider() }
                                     }
-                                    .frame(minHeight: 44)
-                                    if friend.id != state.friends.last?.id { Divider() }
-                                }
-                                if model.room == nil {
-                                    Text("ルームを作成するとフレンドを招待できます")
-                                        .font(.caption).foregroundStyle(Studio.secondary)
+                                    if model.room != nil {
+                                        Text("別のルームに参加するには、現在のルームを退出してください")
+                                            .font(.caption).foregroundStyle(Studio.secondary)
+                                    }
                                 }
                             }
+                            if !state.requests.isEmpty {
+                                FriendNotificationBanner(title: "📩 フレンド申請が\(state.requests.count)件届いています") {
+                                    ForEach(state.requests) { request in
+                                        HStack(spacing: 8) {
+                                            Text(request.fromName).font(.subheadline.bold())
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                            Button("承認") { Task { await model.respondToFriendRequest(request.id, accept: true) } }
+                                                .buttonStyle(SecondaryButtonStyle())
+                                            Button("拒否") { Task { await model.respondToFriendRequest(request.id, accept: false) } }
+                                                .foregroundStyle(Studio.secondary)
+                                                .frame(minWidth: 44, minHeight: 44)
+                                        }
+                                        .disabled(model.friendsLoading)
+                                        if request.id != state.requests.last?.id { Divider() }
+                                    }
+                                }
+                            }
+                            if !state.friends.isEmpty {
+                                friendList(state)
+                            } else {
+                                emptyState
+                                    .frame(minHeight: max(280, geometry.size.height - (notificationCount > 0 ? 260 : 130)))
+                            }
+                        } else if model.friendsLoading {
+                            ProgressView("フレンドを読み込み中")
+                                .frame(maxWidth: .infinity, minHeight: 260)
+                        } else {
+                            emptyState.frame(minHeight: max(280, geometry.size.height - 130))
                         }
-                    } else {
-                        ProgressView("フレンドを読み込み中")
-                            .frame(maxWidth: .infinity, minHeight: 120)
                     }
+                    .padding(20)
+                    .frame(maxWidth: 640)
+                    .frame(maxWidth: .infinity)
+                    .animation(reduceMotion ? nil : Studio.spring, value: notificationCount)
                 }
-                .padding(20)
-                .frame(maxWidth: 640)
-                .frame(maxWidth: .infinity)
+                .scrollBounceBehavior(.basedOnSize)
+                .refreshable { await model.refreshFriends() }
             }
             .background(Studio.background)
             .toolbar(.hidden, for: .navigationBar)
-            .refreshable { await model.refreshFriends() }
             .task { await model.refreshFriends() }
             .sheet(item: $selectedProfile) { target in
                 PlayerProfileSheet(target: target).environmentObject(model)
             }
         }
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "person.2")
+                .font(.system(size: 54, weight: .light))
+                .foregroundStyle(Studio.accent)
+                .frame(width: 104, height: 104)
+                .background(Studio.raised, in: Circle())
+                .accessibilityHidden(true)
+            Text("対戦後にフレンド申請を送れます")
+                .font(.headline)
+                .foregroundStyle(Studio.primary)
+                .multilineTextAlignment(.center)
+            if model.room == nil, let onCreateRoom {
+                PrimaryButton(title: "ルームを作成する", symbol: "plus", disabled: !model.serverConfigured, action: onCreateRoom)
+                    .frame(maxWidth: 320)
+            }
+            if !model.serverConfigured {
+                Text("フレンド機能には対戦サーバーへの接続が必要です")
+                    .font(.caption)
+                    .foregroundStyle(Studio.secondary)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func friendList(_ state: FriendsState) -> some View {
+        LazyVStack(alignment: .leading, spacing: 0) {
+            Text("フレンド \(state.friends.count)人")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Studio.secondary)
+                .padding(.bottom, 12)
+            ForEach(state.friends) { friend in
+                HStack(spacing: 12) {
+                    Button {
+                        selectedProfile = PlayerProfileTarget(id: friend.id, name: friend.name, roomID: nil)
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "person.crop.circle.fill")
+                                .font(.system(size: 40))
+                                .foregroundStyle(Studio.accent.opacity(0.65))
+                                .accessibilityHidden(true)
+                            Text(friend.name).font(.headline).foregroundStyle(Studio.primary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .frame(minHeight: 72)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(StudioPressStyle())
+                    .accessibilityLabel("\(friend.name)のプロフィールを見る")
+                    if model.room?.phase == "lobby" {
+                        if model.room?.players.contains(where: { $0.friendProfileId == friend.id }) == true {
+                            Text("参加中").font(.caption).foregroundStyle(Studio.secondary)
+                        } else {
+                            let invited = model.hasInvitedFriend(friend.id)
+                            Button(invited ? "招待済み" : "招待") { Task { await model.inviteFriend(friend.id) } }
+                                .buttonStyle(SecondaryButtonStyle())
+                                .disabled(model.friendsLoading || invited)
+                        }
+                    } else {
+                        Image(systemName: "chevron.right").font(.caption).foregroundStyle(Studio.secondary)
+                            .accessibilityHidden(true)
+                    }
+                }
+                if friend.id != state.friends.last?.id { Divider().overlay(Studio.line) }
+            }
+            if model.room == nil {
+                Text("ルームを作成するとフレンドを招待できます")
+                    .font(.caption).foregroundStyle(Studio.secondary).padding(.top, 16)
+            }
+        }
+    }
+}
+
+private struct FriendNotificationBanner<Content: View>: View {
+    let title: String
+    @ViewBuilder var content: Content
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var appeared = false
+
+    var body: some View {
+        DisclosureGroup {
+            VStack(alignment: .leading, spacing: 12) { content }.padding(.top, 12)
+        } label: {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Studio.primary)
+                .frame(minHeight: 44)
+        }
+        .tint(Studio.accent)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 4)
+        .background(Studio.raised, in: RoundedRectangle(cornerRadius: 16))
+        .scaleEffect(appeared || reduceMotion ? 1 : 0.94)
+        .opacity(appeared ? 1 : 0)
+        .transition(.opacity.combined(with: .scale(scale: 0.94, anchor: .top)))
+        .task { withAnimation(reduceMotion ? nil : Studio.spring) { appeared = true } }
     }
 }
 
@@ -1725,6 +2062,9 @@ struct AccountView: View {
     @EnvironmentObject private var model: AppModel
     @State private var showRecords = false
     @State private var showAvatarSettings = false
+    @State private var editingName = false
+    @State private var draftName = ""
+    @FocusState private var nameFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -1734,6 +2074,7 @@ struct AccountView: View {
                     Text("アカウント")
                         .font(.system(size: 36, weight: .bold, design: .rounded))
                         .foregroundStyle(Studio.primary)
+                    profileHeader
                     Picker("表示内容", selection: $showRecords) {
                         Text("接続・設定").tag(false)
                         Text("プレイ記録").tag(true)
@@ -1808,57 +2149,22 @@ struct AccountView: View {
                         }
                     }
                     } else {
-                    StudioCard {
-                        VStack(alignment: .leading, spacing: 14) {
-                            SectionCaption(title: "プロフィール・音楽サービス")
-                            Button { showAvatarSettings = true } label: {
-                                HStack(spacing: 12) {
-                                    PlayerAvatarView(data: model.avatarData, size: 48)
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text("アイコンを設定")
-                                            .font(.subheadline.weight(.semibold))
-                                            .foregroundStyle(Studio.primary)
-                                        Text("フォトライブラリから選択")
-                                            .font(.caption)
-                                            .foregroundStyle(Studio.secondary)
-                                    }
-                                    Spacer()
-                                    Image(systemName: "chevron.right")
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(Studio.secondary)
-                                }
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("アイコンを設定")
-                            field("プレイヤー名", text: $model.nickname, prompt: "プレイヤー")
-                            appleMusicAccount
-                            Button { Task { await model.syncProfile() } } label: {
-                                HStack(spacing: 8) {
-                                    if model.profileSyncing { ProgressView() }
-                                    Text(model.profileSyncing ? "iCloudに同期中" : "iCloudに同期")
-                                }
-                            }
-                            .buttonStyle(SecondaryButtonStyle())
-                            .disabled(model.profileSyncing)
-                            Text("名前・アイコン・復習・記録・音量設定をiCloudに保存します。")
-                                .font(.caption).foregroundStyle(Studio.secondary)
-                            if let status = model.profileSyncStatus {
-                                Text(status).font(.caption).foregroundStyle(Studio.secondary)
-                            }
-                            if model.serverConfigured {
-                                Text("共有音源を使う場合は、利用できる権利を持つ音声をサーバーに登録してください。")
-                                    .font(.caption)
-                                    .foregroundStyle(Studio.secondary)
-                            }
-                        }
-                    }
+                    connectionsSection
                     StudioCard {
                         VStack(alignment: .leading, spacing: 14) {
                             SectionCaption(title: "音量")
-                            VolumeSettingsControls()
+                            VolumeSettingsControls(showsCaptions: false)
                         }
                     }
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("曲の音量はデモ曲・共有音源・試聴曲に適用されます。")
+                        if model.appleMusicConnected {
+                            Text("Apple Music の曲は端末音量で調整します。BGMと効果音にも影響します。")
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(Studio.secondary)
+                    .padding(.horizontal, 16)
                     }
                 }
                 .padding(20)
@@ -1867,7 +2173,18 @@ struct AccountView: View {
                 .frame(maxWidth: .infinity)
             }
             .background(Studio.background)
+            .scrollDismissesKeyboard(.interactively)
             .toolbar(.hidden, for: .navigationBar)
+            .onChange(of: nameFocused) { _, focused in
+                if !focused && editingName { finishEditingName() }
+            }
+            .onDisappear { if editingName { finishEditingName() } }
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("完了") { finishEditingName() }
+                }
+            }
         }
         .sheet(isPresented: $showAvatarSettings) {
             AvatarSettingsView()
@@ -1875,26 +2192,155 @@ struct AccountView: View {
         }
     }
 
-    @ViewBuilder private var appleMusicAccount: some View {
-        HStack(spacing: 10) {
-            AppleMusicIcon()
-            Text("Apple Music").font(.headline).foregroundStyle(Studio.primary)
-            Spacer()
-            Text(model.appleMusicConnected ? "接続済み" : "未接続")
-                .font(.caption).foregroundStyle(Studio.secondary)
+    private var profileHeader: some View {
+        HStack(spacing: 16) {
+            Button { showAvatarSettings = true } label: {
+                PlayerAvatarView(data: model.avatarData, size: 64)
+                    .overlay(Circle().strokeBorder(Studio.line))
+            }
+            .buttonStyle(StudioPressStyle())
+            .accessibilityLabel("アイコンを設定")
+
+            Group {
+                if editingName {
+                    HStack(spacing: 8) {
+                        TextField("プレイヤー名", text: $draftName)
+                            .font(.title3.bold())
+                            .focused($nameFocused)
+                            .submitLabel(.done)
+                            .onSubmit { finishEditingName() }
+                            .accessibilityLabel("プレイヤー名")
+                            .onAppear { nameFocused = true }
+                        Button(action: finishEditingName) {
+                            Image(systemName: "checkmark").frame(width: 44, height: 44)
+                        }
+                        .foregroundStyle(Studio.accent)
+                        .accessibilityLabel("プレイヤー名を保存")
+                    }
+                } else {
+                    Button {
+                        draftName = model.nickname
+                        editingName = true
+                    } label: {
+                        HStack(spacing: 12) {
+                            Text(model.nickname).font(.title3.bold())
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Image(systemName: "pencil")
+                                .font(.system(size: 18, weight: .medium))
+                                .foregroundStyle(Studio.accent)
+                                .accessibilityHidden(true)
+                        }
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(StudioPressStyle())
+                    .accessibilityLabel("\(model.nickname)、プレイヤー名を編集")
+                }
+            }
+            .foregroundStyle(Studio.primary)
+            .padding(.horizontal, 12)
+            .background(editingName ? Studio.surface : .clear, in: RoundedRectangle(cornerRadius: 12))
+            .overlay {
+                RoundedRectangle(cornerRadius: 14)
+                    .stroke(Studio.accent.opacity(0.6), lineWidth: 2)
+                    .padding(nameFocused ? -5 : 0)
+                    .opacity(nameFocused ? 1 : 0)
+                    .allowsHitTesting(false)
+            }
+            .animation(reduceMotion ? nil : Studio.spring, value: nameFocused)
         }
-        if model.appleMusicConnected {
-            Text(model.appleMusicPlayable ? "Apple Music に接続中 · 再生可能" : "Apple Music に接続中 · サブスクリプションを確認してください")
-                .font(.subheadline).foregroundStyle(Studio.accent)
-            Button("接続状態を更新") { Task { await model.loadAppleMusicPlaylists() } }
-                .buttonStyle(SecondaryButtonStyle())
-        } else {
-            Button("Apple Music に接続") { Task { await model.connectAppleMusic() } }
-                .buttonStyle(SecondaryButtonStyle())
+        .padding(.vertical, 12)
+    }
+
+    private func finishEditingName() {
+        let name = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !name.isEmpty && name != model.nickname { model.nickname = name }
+        editingName = false
+        nameFocused = false
+    }
+
+    private var connectionsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionCaption(title: "外部連携").padding(.horizontal, 16)
+            VStack(spacing: 0) {
+                Button {
+                    Task {
+                        if model.appleMusicConnected { await model.loadAppleMusicPlaylists() }
+                        else { await model.connectAppleMusic() }
+                    }
+                } label: {
+                    connectionRow("Apple Music", badge: model.appleMusicConnected ? "接続済み" : "未接続",
+                                  active: model.appleMusicConnected) { AppleMusicIcon(size: 30) }
+                }
                 .disabled(model.busy)
-            Text("iPhone の Apple Music へのアクセスを許可します。")
-                .font(.caption).foregroundStyle(Studio.secondary)
+                .accessibilityHint(model.appleMusicConnected ? "接続状態を更新" : "タップして接続")
+                Divider().overlay(Studio.line).padding(.leading, 60)
+                Button { Task { await model.syncProfile() } } label: {
+                    connectionRow("iCloud", badge: cloudBadge, active: cloudSaved) {
+                        Image(systemName: "icloud.fill")
+                            .font(.system(size: 24))
+                            .foregroundStyle(Studio.accent)
+                    }
+                }
+                .disabled(model.profileSyncing)
+                .accessibilityHint("名前、アイコン、復習、記録、音量設定を同期")
+            }
+            .buttonStyle(StudioPressStyle())
+            .background(Studio.surface, in: RoundedRectangle(cornerRadius: 16))
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(model.appleMusicConnected
+                     ? model.appleMusicPlayable ? "Apple Music の曲を再生できます。タップして接続状態を更新します。" : "Apple Music の再生にはサブスクリプションが必要です。"
+                     : "Apple Music をタップすると、音楽ライブラリへのアクセスを許可できます。")
+                Text("名前・アイコン・復習・記録・音量設定をiCloudに保存します。")
+                if let status = model.profileSyncStatus { Text(status) }
+                if model.serverConfigured {
+                    Text("共有音源には、利用できる権利を持つ音声を登録してください。")
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(Studio.secondary)
+            .padding(.horizontal, 16)
         }
+    }
+
+    private var cloudSaved: Bool { model.profileSyncStatus?.hasPrefix("iCloudに保存済み") == true }
+
+    private var cloudBadge: String {
+        if model.profileSyncing { return "同期中" }
+        if cloudSaved { return "同期済み" }
+        guard AppConfiguration.cloudKitEnabled else { return "未設定" }
+        let status = model.profileSyncStatus ?? ""
+        if status.contains("サインイン") { return "未接続" }
+        if status.contains("同期待ち") || status.contains("操作終了後") { return "同期待ち" }
+        return "要確認"
+    }
+
+    private func connectionRow<Icon: View>(_ title: String, badge: String, active: Bool,
+                                          @ViewBuilder icon: () -> Icon) -> some View {
+        HStack(spacing: 14) {
+            icon().frame(width: 30, height: 30).accessibilityHidden(true)
+            Text(title).font(.body).foregroundStyle(Studio.primary)
+                .lineLimit(title == "iCloud" ? 1 : 2)
+                .minimumScaleFactor(0.8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if title == "iCloud" && model.profileSyncing { ProgressView().controlSize(.small) }
+            Text(badge)
+                .font(.caption.weight(.semibold))
+                .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+                .foregroundStyle(active ? Studio.accent : Studio.secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(active ? Studio.accent.opacity(0.09) : Studio.raised, in: Capsule())
+                .fixedSize()
+            Image(systemName: "chevron.right")
+                .font(.system(size: 13, weight: .semibold)).foregroundStyle(Studio.secondary)
+                .accessibilityHidden(true)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .frame(minHeight: 60)
+        .contentShape(Rectangle())
     }
 
     private func metric(_ title: String, _ value: String) -> some View {
@@ -1904,16 +2350,7 @@ struct AccountView: View {
         }
     }
 
-    private func field(_ label: String, text: Binding<String>, prompt: String) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(label).font(.caption.weight(.semibold)).foregroundStyle(Studio.secondary)
-            TextField(prompt, text: text)
-                .padding(.horizontal, 14)
-                .frame(height: 48)
-                .background(Studio.raised, in: RoundedRectangle(cornerRadius: 12))
-                .foregroundStyle(Studio.primary)
-        }
-    }
+
 }
 
 private struct AvatarSettingsView: View {
