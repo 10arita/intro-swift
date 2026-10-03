@@ -452,25 +452,68 @@ private struct PushButton: View {
     var pending = false
     var body: some View {
         Button(action: action) {
-            ZStack {
-                Circle().strokeBorder(Studio.line, lineWidth: 1).frame(width: size, height: size)
-                Circle().strokeBorder(Studio.accent.opacity(0.35), lineWidth: 1).frame(width: size * 0.875, height: size * 0.875)
-                Circle().fill(Studio.accent).frame(width: size * 0.742, height: size * 0.742)
-                VStack(spacing: 1) {
-                    if pending {
-                        ProgressView().tint(.white)
-                        Text("判定中").font(.system(size: size * 0.115, weight: .bold, design: .rounded))
-                    } else {
-                        Image(systemName: "hand.tap.fill").font(.system(size: size * 0.105))
-                        Text("PUSH").font(.system(size: size * 0.152, weight: .black, design: .rounded)).tracking(-2)
-                    }
+            VStack(spacing: 1) {
+                if pending {
+                    ProgressView().tint(.white)
+                    Text("判定中").font(.system(size: size * 0.115, weight: .bold, design: .rounded))
+                } else {
+                    Image(systemName: "hand.tap.fill").font(.system(size: size * 0.105))
+                    Text("PUSH").font(.system(size: size * 0.152, weight: .black, design: .rounded)).tracking(-2)
                 }
-                .foregroundStyle(.white)
             }
+            .foregroundStyle(.white)
         }
-        .buttonStyle(ScaleButtonStyle())
+        .buttonStyle(PushButtonStyle(size: size, pending: pending))
         .disabled(pending)
         .accessibilityLabel(pending ? "PUSHを判定中" : "PUSH、解答する")
+    }
+}
+
+private struct PushButtonStyle: ButtonStyle {
+    let size: CGFloat
+    let pending: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        let pressed = configuration.isPressed || pending
+        let faceSize = size * 0.742
+        let depth = size * 0.03
+
+        return ZStack {
+            Circle().strokeBorder(Studio.line, lineWidth: 1)
+            Circle().strokeBorder(Studio.accent.opacity(0.35), lineWidth: 1)
+                .frame(width: size * 0.875, height: size * 0.875)
+            Circle().fill(Studio.accent)
+                .brightness(-0.22)
+                .frame(width: faceSize, height: faceSize)
+                .offset(y: depth / 2)
+            configuration.label
+                .frame(width: faceSize, height: faceSize)
+                .background(Studio.accent, in: Circle())
+                .brightness(pressed ? -0.08 : 0)
+                .shadow(color: Studio.accent.opacity(pressed ? 0.10 : 0.25),
+                        radius: pressed ? 1 : depth, x: 0, y: pressed ? 1 : depth)
+                .scaleEffect(pressed && !reduceMotion ? 0.98 : 1)
+                .offset(y: reduceMotion ? -depth / 2 : (pressed ? depth / 2 : -depth / 2))
+        }
+        .frame(width: size, height: size)
+        .contentShape(Circle())
+        .animation(reduceMotion ? nil : (pressed ? .easeOut(duration: 0.08) :
+            .spring(response: 0.22, dampingFraction: 0.72)), value: pressed)
+    }
+}
+
+private struct SkipButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 14, weight: .regular))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 12)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+            .opacity(isEnabled ? (configuration.isPressed ? 0.65 : 1) : 0.5)
     }
 }
 
@@ -618,8 +661,8 @@ struct SoloGameView: View {
                             CountdownBar(remaining: game.secondsLeft, total: 30, compact: true)
                             PushButton(action: { model.push() }, size: 220)
                             Button("この曲をスキップ") { model.skip() }
-                                .font(.subheadline)
-                                .foregroundStyle(Studio.secondary)
+                                .buttonStyle(SkipButtonStyle())
+                                .padding(.top, 16)
                         } else if game.stage == .answering {
                             Spacer(minLength: 4)
                             SectionCaption(title: "SPELL THE TITLE")
@@ -2534,10 +2577,9 @@ struct RoomGameView: View {
                room.skippedIds.contains(model.rooms.playerId) ? "スキップに投票済み" : "スキップに投票") {
             Task { await model.roomAction("skip") }
         }
-        .font(.subheadline)
-        .foregroundStyle(Studio.secondary)
-        .frame(minHeight: 36)
+        .buttonStyle(SkipButtonStyle())
         .disabled(hasAnswered || disqualified || room.skippedIds.contains(model.rooms.playerId))
+        .padding(.top, 12)
     }
 
     private func compactPlayers(_ room: RoomState) -> some View {
