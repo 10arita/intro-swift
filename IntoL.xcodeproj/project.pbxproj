@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0D6CE5963A135289D1E07B58 /* RoomLobbyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CFFF645A506C1DDDEC7DF1F /* RoomLobbyView.swift */; };
+		2A917093D77C6F91BA1E2204 /* RoomPlayerStandings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1728359B56266971280996B /* RoomPlayerStandings.swift */; };
+		6F8D319968C95497085860C1 /* AnswerViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72075401BB99C8596E75DD0F /* AnswerViews.swift */; };
 		A00000000000000000000001 /* IntoLApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000001 /* IntoLApp.swift */; };
 		A00000000000000000000002 /* Design.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000002 /* Design.swift */; };
 		A00000000000000000000003 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000003 /* Models.swift */; };
@@ -40,14 +43,14 @@
 		A00000000000000000000028 /* AccountView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000028 /* AccountView.swift */; };
 		A00000000000000000000029 /* RoomGameView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000029 /* RoomGameView.swift */; };
 		A0000000000000000000002A /* RoomHandicapSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000002A /* RoomHandicapSettingsView.swift */; };
-		6F8D319968C95497085860C1 /* AnswerViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72075401BB99C8596E75DD0F /* AnswerViews.swift */; };
-		C04387BDE8F114D35D808B3D /* RevealEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40D296A3BF561B575315D4DA /* RevealEffects.swift */; };
-		0D6CE5963A135289D1E07B58 /* RoomLobbyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CFFF645A506C1DDDEC7DF1F /* RoomLobbyView.swift */; };
-		2A917093D77C6F91BA1E2204 /* RoomPlayerStandings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1728359B56266971280996B /* RoomPlayerStandings.swift */; };
 		A00000000000000000000044 /* UIExamples.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000044 /* UIExamples.swift */; };
+		C04387BDE8F114D35D808B3D /* RevealEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40D296A3BF561B575315D4DA /* RevealEffects.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		2CFFF645A506C1DDDEC7DF1F /* RoomLobbyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomLobbyView.swift; sourceTree = "<group>"; };
+		40D296A3BF561B575315D4DA /* RevealEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RevealEffects.swift; sourceTree = "<group>"; };
+		72075401BB99C8596E75DD0F /* AnswerViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnswerViews.swift; sourceTree = "<group>"; };
 		B00000000000000000000001 /* IntoLApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntoLApp.swift; sourceTree = "<group>"; };
 		B00000000000000000000002 /* Design.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Design.swift; sourceTree = "<group>"; };
 		B00000000000000000000003 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
@@ -84,11 +87,8 @@
 		B00000000000000000000028 /* AccountView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountView.swift; sourceTree = "<group>"; };
 		B00000000000000000000029 /* RoomGameView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomGameView.swift; sourceTree = "<group>"; };
 		B0000000000000000000002A /* RoomHandicapSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomHandicapSettingsView.swift; sourceTree = "<group>"; };
-		72075401BB99C8596E75DD0F /* AnswerViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnswerViews.swift; sourceTree = "<group>"; };
-		40D296A3BF561B575315D4DA /* RevealEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RevealEffects.swift; sourceTree = "<group>"; };
-		2CFFF645A506C1DDDEC7DF1F /* RoomLobbyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomLobbyView.swift; sourceTree = "<group>"; };
-		B1728359B56266971280996B /* RoomPlayerStandings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomPlayerStandings.swift; sourceTree = "<group>"; };
 		B00000000000000000000044 /* UIExamples.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIExamples.swift; sourceTree = "<group>"; };
+		B1728359B56266971280996B /* RoomPlayerStandings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomPlayerStandings.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -407,7 +407,7 @@
 				CLOUDKIT_CONTAINER_IDENTIFIER = "iCloud.$(PRODUCT_BUNDLE_IDENTIFIER)";
 				CODE_SIGN_ENTITLEMENTS = IntoL/IntoL.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 26;
+				CURRENT_PROJECT_VERSION = 27;
 				DEVELOPMENT_TEAM = 846DPLLG2V;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = IntoL/Info.plist;
@@ -416,7 +416,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 5.0.2;
+				MARKETING_VERSION = 5.1.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -439,7 +439,7 @@
 				CLOUDKIT_CONTAINER_IDENTIFIER = "iCloud.$(PRODUCT_BUNDLE_IDENTIFIER)";
 				CODE_SIGN_ENTITLEMENTS = IntoL/IntoL.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 26;
+				CURRENT_PROJECT_VERSION = 27;
 				DEVELOPMENT_TEAM = 846DPLLG2V;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = IntoL/Info.plist;
@@ -448,7 +448,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 5.0.2;
+				MARKETING_VERSION = 5.1.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
