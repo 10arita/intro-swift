@@ -195,7 +195,7 @@ function profileIdentity(body) {
 function publicFriends(profile) {
   return {
     friends: (profile.friends || []).map(id => profiles.get(id)).filter(Boolean)
-      .map(friend => ({ id: friend.id, name: friend.name || friend.id })),
+      .map(friend => ({ id: friend.id, name: friend.name || friend.id, avatar: friend.avatar || null })),
     requests: (profile.friendRequests || []).filter(item => profiles.has(item.fromId)),
     invites: (profile.invites || []).filter(item => {
       const room = rooms.get(item.roomId);
@@ -209,6 +209,12 @@ function publicFriends(profile) {
       }).map(item => ({ roomId: item.roomId, targetId })))
   };
 }
+function publicAveragePush(stats) {
+  if (!Number.isSafeInteger(stats?.attempts) || stats.attempts <= 0) return null;
+  const average = Number.isFinite(stats.averagePush) ? stats.averagePush :
+    Number.isFinite(stats.totalPushSeconds) ? stats.totalPushSeconds / stats.attempts : NaN;
+  return Number.isFinite(average) && average >= 0 && average <= 30 ? average : null;
+}
 function publicProfile(profile, player = null) {
   const stats = profile?.publicStats ?? profile?.stats;
   return {
@@ -219,6 +225,7 @@ function publicProfile(profile, player = null) {
       games: Number.isFinite(stats.games) ? stats.games : 0,
       attempts: Number.isFinite(stats.attempts) ? stats.attempts : 0,
       correct: Number.isFinite(stats.correct) ? stats.correct : 0,
+      averagePush: publicAveragePush(stats),
       selectedBadge: typeof stats.selectedBadge === 'string' ? stats.selectedBadge : null,
       badges: Array.isArray(stats.badges) ? stats.badges.filter(badge => typeof badge === 'string') : []
     } : null,
@@ -458,6 +465,7 @@ export function handle(method, path, body, query, authorization, origin = 'https
         const count = value => Number.isSafeInteger(value) && value >= 0 ? value : 0;
         profile.publicStats = {
           games: count(stats.games), attempts: count(stats.attempts), correct: count(stats.correct),
+          averagePush: publicAveragePush(stats),
           selectedBadge: typeof stats.selectedBadge === 'string' ? stats.selectedBadge.slice(0, 24) : null,
           badges: Array.isArray(stats.badges) ? [...new Set(stats.badges.filter(value => typeof value === 'string')
             .map(value => value.slice(0, 24)))].slice(0, 8) : []

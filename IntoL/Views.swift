@@ -15,18 +15,12 @@ private struct SystemMusicVolumeSlider: UIViewRepresentable {
 
 private struct VolumeSettingsControls: View {
     @EnvironmentObject private var model: AppModel
-    var showsCaptions = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             volumeSlider("BGM", value: $model.bgmVolume)
             volumeSlider("効果音", value: $model.effectsVolume)
             volumeSlider("曲（アプリ音源）", value: $model.songVolume)
-            if showsCaptions {
-                Text("曲の音量はデモ曲・共有音源・試聴曲に適用されます。")
-                    .font(.caption)
-                    .foregroundStyle(Studio.secondary)
-            }
             if model.appleMusicConnected {
                 Divider()
                 Text("Apple Music の曲（端末音量）")
@@ -35,11 +29,6 @@ private struct VolumeSettingsControls: View {
                 SystemMusicVolumeSlider()
                     .frame(height: 30)
                     .accessibilityLabel("端末の音楽音量")
-                if showsCaptions {
-                    Text("サービスの曲は端末音量で調整します。BGMと効果音にも影響します。")
-                        .font(.caption)
-                        .foregroundStyle(Studio.secondary)
-                }
             }
         }
     }
@@ -109,19 +98,21 @@ struct RootView: View {
 
     var body: some View {
         ZStack {
-            Group {
-                switch selectedTab {
-                case .play: PlayView(homeToken: playHomeToken, startsTogether: startsTogether)
-                case .review: ReviewView()
-                case .friends: FriendsView(onCreateRoom: {
-                    startsTogether = true
-                    playHomeToken += 1
-                    selectedTab = .play
-                })
-                case .account: AccountView()
+            VStack(spacing: 0) {
+                Group {
+                    switch selectedTab {
+                    case .play: PlayView(homeToken: playHomeToken, startsTogether: startsTogether)
+                    case .review: ReviewView()
+                    case .friends: FriendsView(onCreateRoom: {
+                        startsTogether = true
+                        playHomeToken += 1
+                        selectedTab = .play
+                    })
+                    case .account: AccountView()
+                    }
                 }
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // Reserve the menu's actual height, including larger accessibility text.
                 if !showingSession { tabBar }
             }
             .offset(x: showingSession && !reduceMotion ? -80 : 0)
@@ -579,9 +570,13 @@ private struct ChoiceGrid: View {
                     .background(Studio.surface, in: RoundedRectangle(cornerRadius: 22))
                     .overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(Studio.line))
                 }
-                .buttonStyle(ScaleButtonStyle())
+                .buttonStyle(.plain)
                 .accessibilityLabel("選択肢\(index + 1)、\(choice)")
             }
+        }
+        .transaction { transaction in
+            transaction.animation = nil
+            transaction.disablesAnimations = true
         }
     }
 }
@@ -724,7 +719,7 @@ struct SoloGameView: View {
                     .padding(24)
                     .frame(maxWidth: 560)
                     .frame(maxWidth: .infinity)
-                    .animation(reduceMotion ? .none : Studio.spring, value: game.stage)
+                    .animation(reduceMotion || game.stage == .answering ? nil : Studio.spring, value: game.stage)
                 }
             }
         }
@@ -839,8 +834,11 @@ struct ReviewView: View {
                                 .accessibilityAction(named: "復習リストから削除") { removeReview(item) }
                         }
                     }
+                    .id(learned)
+                    .transition(.identity)
                     .listStyle(.plain)
                     .scrollContentBackground(.hidden)
+                    .contentMargins(.bottom, 16, for: .scrollContent)
                     .environment(\.defaultMinListRowHeight, 0)
                     .overlay {
                         if items.isEmpty {
@@ -1178,20 +1176,26 @@ private struct ReviewSongRow: View {
     let seek: (TimeInterval) -> Void
     let togglePlayback: () -> Void
     let toggleLearned: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var playbackActive: Bool { isPlaying || isLoading }
 
     var body: some View {
         VStack(spacing: 8) {
             songControls
-            if isPlaying || isLoading {
+            if playbackActive {
                 ReviewSeekBar(songTitle: item.song.title, position: $playbackPosition,
                               duration: playbackDuration, isScrubbing: $isScrubbing,
                               isLoading: isLoading, seek: seek)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
         .padding(12)
         .background(Studio.surface, in: RoundedRectangle(cornerRadius: Studio.radius))
         .overlay(RoundedRectangle(cornerRadius: Studio.radius).strokeBorder(Studio.line))
+        .clipShape(RoundedRectangle(cornerRadius: Studio.radius))
         .buttonStyle(StudioPressStyle())
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: playbackActive)
     }
 
     private var songControls: some View {
@@ -1336,6 +1340,9 @@ private struct PlayerProfileSheet: View {
                                         let accuracy = attempts == 0 ? 0 : 100 * (stats.correct ?? 0) / attempts
                                         profileMetric("正答率", "\(accuracy)%")
                                     }
+                                    profileMetric("平均 PUSH", stats.averagePush.map {
+                                        String(format: "%.3f秒", $0)
+                                    } ?? "—")
                                     if let badges = stats.badges, !badges.isEmpty {
                                         Text("獲得称号: \(badges.sorted().joined(separator: " ・ "))")
                                             .font(.caption)
@@ -1535,10 +1542,7 @@ struct FriendsView: View {
                         selectedProfile = PlayerProfileTarget(id: friend.id, name: friend.name, roomID: nil)
                     } label: {
                         HStack(spacing: 12) {
-                            Image(systemName: "person.crop.circle.fill")
-                                .font(.system(size: 40))
-                                .foregroundStyle(Studio.accent.opacity(0.65))
-                                .accessibilityHidden(true)
+                            PlayerAvatarView(data: nil, size: 40, encoded: friend.avatar)
                             Text(friend.name).font(.headline).foregroundStyle(Studio.primary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
@@ -1693,18 +1697,9 @@ struct AccountView: View {
                     StudioCard {
                         VStack(alignment: .leading, spacing: 14) {
                             SectionCaption(title: "音量")
-                            VolumeSettingsControls(showsCaptions: false)
+                            VolumeSettingsControls()
                         }
                     }
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("曲の音量はデモ曲・共有音源・試聴曲に適用されます。")
-                        if model.appleMusicConnected {
-                            Text("Apple Music の曲は端末音量で調整します。BGMと効果音にも影響します。")
-                        }
-                    }
-                    .font(.caption)
-                    .foregroundStyle(Studio.secondary)
-                    .padding(.horizontal, 16)
                     }
                 }
                 .padding(20)
@@ -2311,7 +2306,8 @@ struct RoomGameView: View {
                         .padding(.bottom, compact ? 8 : 16)
                         .frame(maxWidth: 560)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .animation(reduceMotion ? .none : Studio.spring, value: room.phase)
+                        .animation(reduceMotion || room.isAnswering(model.rooms.playerId) ? nil : Studio.spring,
+                                   value: room.phase)
                     }
                 }
             }

@@ -77,6 +77,11 @@ struct PlayView: View {
         GeometryReader { geometry in
             ScrollView {
                 VStack(spacing: 28) {
+                    Text(appVersion)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(Studio.secondary)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .accessibilityLabel("アプリのバージョン \(appVersion)")
                     Spacer(minLength: 8)
                     VStack(spacing: 16) {
                         Text("IntoL")
@@ -102,11 +107,6 @@ struct PlayView: View {
                             navigate(to: .together)
                         }
                     }
-                    Text(appVersion)
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(Studio.secondary)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .accessibilityLabel("アプリのバージョン \(appVersion)")
                 }
                 .padding(24)
                 .frame(minHeight: geometry.size.height)
@@ -210,8 +210,7 @@ struct PlayView: View {
 
     private var appVersion: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
-        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"
-        return "v\(version) (\(build))"
+        return "v\(version)"
     }
 
     private func navigate(to destination: PlayStep, forward: Bool = true) {

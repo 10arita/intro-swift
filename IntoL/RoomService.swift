@@ -37,6 +37,7 @@ struct RoomPlayer: Decodable, Identifiable {
 struct FriendEntry: Decodable, Identifiable {
     let id: String
     let name: String
+    let avatar: String?
 }
 
 struct FriendRequest: Decodable, Identifiable {
@@ -73,6 +74,7 @@ struct PlayerProfile: Decodable {
         let games: Int?
         let attempts: Int?
         let correct: Int?
+        let averagePush: Double?
         let selectedBadge: String?
         let badges: [String]?
     }
@@ -811,6 +813,7 @@ struct SavedProfile: Decodable {
         request.httpBody = try JSONSerialization.data(withJSONObject: [
             "id": profileID, "name": name, "avatar": avatar ?? "",
             "publicStats": ["games": stats.games, "attempts": stats.attempts, "correct": stats.correct,
+                            "averagePush": stats.averagePush,
                             "badges": stats.badges.sorted(), "selectedBadge": stats.selectedBadge ?? ""]
         ])
         let (_, response) = try await URLSession.shared.data(for: request)

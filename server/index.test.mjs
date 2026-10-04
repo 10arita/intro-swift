@@ -166,15 +166,25 @@ test('room friends require approval and invitations join without entering a code
   assert.equal(handle('GET', '/friends', {}, new URLSearchParams({ profileId: bob.id }), `Bearer ${charlie.token}`).status, 403);
   assert.equal(handle('POST', '/friends/accept', { profileId: bob.id,
     requestId: bobList.body.requests[0].id }, query, `Bearer ${bob.token}`).status, 200);
-  assert.equal(handle('PUT', '/profile', { id: bob.id,
-    stats: { games: 2, attempts: 8, correct: 5, privateNote: 'do not share' } },
+  const avatar = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1]).toString('base64');
+  assert.equal(handle('PUT', '/profile', { id: bob.id, avatar,
+    stats: { games: 2, attempts: 8, correct: 5, totalPushSeconds: 18.5, privateNote: 'do not share' } },
   query, `Bearer ${bob.token}`).status, 200);
+  const aliceFriends = () => handle('GET', '/friends', {},
+    new URLSearchParams({ profileId: alice.id }), `Bearer ${alice.token}`).body.friends;
+  assert.deepEqual(aliceFriends(), [{ id: bob.id, name: 'Bob', avatar }]);
+  handle('PUT', '/profile', { id: bob.id, avatar: '' }, query, `Bearer ${bob.token}`);
+  assert.equal(aliceFriends()[0].avatar, null);
+  handle('PUT', '/profile', { id: bob.id, avatar }, query, `Bearer ${bob.token}`);
   const friendProfile = handle('GET', '/player-profile', {},
     new URLSearchParams({ profileId: alice.id, friendId: bob.id }), `Bearer ${alice.token}`);
   assert.equal(friendProfile.status, 200);
   assert.equal(friendProfile.body.name, 'Bob');
+  assert.equal(friendProfile.body.avatar, avatar);
   assert.equal(friendProfile.body.secret, undefined);
   assert.equal(friendProfile.body.stats.correct, 5);
+  assert.equal(friendProfile.body.stats.averagePush, 2.3125);
+  assert.equal(friendProfile.body.stats.totalPushSeconds, undefined);
   assert.equal(friendProfile.body.stats.privateNote, undefined);
   assert.equal(handle('GET', '/player-profile', {},
     new URLSearchParams({ profileId: charlie.id, friendId: bob.id }), `Bearer ${charlie.token}`).status, 404);
@@ -1196,7 +1206,7 @@ test('CloudKit public summary does not overwrite legacy personal data and is vis
     history: [{ id: 'personal-result' }], stats: { games: 7, totalPushSeconds: 123, genres: { Pop: { attempts: 3 } } } };
   handle('PUT', '/profile', personal, query, auth);
   const publication = { id: registered.id, name: 'Cloud player', avatar: '',
-    publicStats: { games: 10, attempts: 20, correct: 15, selectedBadge: 'はじめの一歩',
+    publicStats: { games: 10, attempts: 20, correct: 15, averagePush: 4.321, selectedBadge: 'はじめの一歩',
       badges: ['はじめの一歩'], reviews: ['must-not-be-stored'], genres: { secret: true } } };
   assert.equal(handle('PUT', '/profile', publication, query).status, 403);
   assert.equal(handle('PUT', '/profile', publication, query, auth).status, 200);
@@ -1211,9 +1221,34 @@ test('CloudKit public summary does not overwrite legacy personal data and is vis
   const visible = handle('GET', '/player-profile', {}, new URLSearchParams({ roomId: room.id,
     playerId: 'cloudkit-summary-player', targetPlayerId: 'cloudkit-summary-player' }), `Bearer ${room.sessionToken}`).body;
   assert.equal(visible.stats.games, 10);
+  assert.equal(visible.stats.averagePush, 4.321);
   assert.equal(visible.badge, 'はじめの一歩');
   assert.equal(visible.reviews, undefined);
   assert.equal(visible.stats.totalPushSeconds, undefined);
+});
+
+test('public PUSH averages stay unavailable for missing, invalid, or empty records', () => {
+  const query = new URLSearchParams();
+  const profile = handle('POST', '/profile', { id: 'push-average-profile' }, query).body;
+  const auth = `Bearer ${profile.token}`;
+  const room = handle('POST', '/rooms', { playerId: 'push-average-player', profileId: profile.id,
+    profileToken: profile.token, name: 'Average', settings: { questionCount: 1 } }, query).body;
+  const read = () => handle('GET', '/player-profile', {}, new URLSearchParams({ roomId: room.id,
+    playerId: 'push-average-player', targetPlayerId: 'push-average-player' }), `Bearer ${room.sessionToken}`).body.stats;
+  for (const stats of [
+    { attempts: 5 }, // Older clients did not publish PUSH time.
+    { attempts: 0, averagePush: 0 },
+    { attempts: 5, averagePush: -1 },
+    { attempts: 5, averagePush: 31 },
+    { attempts: 5, averagePush: Infinity },
+    { attempts: 5, averagePush: '2.3' }
+  ]) {
+    assert.equal(handle('PUT', '/profile', { id: profile.id, publicStats: stats }, query, auth).status, 200);
+    assert.equal(read().averagePush, null);
+  }
+  handle('PUT', '/profile', { id: profile.id,
+    publicStats: { attempts: 5, averagePush: 0 } }, query, auth);
+  assert.equal(read().averagePush, 0);
 });
 
 test('Apple Music rooms hide the title, accept readiness, and allow a lobby host transfer', () => {
