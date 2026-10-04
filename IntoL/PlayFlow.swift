@@ -89,7 +89,7 @@ struct PlayView: View {
                             .tracking(-5)
                             .foregroundStyle(Studio.primary)
                             .accessibilityAddTraits(.isHeader)
-                        HomeWaveform()
+                        HomeWaveform(isActive: model.game == nil && model.room == nil)
                             .frame(maxWidth: 320)
                             .frame(height: 84)
                         Text("シンプルイントロクイズ")
@@ -125,7 +125,7 @@ struct PlayView: View {
                         .font(.subheadline.weight(.semibold))
                         .frame(minHeight: 44)
                 }
-                .buttonStyle(StudioPressStyle())
+                .buttonStyle(StudioButtonStyle(.tertiary))
                 .foregroundStyle(Studio.accent)
                 .disabled(model.busy || creatingRoom)
                 Spacer()
@@ -262,10 +262,10 @@ private struct PlayFlowCard: View {
             HStack(spacing: 16) {
                 Image(systemName: symbol)
                     .font(.system(size: 26, weight: .semibold))
-                .foregroundStyle(emphasized && !disabled ? .white : Studio.accent)
+                .foregroundStyle(emphasized && !disabled ? Studio.onAccent : Studio.accent)
                 .frame(width: 64, height: 64)
-                .background(emphasized && !disabled ? .white.opacity(0.12) : Studio.raised,
-                            in: RoundedRectangle(cornerRadius: 16))
+                .background(emphasized && !disabled ? Studio.onAccent.opacity(0.12) : Studio.raised,
+                            in: RoundedRectangle(cornerRadius: Studio.Radius.md))
                 .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 7) {
                     Text(badge).font(.caption2.weight(.bold)).tracking(1.4)
@@ -274,23 +274,23 @@ private struct PlayFlowCard: View {
                         .font(.subheadline)
                         .opacity(emphasized && !disabled ? 0.9 : 1)
                 }
-                .foregroundStyle(emphasized && !disabled ? .white : Studio.primary)
+                .foregroundStyle(emphasized && !disabled ? Studio.onAccent : Studio.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
                 Image(systemName: "chevron.right")
                     .font(.subheadline.bold())
-                    .foregroundStyle(emphasized && !disabled ? .white : Studio.accent)
+                    .foregroundStyle(emphasized && !disabled ? Studio.onAccent : Studio.accent)
                     .accessibilityHidden(true)
             }
             .padding(18)
             .frame(maxWidth: .infinity, minHeight: 126, alignment: .leading)
             .background(emphasized && !disabled ? Studio.accent : Studio.surface,
-                        in: RoundedRectangle(cornerRadius: 22))
-            .overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(emphasized && !disabled ? .clear : Studio.line))
+                        in: RoundedRectangle(cornerRadius: Studio.Radius.lg))
+            .overlay(RoundedRectangle(cornerRadius: Studio.Radius.lg).strokeBorder(emphasized && !disabled ? .clear : Studio.line))
             .opacity(disabled ? 0.6 : 1)
-            .contentShape(RoundedRectangle(cornerRadius: 22))
+            .contentShape(RoundedRectangle(cornerRadius: Studio.Radius.lg))
         }
-        .buttonStyle(StudioPressStyle())
+        .buttonStyle(StudioButtonStyle(.tertiary))
         .disabled(disabled)
         .accessibilityLabel("\(title)、\(subtitle)")
         .accessibilityHint(disabled ? "現在利用できません" : "次のステップへ進む")
@@ -348,7 +348,7 @@ private struct SoloPlaylistSelection: View {
                                 Image(systemName: "music.note.list")
                                     .font(.title2).foregroundStyle(Studio.accent)
                                     .frame(width: 56, height: 64)
-                                    .background(Studio.raised, in: RoundedRectangle(cornerRadius: 12))
+                                    .background(Studio.raised, in: RoundedRectangle(cornerRadius: Studio.Radius.sm))
                                 Text(playlist.name)
                                     .font(.headline).foregroundStyle(Studio.primary)
                                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -358,11 +358,11 @@ private struct SoloPlaylistSelection: View {
                                     .font(.title3)
                             }
                             .padding(16)
-                            .background(Studio.surface, in: RoundedRectangle(cornerRadius: 18))
-                            .overlay(RoundedRectangle(cornerRadius: 18)
+                            .background(Studio.surface, in: RoundedRectangle(cornerRadius: Studio.Radius.md))
+                            .overlay(RoundedRectangle(cornerRadius: Studio.Radius.md)
                                 .strokeBorder(model.selectedAppleMusicPlaylistID == playlist.id ? Studio.accent : Studio.line))
                         }
-                        .buttonStyle(StudioPressStyle())
+                        .buttonStyle(StudioButtonStyle(.tertiary))
                         .disabled(model.busy)
                         .accessibilityLabel(playlist.name)
                         .accessibilityValue(model.selectedAppleMusicPlaylistID == playlist.id ? "選択中" : "")
@@ -429,11 +429,9 @@ private struct RoomCodeEntryView: View {
                         .accessibilityLabel("英字6文字のルームコード")
                         .accessibilityIdentifier("room-code-input")
                         .accessibilityHint("\(code.count) / 6文字。入力が揃うと自動で参加します")
-                    HStack(spacing: 8) {
-                        ForEach(0..<RoomCode.length, id: \.self) { index in
-                            codeBox(at: index)
-                        }
-                    }
+                    RoomCodeBoxes(code: code,
+                                  activeIndex: focused ? min(code.count, RoomCode.length - 1) : nil,
+                                  hasError: errorMessage != nil)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
                 }
@@ -449,10 +447,10 @@ private struct RoomCodeEntryView: View {
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Studio.accent)
                         .frame(maxWidth: .infinity, minHeight: 52)
-                        .background(Studio.surface, in: RoundedRectangle(cornerRadius: 14))
-                        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Studio.line))
+                        .background(Studio.surface, in: RoundedRectangle(cornerRadius: Studio.Radius.sm))
+                        .overlay(RoundedRectangle(cornerRadius: Studio.Radius.sm).strokeBorder(Studio.line))
                 }
-                .buttonStyle(StudioPressStyle())
+                .buttonStyle(StudioButtonStyle(.tertiary))
                 .disabled(model.busy)
             }
             if joining {
@@ -492,23 +490,6 @@ private struct RoomCodeEntryView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIPasteboard.changedNotification)) { _ in
             refreshClipboard()
         }
-    }
-
-    private func codeBox(at index: Int) -> some View {
-        let characters = Array(code)
-        let active = focused && index == min(code.count, RoomCode.length - 1)
-        return Text(index < characters.count ? String(characters[index]) : "")
-            .font(.system(.title, design: .monospaced, weight: .bold))
-            .lineLimit(1)
-            .minimumScaleFactor(0.5)
-            .foregroundStyle(Studio.primary)
-            .frame(maxWidth: .infinity)
-            .frame(height: 64)
-            .background(index < characters.count ? Studio.raised : Studio.surface,
-                        in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(errorMessage != nil ? Studio.warning : active ? Studio.accent : Studio.line,
-                              lineWidth: active || errorMessage != nil ? 2 : 1))
     }
 
     private func refreshClipboard() {

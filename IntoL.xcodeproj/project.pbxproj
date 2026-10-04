@@ -13,7 +13,7 @@
 		A00000000000000000000004 /* Services.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000004 /* Services.swift */; };
 		A00000000000000000000005 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000005 /* AppModel.swift */; };
 		A00000000000000000000006 /* RoomService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000006 /* RoomService.swift */; };
-		A00000000000000000000007 /* Views.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000007 /* Views.swift */; };
+		A00000000000000000000007 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000007 /* RootView.swift */; };
 		A00000000000000000000009 /* DemoCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000000B /* DemoCatalog.swift */; };
 		A0000000000000000000000A /* Audio in Resources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000000C /* Audio */; };
 		A0000000000000000000000E /* MusicServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000010 /* MusicServices.swift */; };
@@ -30,6 +30,21 @@
 		A0000000000000000000001C /* RevealAudioPlayback.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001D /* RevealAudioPlayback.swift */; };
 		A0000000000000000000001D /* PlayFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001E /* PlayFlow.swift */; };
 		A0000000000000000000001E /* RoomCode.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001F /* RoomCode.swift */; };
+		A00000000000000000000020 /* MusicVolumeViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000020 /* MusicVolumeViews.swift */; };
+		A00000000000000000000022 /* RuleControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000022 /* RuleControls.swift */; };
+		A00000000000000000000023 /* GameComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000023 /* GameComponents.swift */; };
+		A00000000000000000000024 /* SoloGameView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000024 /* SoloGameView.swift */; };
+		A00000000000000000000025 /* ResultViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000025 /* ResultViews.swift */; };
+		A00000000000000000000026 /* ReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000026 /* ReviewView.swift */; };
+		A00000000000000000000027 /* FriendsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000027 /* FriendsView.swift */; };
+		A00000000000000000000028 /* AccountView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000028 /* AccountView.swift */; };
+		A00000000000000000000029 /* RoomGameView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000029 /* RoomGameView.swift */; };
+		A0000000000000000000002A /* RoomHandicapSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000002A /* RoomHandicapSettingsView.swift */; };
+		6F8D319968C95497085860C1 /* AnswerViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72075401BB99C8596E75DD0F /* AnswerViews.swift */; };
+		C04387BDE8F114D35D808B3D /* RevealEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40D296A3BF561B575315D4DA /* RevealEffects.swift */; };
+		0D6CE5963A135289D1E07B58 /* RoomLobbyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CFFF645A506C1DDDEC7DF1F /* RoomLobbyView.swift */; };
+		2A917093D77C6F91BA1E2204 /* RoomPlayerStandings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1728359B56266971280996B /* RoomPlayerStandings.swift */; };
+		A00000000000000000000044 /* UIExamples.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000044 /* UIExamples.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -39,7 +54,7 @@
 		B00000000000000000000004 /* Services.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services.swift; sourceTree = "<group>"; };
 		B00000000000000000000005 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		B00000000000000000000006 /* RoomService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomService.swift; sourceTree = "<group>"; };
-		B00000000000000000000007 /* Views.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views.swift; sourceTree = "<group>"; };
+		B00000000000000000000007 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		B00000000000000000000008 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B00000000000000000000009 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B0000000000000000000000A /* IntoL.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = IntoL.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -59,6 +74,21 @@
 		B0000000000000000000001D /* RevealAudioPlayback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RevealAudioPlayback.swift; sourceTree = "<group>"; };
 		B0000000000000000000001E /* PlayFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayFlow.swift; sourceTree = "<group>"; };
 		B0000000000000000000001F /* RoomCode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomCode.swift; sourceTree = "<group>"; };
+		B00000000000000000000020 /* MusicVolumeViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicVolumeViews.swift; sourceTree = "<group>"; };
+		B00000000000000000000022 /* RuleControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuleControls.swift; sourceTree = "<group>"; };
+		B00000000000000000000023 /* GameComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameComponents.swift; sourceTree = "<group>"; };
+		B00000000000000000000024 /* SoloGameView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoloGameView.swift; sourceTree = "<group>"; };
+		B00000000000000000000025 /* ResultViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultViews.swift; sourceTree = "<group>"; };
+		B00000000000000000000026 /* ReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewView.swift; sourceTree = "<group>"; };
+		B00000000000000000000027 /* FriendsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendsView.swift; sourceTree = "<group>"; };
+		B00000000000000000000028 /* AccountView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountView.swift; sourceTree = "<group>"; };
+		B00000000000000000000029 /* RoomGameView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomGameView.swift; sourceTree = "<group>"; };
+		B0000000000000000000002A /* RoomHandicapSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomHandicapSettingsView.swift; sourceTree = "<group>"; };
+		72075401BB99C8596E75DD0F /* AnswerViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnswerViews.swift; sourceTree = "<group>"; };
+		40D296A3BF561B575315D4DA /* RevealEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RevealEffects.swift; sourceTree = "<group>"; };
+		2CFFF645A506C1DDDEC7DF1F /* RoomLobbyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomLobbyView.swift; sourceTree = "<group>"; };
+		B1728359B56266971280996B /* RoomPlayerStandings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomPlayerStandings.swift; sourceTree = "<group>"; };
+		B00000000000000000000044 /* UIExamples.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIExamples.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -85,6 +115,10 @@
 			children = (
 				B00000000000000000000001 /* IntoLApp.swift */,
 				B00000000000000000000002 /* Design.swift */,
+				B1728359B56266971280996B /* RoomPlayerStandings.swift */,
+				2CFFF645A506C1DDDEC7DF1F /* RoomLobbyView.swift */,
+				40D296A3BF561B575315D4DA /* RevealEffects.swift */,
+				72075401BB99C8596E75DD0F /* AnswerViews.swift */,
 				B00000000000000000000003 /* Models.swift */,
 				B00000000000000000000004 /* Services.swift */,
 				B00000000000000000000010 /* MusicServices.swift */,
@@ -97,7 +131,18 @@
 				B0000000000000000000001B /* IntoL.entitlements */,
 				B00000000000000000000005 /* AppModel.swift */,
 				B00000000000000000000006 /* RoomService.swift */,
-				B00000000000000000000007 /* Views.swift */,
+				B00000000000000000000020 /* MusicVolumeViews.swift */,
+				B00000000000000000000022 /* RuleControls.swift */,
+				B00000000000000000000023 /* GameComponents.swift */,
+				B00000000000000000000024 /* SoloGameView.swift */,
+				B00000000000000000000025 /* ResultViews.swift */,
+				B00000000000000000000026 /* ReviewView.swift */,
+				B00000000000000000000027 /* FriendsView.swift */,
+				B00000000000000000000028 /* AccountView.swift */,
+				B00000000000000000000029 /* RoomGameView.swift */,
+				B0000000000000000000002A /* RoomHandicapSettingsView.swift */,
+				B00000000000000000000044 /* UIExamples.swift */,
+				B00000000000000000000007 /* RootView.swift */,
 				B0000000000000000000001E /* PlayFlow.swift */,
 				B0000000000000000000001F /* RoomCode.swift */,
 				B0000000000000000000000B /* DemoCatalog.swift */,
@@ -227,6 +272,10 @@
 			files = (
 				A00000000000000000000001 /* IntoLApp.swift in Sources */,
 				A00000000000000000000002 /* Design.swift in Sources */,
+				2A917093D77C6F91BA1E2204 /* RoomPlayerStandings.swift in Sources */,
+				0D6CE5963A135289D1E07B58 /* RoomLobbyView.swift in Sources */,
+				C04387BDE8F114D35D808B3D /* RevealEffects.swift in Sources */,
+				6F8D319968C95497085860C1 /* AnswerViews.swift in Sources */,
 				A00000000000000000000003 /* Models.swift in Sources */,
 				A00000000000000000000004 /* Services.swift in Sources */,
 				A0000000000000000000000E /* MusicServices.swift in Sources */,
@@ -238,7 +287,18 @@
 				A0000000000000000000001C /* RevealAudioPlayback.swift in Sources */,
 				A00000000000000000000005 /* AppModel.swift in Sources */,
 				A00000000000000000000006 /* RoomService.swift in Sources */,
-				A00000000000000000000007 /* Views.swift in Sources */,
+				A00000000000000000000020 /* MusicVolumeViews.swift in Sources */,
+				A00000000000000000000022 /* RuleControls.swift in Sources */,
+				A00000000000000000000023 /* GameComponents.swift in Sources */,
+				A00000000000000000000024 /* SoloGameView.swift in Sources */,
+				A00000000000000000000025 /* ResultViews.swift in Sources */,
+				A00000000000000000000026 /* ReviewView.swift in Sources */,
+				A00000000000000000000027 /* FriendsView.swift in Sources */,
+				A00000000000000000000028 /* AccountView.swift in Sources */,
+				A00000000000000000000029 /* RoomGameView.swift in Sources */,
+				A0000000000000000000002A /* RoomHandicapSettingsView.swift in Sources */,
+				A00000000000000000000044 /* UIExamples.swift in Sources */,
+				A00000000000000000000007 /* RootView.swift in Sources */,
 				A0000000000000000000001D /* PlayFlow.swift in Sources */,
 				A0000000000000000000001E /* RoomCode.swift in Sources */,
 				A00000000000000000000009 /* DemoCatalog.swift in Sources */,
@@ -364,6 +424,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.intro.IntoL;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) DEBUG";
 				SWIFT_STRICT_CONCURRENCY = minimal;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;

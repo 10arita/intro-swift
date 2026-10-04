@@ -100,6 +100,21 @@ enum TitleRules {
     }
 }
 
+struct ChoiceFeedback: Equatable, Identifiable {
+    let id = UUID()
+    let choice: String
+    let correct: Bool
+    let choices: [String]
+    var answerBeforeChoice: String = ""
+}
+
+struct SoloRoundResult: Codable, Identifiable {
+    let song: Song
+    let correct: Bool
+    let pushTime: Double?
+    var id: String { song.id }
+}
+
 struct SoloResult: Codable, Identifiable {
     var id = UUID()
     let date: Date
@@ -109,15 +124,20 @@ struct SoloResult: Codable, Identifiable {
     let averagePush: Double
     let score: Double
     let rank: String
+    var rounds: [SoloRoundResult]? = nil
 
-    static func make(playlist: String, total: Int, pushTimes: [Double]) -> SoloResult {
+    static func make(playlist: String, total: Int, pushTimes: [Double], rounds: [SoloRoundResult]? = nil) -> SoloResult {
         let correct = pushTimes.count
         let average = correct == 0 ? 0 : pushTimes.reduce(0, +) / Double(correct)
         let accuracy = total == 0 ? 0 : Double(correct) / Double(total)
         let speed = correct == 0 ? 0 : max(0, 1 - average / 30)
         let score = 100 * accuracy * (0.75 + 0.25 * speed)
+        return SoloResult(date: .now, playlist: playlist, total: total, correct: correct, averagePush: average, score: score, rank: rank(for: score), rounds: rounds)
+    }
+
+    static func rank(for score: Double) -> String {
         let thresholds: [(Double, String)] = [(98,"S+"),(92,"S"),(88,"S-"),(84,"A+"),(80,"A"),(76,"A-"),(72,"B+"),(68,"B"),(64,"B-"),(60,"C+"),(56,"C"),(52,"C-"),(40,"D"),(20,"E")]
-        return SoloResult(date: .now, playlist: playlist, total: total, correct: correct, averagePush: average, score: score, rank: thresholds.first { score >= $0.0 }?.1 ?? "F")
+        return thresholds.first { score >= $0.0 }?.1 ?? "F"
     }
 }
 

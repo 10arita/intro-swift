@@ -18,6 +18,7 @@ struct SoloGame {
     var answered = ""
     var wasCorrect = false
     var correctPushTimes: [Double] = []
+    var roundResults: [SoloRoundResult] = []
     var secondsLeft = 30.0
     var warning: String?
     var current: Song { songs[index] }
@@ -30,6 +31,9 @@ struct SoloGame {
     @Published var sharedSongs: [Song] = []
     @Published var game: SoloGame? { didSet { updateBGM(); if game == nil { scheduleProfileSync() } } }
     @Published var lastResult: SoloResult?
+    @Published private(set) var soloChoiceFeedback: ChoiceFeedback?
+    @Published private(set) var soloChoicePending = false
+    @Published private(set) var roomChoiceFeedback: ChoiceFeedback?
     @Published var reviews: [ReviewSong] = []
     @Published var history: [SoloResult] = []
     @Published var stats = PlayerStats()
@@ -60,6 +64,7 @@ struct SoloGame {
         didSet { if roomID == nil { scheduleProfileSync() } }
     }
     @Published var roomSettings = RoomSettings()
+    @Published private(set) var roomLobbySyncing = false
     @Published var roomAnswer = ""
     @Published var roomOptions: [String] = []
     @Published var roomSecondsLeft = 30.0
@@ -125,8 +130,14 @@ struct SoloGame {
     private var preparedRoomSongs: PreparedRoomSongs?
     private var ticker: Task<Void, Never>?
     private var soloRoundTask: Task<Void, Never>?
+    private var soloChoiceTask: Task<Void, Never>?
+    private var roomChoiceFeedbackTask: Task<Void, Never>?
+    private var pendingRoomChoice: (choice: String, choices: [String], answer: String)?
     private var soloRoundToken = 0
     private var roomSyncTask: Task<Void, Never>?
+    private var roomLobbySyncTask: Task<Void, Never>?
+    private var roomLobbyRevision = 0
+    private var roomLobbySyncID = UUID()
     private var roomNoticeTask: Task<Void, Never>?
     private var roomTicker: Task<Void, Never>?
     private var scheduledRoomAudio: Task<Void, Never>?
@@ -470,6 +481,7 @@ struct SoloGame {
             game.secondsLeft = max(0, game.deadline.timeIntervalSinceNow)
             self.game = game
         case .listening, .answering:
+            if soloChoicePending { return }
             game.secondsLeft = max(0, game.deadline.timeIntervalSinceNow)
             if game.secondsLeft <= 0 {
                 self.game = game
@@ -499,21 +511,35 @@ struct SoloGame {
         stats.genres[game.current.genre] = genre
         persist()
         self.game = game
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         sound.play(.push)
         pauseAudio()
     }
 
     func choose(_ choice: String) {
+        guard let game, game.stage == .answering, !soloChoicePending,
+              game.choices.contains(choice) else { return }
+        soloChoicePending = true
+        soloChoiceFeedback = ChoiceFeedback(choice: choice, correct: choice == game.answer[game.letterIndex], choices: game.choices)
+        let round = game.index
+        let token = soloRoundToken
+        soloChoiceTask = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
+            guard let self, self.soloRoundToken == token, self.game?.index == round,
+                  self.game?.stage == .answering else { return }
+            self.soloChoicePending = false
+            self.soloChoiceFeedback = nil
+            self.commitSoloChoice(choice)
+        }
+    }
+
+    private func commitSoloChoice(_ choice: String) {
         guard var game, game.stage == .answering else { return }
         guard choice == game.answer[game.letterIndex] else {
-            UINotificationFeedbackGenerator().notificationOccurred(.error)
             reveal(correct: false)
             return
         }
         game.answered += choice
         game.letterIndex += 1
-        UISelectionFeedbackGenerator().selectionChanged()
         if game.letterIndex == game.answer.count {
             self.game = game
             reveal(correct: true)
@@ -530,6 +556,8 @@ struct SoloGame {
 
     private func reveal(correct: Bool) {
         guard var game, game.stage == .listening || game.stage == .answering else { return }
+        game.roundResults.append(SoloRoundResult(song: game.current.portableReviewSong, correct: correct,
+            pushTime: game.stage == .answering ? game.pushTime : nil))
         game.stage = .reveal
         game.wasCorrect = correct
         if correct {
@@ -538,7 +566,6 @@ struct SoloGame {
             var genre = stats.genres[game.current.genre] ?? GenreRecord()
             genre.correct += 1
             stats.genres[game.current.genre] = genre
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
         }
         stats.awardBadges()
         persist()
@@ -553,7 +580,7 @@ struct SoloGame {
         if game.index + 1 < game.songs.count {
             withAnimation(Studio.spring) { beginRound(advancingTo: game.index + 1) }
         } else {
-            let result = SoloResult.make(playlist: game.playlist, total: game.songs.count, pushTimes: game.correctPushTimes)
+            let result = SoloResult.make(playlist: game.playlist, total: game.songs.count, pushTimes: game.correctPushTimes, rounds: game.roundResults)
             game.stage = .finished
             self.game = game
             lastResult = result
@@ -567,6 +594,8 @@ struct SoloGame {
     }
 
     func closeGame() {
+        soloChoiceTask?.cancel(); soloChoiceTask = nil
+        soloChoicePending = false; soloChoiceFeedback = nil
         soloRoundTask?.cancel(); soloRoundTask = nil; soloRoundToken += 1
         ticker?.cancel(); ticker = nil
         stopAudio()
@@ -931,11 +960,71 @@ struct SoloGame {
         }
     }
 
+    var selectedRoomPlaylist: RoomPlaylist? {
+        guard !selectedAppleMusicPlaylistID.isEmpty,
+              let playlist = appleMusicPlaylists.first(where: { $0.id == selectedAppleMusicPlaylistID }) else { return nil }
+        return RoomPlaylist(name: String(playlist.name.prefix(60)), songCount: appleMusicSongs.count)
+    }
+
+    var roomPlaylistReady: Bool {
+        guard let room else { return false }
+        return room.totalRounds > 0 || room.mode == "shared" ||
+            (selectedRoomPlaylist != nil && !appleMusicSongs.isEmpty)
+    }
+
+    /// Serialize lobby updates so a slower request cannot overwrite a newer selection.
+    func scheduleRoomLobbySync() {
+        guard let current = room, current.phase == "lobby", current.totalRounds == 0,
+              current.hostId == rooms.playerId, current.supportsLobbyConfiguration == true else { return }
+        roomLobbyRevision += 1
+        guard roomLobbySyncTask == nil else { return }
+        roomLobbySyncing = true
+        let syncID = UUID()
+        roomLobbySyncID = syncID
+        roomLobbySyncTask = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                if self.roomLobbySyncID == syncID {
+                    self.roomLobbySyncTask = nil
+                    self.roomLobbySyncing = false
+                }
+            }
+            while !Task.isCancelled {
+                let revision = self.roomLobbyRevision
+                do { try await Task.sleep(for: .milliseconds(350)) } catch { return }
+                if revision != self.roomLobbyRevision { continue }
+                guard self.roomID == current.id, self.room?.phase == "lobby",
+                      self.room?.gameNumber == current.gameNumber,
+                      self.room?.hostId == self.rooms.playerId else { return }
+                do {
+                    let rules = try JSONSerialization.jsonObject(with: JSONEncoder().encode(self.roomSettings))
+                    let playlist: Any = try self.selectedRoomPlaylist.map {
+                        try JSONSerialization.jsonObject(with: JSONEncoder().encode($0))
+                    } ?? NSNull()
+                    let state = try await self.rooms.action("lobby-config", id: current.id,
+                        payload: ["settings": rules, "playlist": playlist])
+                    guard !Task.isCancelled, self.roomID == current.id else { return }
+                    self.receiveNetworkRoom(state)
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    self.showRoomNotice("設定を共有できませんでした。接続を確認してください")
+                }
+                if revision == self.roomLobbyRevision { return }
+            }
+        }
+    }
+
     func startRoom() async {
         guard let current = room, current.phase == "lobby", current.hostId == rooms.playerId,
-              !busy else { return }
+              !busy, roomPlaylistReady else { return }
+        // Complete pending metadata updates before the room leaves the lobby.
+        await roomLobbySyncTask?.value
+        guard room?.id == current.id, room?.gameNumber == current.gameNumber,
+              room?.phase == "lobby", room?.hostId == rooms.playerId,
+              !busy, roomPlaylistReady else { return }
         let selectedSettings = roomSettings
         let selectedPlaylistSongs = appleMusicSongs
+        let selectedPlaylist = selectedRoomPlaylist
         // Each question has a song-matching step and a choices step, followed by the start request.
         let preparationSteps = Double(current.totalRounds == 0 && current.mode != "shared"
             ? selectedSettings.questionCount * 2 + 1 : 1)
@@ -1008,7 +1097,10 @@ struct SoloGame {
             preparationStatus = "ゲームを開始中"
             roomStartProgress = (preparationSteps - 1) / preparationSteps
             let started = try await rooms.action("start", id: current.id,
-                payload: ["settings": rules, "songs": songList, "corpus": corpus])
+                payload: ["settings": rules, "songs": songList, "corpus": corpus,
+                          "playlist": try selectedPlaylist.map {
+                              try JSONSerialization.jsonObject(with: JSONEncoder().encode($0))
+                          } ?? NSNull()])
             roomStartProgress = 1
             receiveNetworkRoom(started)
             preparedRoomSongs = nil
@@ -1155,8 +1247,7 @@ struct SoloGame {
         scheduledRoomAudio = nil
         preparedRoomSongs = nil
         locallyInvitedFriendIDs.removeAll()
-        if state.phase == "lobby", (state.gameNumber ?? 0) > 0,
-           state.hostId == rooms.playerId { roomSettings = state.settings }
+        if state.phase == "lobby", state.hostId == rooms.playerId { roomSettings = state.settings }
         roomID = state.id
         UserDefaults.standard.set(state.id, forKey: "roomID")
         room = state
@@ -1238,7 +1329,23 @@ struct SoloGame {
 
     private func receiveRoom(_ state: RoomState) {
         let old = room
-        if state.phase == "lobby", (state.gameNumber ?? 0) > 0,
+        if let old, old.id == state.id, old.gameNumber == state.gameNumber, old.round == state.round,
+           let pending = pendingRoomChoice {
+            let result = state.player(rooms.playerId)?.currentResult
+            let previousResult = old.player(rooms.playerId)?.currentResult
+            let advanced = state.answerProgress.count > old.answerProgress.count
+            if advanced || result != previousResult && (result == "correct" || result == "wrong") {
+                pendingRoomChoice = nil
+                roomChoiceFeedback = ChoiceFeedback(choice: pending.choice,
+                    correct: advanced || result == "correct", choices: pending.choices, answerBeforeChoice: pending.answer)
+                roomChoiceFeedbackTask?.cancel()
+                roomChoiceFeedbackTask = Task { [weak self] in
+                    do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
+                    self?.roomChoiceFeedback = nil
+                }
+            }
+        }
+        if state.phase == "lobby",
            state.hostId == rooms.playerId,
            (old?.gameNumber != state.gameNumber || old?.hostId != state.hostId) {
             roomSettings = state.settings
@@ -1485,7 +1592,6 @@ struct SoloGame {
             await self.roomAction("push")
         }
         sound.play(.push)
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
     }
 
     func updateRoomHandicaps(_ handicaps: [String: Int]) async -> Bool {
@@ -1505,14 +1611,20 @@ struct SoloGame {
         guard let roomID else { return }
         if action == "push" && !roomPushPending { return }
         if action == "choose" {
-            guard !roomChoicePending, room?.isAnswering(rooms.playerId) == true else { return }
+            guard !roomChoicePending, roomChoiceFeedback == nil,
+                  room?.isAnswering(rooms.playerId) == true,
+                  let choice = payload["choice"] as? String, roomOptions.contains(choice) else { return }
             roomChoicePending = true
+            pendingRoomChoice = (choice, roomOptions, roomAnswer)
         }
         let previousAnswer = roomAnswer
         let previousRound = room?.round
         defer {
             if action == "push" { roomPushPending = false }
-            if action == "choose", self.roomID == roomID { roomChoicePending = false }
+            if action == "choose", self.roomID == roomID {
+                roomChoicePending = false
+                pendingRoomChoice = nil
+            }
         }
         do {
             let state = try await rooms.action(action, id: roomID, payload: payload)
@@ -1595,6 +1707,11 @@ struct SoloGame {
     }
 
     private func cancelRoomWork() {
+        roomChoiceFeedbackTask?.cancel(); roomChoiceFeedbackTask = nil
+        roomChoiceFeedback = nil; pendingRoomChoice = nil
+        roomLobbySyncTask?.cancel(); roomLobbySyncTask = nil
+        roomLobbySyncID = UUID()
+        roomLobbySyncing = false
         roomRoundPreparation.cancel()
         roomAudioRevision += 1
         preparedRoomSongs = nil

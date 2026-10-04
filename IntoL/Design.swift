@@ -1,14 +1,23 @@
 import SwiftUI
 enum Studio {
-    static let background = Color(red: 0.99, green: 0.98, blue: 0.98)
-    static let surface = Color.white
-    static let raised = Color(red: 0.97, green: 0.94, blue: 0.94)
-    static let line = Color(red: 0.90, green: 0.85, blue: 0.85)
-    static let primary = Color(red: 0.16, green: 0.12, blue: 0.12)
-    static let secondary = Color(red: 0.39, green: 0.34, blue: 0.34)
-    static let accent = Color(red: 0.73, green: 0.08, blue: 0.13)
-    static let warning = Color(red: 0.62, green: 0.08, blue: 0.12)
-    static let radius: CGFloat = 16
+    static let background = Color("StudioBackground")
+    static let surface = Color("StudioSurface")
+    static let raised = Color("StudioRaised")
+    static let line = Color("StudioLine")
+    static let primary = Color("StudioPrimary")
+    static let secondary = Color("StudioSecondary")
+    static let accent = Color("StudioAccent")
+    static let onAccent = Color("StudioOnAccent")
+    static let warning = Color("StudioWarning")
+    static let success = Color("StudioSuccess")
+    static let gold = Color("StudioGold")
+    static let silver = Color("StudioSilver")
+    static let bronze = Color("StudioBronze")
+    enum Radius {
+        static let sm: CGFloat = 12
+        static let md: CGFloat = 16
+        static let lg: CGFloat = 22
+    }
     static let spring = Animation.spring(response: 0.38, dampingFraction: 0.88)
 }
 
@@ -19,8 +28,8 @@ struct StudioCard<Content: View>: View {
         content
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Studio.surface, in: RoundedRectangle(cornerRadius: Studio.radius))
-            .overlay(RoundedRectangle(cornerRadius: Studio.radius).strokeBorder(Studio.line))
+            .background(Studio.surface, in: RoundedRectangle(cornerRadius: Studio.Radius.md))
+            .overlay(RoundedRectangle(cornerRadius: Studio.Radius.md).strokeBorder(Studio.line))
     }
 }
 
@@ -37,13 +46,9 @@ struct PrimaryButton: View {
                 Spacer()
                 Image(systemName: symbol).font(.system(size: 17, weight: .semibold))
             }
-            .foregroundStyle(disabled ? Studio.secondary : .white)
-            .padding(.horizontal, 22)
-            .frame(minHeight: 52)
-            .background(disabled ? Studio.raised : Studio.accent, in: RoundedRectangle(cornerRadius: 16))
         }
         .disabled(disabled)
-        .buttonStyle(StudioPressStyle())
+        .buttonStyle(StudioButtonStyle(.primary))
         .accessibilityAddTraits(.isButton)
     }
 }
@@ -80,18 +85,39 @@ struct Artwork: View {
             }
         }
         .frame(width: size, height: size)
-        .clipShape(RoundedRectangle(cornerRadius: size * 0.18))
+        .clipShape(RoundedRectangle(cornerRadius: Studio.Radius.md))
         .accessibilityHidden(true)
     }
 }
 
 /// Shared, interruptible feedback; accessibility settings disable spatial motion.
-struct StudioPressStyle: ButtonStyle {
+struct StudioButtonStyle: ButtonStyle {
+    enum Role { case primary, secondary, tertiary }
+    let role: Role
+    @Environment(\.isEnabled) private var isEnabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    init(_ role: Role) { self.role = role }
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
+            .font(.system(role == .primary ? .headline : .subheadline, design: .rounded, weight: .semibold))
+            .foregroundStyle(isEnabled ? (role == .primary ? Studio.onAccent : Studio.accent) : Studio.secondary)
+            .padding(.horizontal, role == .primary ? 22 : role == .secondary ? 15 : 0)
+            .frame(minHeight: role == .primary ? 52 : 44)
+            .background {
+                if role != .tertiary {
+                    RoundedRectangle(cornerRadius: Studio.Radius.md)
+                        .fill(!isEnabled ? Studio.raised : role == .primary ? Studio.accent : Studio.surface)
+                }
+            }
+            .overlay {
+                if role == .secondary {
+                    RoundedRectangle(cornerRadius: Studio.Radius.md).strokeBorder(Studio.line)
+                }
+            }
+            .contentShape(Rectangle())
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.98 : 1)
-            .opacity(configuration.isPressed ? 0.8 : 1)
+            .opacity(!isEnabled ? 0.65 : configuration.isPressed ? 0.8 : 1)
             .animation(reduceMotion ? nil : .spring(response: 0.25, dampingFraction: 0.82), value: configuration.isPressed)
     }
 }
@@ -103,5 +129,29 @@ struct AppleMusicIcon: View {
             .resizable().scaledToFit()
             .frame(width: size, height: size)
             .accessibilityHidden(true)
+    }
+}
+
+struct RoomCodeBoxes: View {
+    let code: String
+    var activeIndex: Int? = nil
+    var hasError = false
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(0..<RoomCode.length, id: \.self) { index in
+                let characters = Array(code)
+                let active = index == activeIndex
+                Text(index < characters.count ? String(characters[index]) : "")
+                    .font(.system(.title, design: .monospaced, weight: .bold))
+                    .lineLimit(1).minimumScaleFactor(0.5)
+                    .foregroundStyle(Studio.primary)
+                    .frame(maxWidth: .infinity).frame(height: 64)
+                    .background(index < characters.count ? Studio.raised : Studio.surface,
+                                in: RoundedRectangle(cornerRadius: Studio.Radius.sm))
+                    .overlay(RoundedRectangle(cornerRadius: Studio.Radius.sm)
+                        .strokeBorder(hasError ? Studio.warning : active ? Studio.accent : Studio.line,
+                                      lineWidth: active || hasError ? 2 : 1))
+            }
+        }
     }
 }

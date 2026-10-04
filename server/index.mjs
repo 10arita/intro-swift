@@ -62,7 +62,7 @@ const streams = new Map();
 const sockets = new Map();
 const roomTimers = new Map();
 const socketServer = new WebSocketServer({ noServer: true, perMessageDeflate: false, maxPayload: 8_192, clientTracking: false });
-const socketActions = new Set(['assets-ready', 'assets-unready', 'ready', 'start', 'push', 'choose', 'skip', 'next', 'rematch', 'transfer', 'handicaps', 'friend-request', 'invite']);
+const socketActions = new Set(['assets-ready', 'assets-unready', 'ready', 'start', 'push', 'choose', 'skip', 'next', 'rematch', 'transfer', 'handicaps', 'lobby-config', 'friend-request', 'invite']);
 const forbidden = new Set([...'っゃゅょぁぃぅぇぉゎッャュョァィゥェォヮー']);
 const pools = [
   [...'あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをん'],
@@ -132,6 +132,13 @@ function settings(input = {}) {
     firstWrongPenalty: clamp(input.firstWrongPenalty, 0, 50, 10), lives: clamp(input.lives, 0, 10, 3),
     endless: Boolean(input.endless), handicaps: {}
   };
+}
+function playlistSummary(value) {
+  if (value == null) return null;
+  if (typeof value !== 'object' || Array.isArray(value) || typeof value.name !== 'string' ||
+      !value.name.trim() || value.name.length > 120 || !Number.isInteger(value.songCount) ||
+      value.songCount < 0 || value.songCount > 100000) return undefined;
+  return { name: value.name.trim(), songCount: value.songCount };
 }
 function catalogSongs(origin) {
   return catalog.filter(song => typeof song.title === 'string' && normalize(song.title)
@@ -406,6 +413,12 @@ function snapshot(room, playerId) {
     id: room.id, mode: room.mode, hostId: room.hostId, phase: room.phase, round: room.round,
     gameNumber: room.gameNumber || 0,
     supportsChoiceRetry: true,
+    supportsLobbyConfiguration: true,
+    playlist: room.playlist || null,
+    // Reveal only completed questions; upcoming titles must stay private.
+    roundSongs: room.songs.slice(0, Math.max(0, room.round + (disclosed ? 1 : 0)))
+      .map(({ id, title, artist, artworkURL, trackURL, durationMS, genre }) =>
+        ({ id, title, artist, artworkURL, trackURL, durationMS, genre })),
     sequence: room.snapshotSequence,
     totalRounds: room.songs.length,
     settings: room.settings, players: room.players.map(p => publicPlayer(p, room, room.players.find(item => item.id === playerId))),
@@ -552,7 +565,7 @@ export function handle(method, path, body, query, authorization, origin = 'https
     if (!deferred && !songs.length) return fail(400, '再生できる曲がありません');
     if (!/^[A-Za-z0-9-]{1,64}$/.test(String(body.playerId || '')) || !String(body.name || '').trim()) return fail(400, 'プレイヤー情報が必要です');
     let id; do { id = Array.from({length: 6}, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ'[randomInt(24)]).join(''); } while (rooms.has(id));
-    const s = settings(deferred ? {} : body.settings);
+    const s = settings(body.settings);
     if (!deferred && songs.length < s.questionCount) return fail(400, `問題数分の曲がありません（利用可能: ${songs.length}曲）`);
     const room = { id, mode, settings: s, songs: deferred ? [] : shuffled(songs).slice(0, s.questionCount), playedSongIDs: [], corpus: [...new Set([...songs.map(song => song.title), ...seedTitles, ...(Array.isArray(body.corpus) ? body.corpus.filter(s => typeof s === 'string').slice(0, 500) : [])])], phase: 'lobby', round: -1, gameNumber: 0,
       hostId: String(body.playerId), players: [{ id: String(body.playerId), secret: randomUUID(), profileId: profileIdentity(body), name: String(body.name).trim().slice(0, 24),
@@ -570,7 +583,7 @@ export function handle(method, path, body, query, authorization, origin = 'https
     }
     return { status: 201, body: { ...snapshot(room, String(body.playerId)), sessionToken: room.players[0].secret } };
   }
-  const match = path.match(/^\/rooms\/([A-Z]{6})(?:\/(join|heartbeat|assets-ready|assets-unready|ready|start|push|choose|skip|next|rematch|leave|transfer|handicaps|bind-profile|friend-request|invite))?$/);
+  const match = path.match(/^\/rooms\/([A-Z]{6})(?:\/(join|heartbeat|assets-ready|assets-unready|ready|start|push|choose|skip|next|rematch|leave|transfer|handicaps|lobby-config|bind-profile|friend-request|invite))?$/);
   if (!match) return fail(404, '見つかりません');
   const room = rooms.get(match[1]); if (!room) return fail(404, 'ルームが見つかりません');
   refresh(room);
@@ -622,6 +635,8 @@ export function handle(method, path, body, query, authorization, origin = 'https
     target.invites = target.invites.slice(-50);
   } else if (action === 'start') {
     if (room.hostId !== playerId || room.phase !== 'lobby') return fail(403, 'ホストのみ開始できます');
+    const playlist = playlistSummary(body.playlist);
+    if (playlist === undefined) return fail(400, 'プレイリスト情報が無効です');
     if (room.songs.length > 0 && room.players.some(p => !room.assetsReadyIds?.has(p.id))) {
       return fail(409, '全員の画像と音源の準備が終わるまでお待ちください');
     }
@@ -640,6 +655,7 @@ export function handle(method, path, body, query, authorization, origin = 'https
       room.corpus = [...new Set([...candidates.map(song => song.title), ...seedTitles,
         ...(Array.isArray(body.corpus) ? body.corpus.filter(value => typeof value === 'string').slice(0, 500) : [])])];
     }
+    if (Object.hasOwn(body, 'playlist')) room.playlist = playlist;
     beginRound(room);
   } else if (action === 'assets-ready') {
     if (room.phase !== 'lobby') return fail(409, '開始前ではありません');
@@ -655,6 +671,16 @@ export function handle(method, path, body, query, authorization, origin = 'https
     const target = room.players.find(p => p.id === body.targetId);
     if (room.phase !== 'lobby' || room.hostId !== playerId || !target) return fail(403, 'ホスト変更は待機中のホストのみ行えます');
     room.hostId = target.id;
+    // An unprepared playlist belongs to the previous host's music library.
+    if (!room.songs.length) room.playlist = null;
+  } else if (action === 'lobby-config') {
+    if (room.phase !== 'lobby' || room.hostId !== playerId) return fail(403, '待機中のホストのみ設定を変更できます');
+    if (room.songs.length) return fail(409, '準備済みのゲーム設定は変更できません');
+    if (!body.settings || typeof body.settings !== 'object' || Array.isArray(body.settings)) return fail(400, 'ルール設定が無効です');
+    const playlist = playlistSummary(body.playlist);
+    if (playlist === undefined) return fail(400, 'プレイリスト情報が無効です');
+    room.settings = { ...settings(body.settings), handicaps: room.settings.handicaps || {} };
+    room.playlist = playlist;
   } else if (action === 'handicaps') {
     if (room.phase !== 'lobby' || room.hostId !== playerId) return fail(403, '待機中のホストのみハンデを設定できます');
     const values = body.handicaps;
@@ -737,6 +763,7 @@ export function handle(method, path, body, query, authorization, origin = 'https
   } else if (action === 'rematch') {
     if (room.hostId !== playerId || room.phase !== 'finished') return fail(403, 'ホストのみ再プレイできます');
     room.songs = [];
+    room.playlist = null;
     room.corpus = seedTitles;
     room.gameNumber = (room.gameNumber || 0) + 1;
     room.phase = 'lobby'; room.round = -1;
@@ -770,7 +797,7 @@ function send(response, status, body) {
 
 function roomSignature(room) {
   return JSON.stringify({
-    phase: room.phase, round: room.round, hostId: room.hostId, handicaps: room.settings.handicaps,
+    phase: room.phase, round: room.round, hostId: room.hostId, settings: room.settings, playlist: room.playlist,
     friendship: room.players.map(({ profileId }) => [profileId,
       profiles.get(profileId)?.friends, profiles.get(profileId)?.friendRequests?.map(item => item.id)]),
     players: room.players.map(({ id, score, lives, disqualified, correctCount, wrongCount, roundResults }) =>

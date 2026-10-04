@@ -43,9 +43,15 @@ struct IntoLApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView()
-                .environmentObject(model)
-                .preferredColorScheme(.light)
+            Group {
+                #if DEBUG
+                if let preview = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--ui-preview=") }) {
+                    UIExamples(scenario: String(preview.dropFirst("--ui-preview=".count)))
+                } else { RootView().environmentObject(model) }
+                #else
+                RootView().environmentObject(model)
+                #endif
+            }
         }
     }
 }

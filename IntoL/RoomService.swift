@@ -1,6 +1,6 @@
 import Foundation
 
-struct RoomSettings: Codable {
+struct RoomSettings: Codable, Equatable {
     var questionCount = 6
     var answerSlots = 2
     var targetScore = 50
@@ -13,6 +13,11 @@ struct RoomSettings: Codable {
     var handicaps: [String: Int]? = nil
 
     func handicapSeconds(for playerID: String) -> Int { handicaps?[playerID] ?? 0 }
+}
+
+struct RoomPlaylist: Codable, Equatable {
+    let name: String
+    let songCount: Int
 }
 
 struct RoomPlayer: Decodable, Identifiable {
@@ -156,6 +161,9 @@ struct RoomState: Decodable, Identifiable {
     let current: RoomCurrent?
     let sessionToken: String?
     let supportsChoiceRetry: Bool?
+    var supportsLobbyConfiguration: Bool? = nil
+    var playlist: RoomPlaylist? = nil
+    var roundSongs: [RoomCurrent]? = nil
 
     var questionAudioClosed: Bool { !settings.endless && (pushClosed || audioStoppedAt != nil) }
 
