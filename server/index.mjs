@@ -672,8 +672,9 @@ export function handle(method, path, body, query, authorization, origin = 'https
     if (pushedAt < room.startAt + (room.settings.handicaps?.[playerId] || 0) * 1000) {
       return { status: 409, body: { error: 'ハンデ時間中は解答できません', state: snapshot(room, playerId) } };
     }
-    const pushTimeMS = Math.max(0, Math.min(30_000,
-      room.settings.endless && room.pausedPositionMS != null ? room.pausedPositionMS : pushedAt - room.startAt));
+    // Keep each player's first arrival time, including PUSHes queued while playback is paused.
+    const pushTimeMS = room.pushAttempts.find(attempt => attempt.playerId === playerId)?.pushTimeMS ??
+      Math.max(0, Math.min(30_000, pushedAt - room.startAt));
     if (!room.pushAttempts.some(attempt => attempt.playerId === playerId)) {
       room.pushAttempts.push({ playerId, pushTimeMS });
     }

@@ -610,6 +610,64 @@ test('a rejected simultaneous PUSH keeps the losing player in the room', () => {
   } finally { Date.now = realNow; }
 });
 
+for (const endless of [false, true]) {
+  test(`closely spaced PUSHes keep their own arrival times in ${endless ? 'endless' : 'normal'} mode`, () => {
+    const realNow = Date.now;
+    let now = realNow();
+    Date.now = () => now;
+    try {
+      const { action, state } = startedThreePlayerRoom(endless);
+      now += 6000;
+      assert.equal(action('push', 'relayA').status, 200);
+      now += 1;
+      assert.equal(action('push', 'relayB').status, endless ? 409 : 200);
+      now += 9;
+      assert.equal(action('push', 'relayC').status, 409);
+      const recorded = state('relayA');
+      assert.deepEqual(recorded.pushOrderIds, ['relayA', 'relayB', 'relayC']);
+      assert.deepEqual(recorded.players.map(player => player.pushTimeMS), [1000, 1001, 1010]);
+      now += 50;
+      assert.equal(action('push', 'relayB').status, 409);
+      assert.equal(state('relayB').players.find(player => player.id === 'relayB').pushTimeMS, 1001);
+      action('choose', 'relayA', { choice: 'X' });
+      assert.equal(state('relayB').answerStatus, 'active');
+      assert.equal(state('relayB').players.find(player => player.id === 'relayB').pushTimeMS, 1001);
+      action('choose', 'relayB', { choice: 'X' });
+      if (endless) {
+        assert.equal(state('relayC').answerStatus, 'active');
+        assert.equal(state('relayC').players.find(player => player.id === 'relayC').pushTimeMS, 1010);
+        action('choose', 'relayC', { choice: 'X' });
+      }
+      const revealed = state('relayA');
+      assert.equal(revealed.phase, 'reveal');
+      assert.deepEqual(revealed.players.map(player => player.pushTimeMS), [1000, 1001, 1010]);
+    } finally { Date.now = realNow; }
+  });
+}
+
+test('a queued player keeps their first PUSH time when pressing again after playback resumes', () => {
+  const realNow = Date.now;
+  let now = realNow();
+  Date.now = () => now;
+  try {
+    const { action, state } = startedThreePlayerRoom(true);
+    now += 6000;
+    action('push', 'relayA');
+    now += 1;
+    assert.equal(action('push', 'relayB').status, 409);
+    action('skip', 'relayB');
+    now += 199;
+    assert.equal(action('choose', 'relayA', { choice: 'X' }).body.phase, 'listening');
+    now += 50;
+    assert.equal(action('push', 'relayB').status, 200);
+    const answering = state('relayB');
+    assert.equal(answering.answerStatus, 'active');
+    assert.equal(answering.players.find(player => player.id === 'relayB').pushTimeMS, 1001);
+    assert.equal(answering.pausedPositionMS, 1050);
+    assert.deepEqual(answering.pushOrderIds, ['relayA', 'relayB']);
+  } finally { Date.now = realNow; }
+});
+
 test('PUSH order follows first press and leaves unpressed players in join order', () => {
   const realNow = Date.now;
   let now = realNow();
@@ -955,7 +1013,7 @@ test('endless mode passes queued PUSHes in order before resuming the round clock
     assert.equal(first.pausedPositionMS, 1000);
     now += 200;
     assert.equal(action('push', 'relayB').status, 409);
-    assert.equal(state('relayB').players.find(p => p.id === 'relayB').pushTimeMS, 1000);
+    assert.equal(state('relayB').players.find(p => p.id === 'relayB').pushTimeMS, 1200);
     action('choose', 'relayA', { choice: '花' });
     assert.equal(state('relayC').activeAnswers[0].progress, '花');
     now += 4000;
@@ -964,6 +1022,7 @@ test('endless mode passes queued PUSHes in order before resuming the round clock
     assert.equal(passed.phase, 'answering');
     assert.equal(passed.answerStatus, 'active');
     assert.equal(passed.pausedPositionMS, 1000);
+    assert.equal(passed.players.find(p => p.id === 'relayB').pushTimeMS, 1200);
     assert.equal(passed.startAt, first.startAt);
     assert.deepEqual(passed.pushedIds, ['relayA', 'relayB']);
     now += 5000;
@@ -972,6 +1031,7 @@ test('endless mode passes queued PUSHes in order before resuming the round clock
     assert.equal(resumed.pausedAt, null);
     assert.equal(resumed.startAt, first.startAt + 9200);
     assert.equal(resumed.roundDeadline, first.roundDeadline + 9200);
+    assert.equal(resumed.players.find(p => p.id === 'relayB').pushTimeMS, 1200);
     assert.equal(action('push', 'relayB').status, 409);
     assert.equal(action('push', 'relayC').status, 200);
     action('choose', 'relayC', { choice: 'X' });
