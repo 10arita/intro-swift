@@ -32,30 +32,27 @@ struct ChoiceGrid: View {
       columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12
     ) {
       ForEach(Array(displayedChoices.enumerated()), id: \.offset) { _, choice in
-        let selected = feedback?.choice == choice
-        let color = feedback?.correct == true ? Studio.success : Studio.warning
+        let incorrect = feedback?.choice == choice && feedback?.correct == false
+        let color = Studio.warning
         Button {
           action(choice)
         } label: {
           Text(choice)
             .font(.system(.largeTitle, design: .rounded, weight: .bold))
-            .foregroundStyle(selected ? color : Studio.primary)
+            .foregroundStyle(incorrect ? color : Studio.primary)
             .frame(maxWidth: .infinity, minHeight: compact ? 68 : 94)
             .padding(.vertical, 4)
             .background(
-              selected ? color.opacity(0.14) : Studio.surface,
+              incorrect ? color.opacity(0.14) : Studio.surface,
               in: RoundedRectangle(cornerRadius: Studio.Radius.lg)
             )
             .overlay(
               RoundedRectangle(cornerRadius: Studio.Radius.lg)
-                .strokeBorder(selected ? color : Studio.line, lineWidth: selected ? 2 : 1)
+                .strokeBorder(incorrect ? color : Studio.line, lineWidth: incorrect ? 2 : 1)
             )
             .overlay(alignment: .topTrailing) {
-              if selected {
-                Image(
-                  systemName: feedback?.correct == true
-                    ? "checkmark.circle.fill" : "xmark.circle.fill"
-                )
+              if incorrect {
+                Image(systemName: "xmark.circle.fill")
                 .font(.subheadline).foregroundStyle(color).padding(8).accessibilityHidden(true)
               }
             }
@@ -74,10 +71,9 @@ struct ChoiceFeedbackPresentation: ViewModifier {
   func body(content: Content) -> some View {
     content
       .overlay {
-        if let feedback {
-          let color = feedback.correct ? Studio.success : Studio.warning
+        if let feedback, !feedback.correct {
           RoundedRectangle(cornerRadius: Studio.Radius.lg).strokeBorder(
-            color.opacity(0.65), lineWidth: 4
+            Studio.warning.opacity(0.65), lineWidth: 4
           )
           .padding(6).allowsHitTesting(false).accessibilityHidden(true)
         }
