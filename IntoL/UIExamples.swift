@@ -67,8 +67,12 @@
         player["correctCount"] = 2
         player["wrongCount"] = 1
         player["roundResults"] = ["correct", "correct", "wrong"]
-        player["currentResult"] = index < 2 ? "correct" : "wrong"
-        player["pushTimeMS"] = 1234
+        if phase != "lobby" && !(phase == "answering" && (index == 0 || index == 3)) {
+          player["currentResult"] = index < 2 ? "correct" : "wrong"
+        }
+        if phase != "lobby" && !(phase == "answering" && index == 3) {
+          player["pushTimeMS"] = [1234, 1567, 2345, 3456][index]
+        }
         player["isHost"] = index == (guest ? 1 : 0)
         players.append(player)
       }
@@ -89,7 +93,7 @@
         "players": players, "serverNow": Date.now.timeIntervalSince1970 * 1000, "pushClosed": true,
         "answerProgress": "青", "options": ["い", "の", "き", "と"],
         "activeAnswers": phase == "answering" ? [["playerId": localID, "progress": "青"]] : [],
-        "pushedIds": phase == "lobby" ? [] : [localID],
+        "pushedIds": phase == "lobby" ? [] : Array(ids.prefix(phase == "answering" ? 3 : 4)),
         "skippedIds": phase == "lobby" ? [] : [ids[3]],
         "readyIds": [], "correctPlayerIDs": phase == "reveal" ? [localID, ids[1]] : [],
         "supportsLobbyConfiguration": false,
@@ -112,6 +116,7 @@
   #Preview("プレイリスト未選択") { UIExamples(scenario: "lobby-empty") }
   #Preview("参加者・ダーク") { UIExamples(scenario: "lobby-guest-dark") }
   #Preview("対戦中") { UIExamples(scenario: "answer") }
+  #Preview("対戦中・ダーク") { UIExamples(scenario: "answer-dark") }
   #Preview("大きな文字") { UIExamples(scenario: "answer-large-text") }
   #Preview("結果") { UIExamples(scenario: "result-dark") }
 #endif

@@ -147,12 +147,56 @@ import Foundation
         precondition(!RoomService.isExpiredSession(URLError(.networkConnectionLost)))
     }
 
+    static func lateJoinPlayback() throws {
+        let rules = try JSONSerialization.jsonObject(with: JSONEncoder().encode(RoomSettings()))
+        let base: [String: Any] = [
+            "id": "ABCDEF", "mode": "shared", "hostId": "host", "phase": "listening", "round": 1,
+            "totalRounds": 6, "settings": rules, "players": [], "serverNow": 15_000,
+            "startAt": 10_000, "roundDeadline": 40_000, "pushClosed": false,
+            "answerProgress": "", "options": [], "activeAnswers": [], "pushedIds": [],
+            "skippedIds": [], "readyIds": [], "correctPlayerIDs": [],
+            "current": ["id": "song", "previewURL": "https://example.test/song.wav"]
+        ]
+        func room(_ changes: [String: Any] = [:]) throws -> RoomState {
+            try JSONDecoder().decode(RoomState.self, from: JSONSerialization.data(
+                withJSONObject: base.merging(changes) { _, new in new }))
+        }
+        let listening = try room()
+        precondition(listening.questionPlaybackOffsetMS(for: "guest", nowMS: 15_000) == 5_000)
+        precondition(listening.questionPlaybackOffsetMS(for: "guest", nowMS: 18_000) == 8_000,
+                     "Loading for three seconds must seek to the current position, not the join position")
+        precondition(listening.questionPlaybackOffsetMS(for: "guest", nowMS: 40_000) == nil,
+                     "Do not start question audio if loading outlasts the question")
+        let countdown = try room(["phase": "countdown"])
+        precondition(countdown.questionPlaybackOffsetMS(for: "guest", nowMS: 9_000) == 0)
+        let paused = try room(["phase": "answering", "pausedAt": 15_000])
+        precondition(paused.questionPlaybackOffsetMS(for: "guest", nowMS: 18_000) == nil)
+        let resumed = try room(["startAt": 13_000, "roundDeadline": 43_000])
+        precondition(resumed.questionPlaybackOffsetMS(for: "guest", nowMS: 18_000) == 5_000,
+                     "A relay pause during loading must be reflected in the resumed position")
+        let answering = try room(["phase": "answering", "activeAnswers": [["playerId": "host", "progress": "青"]]])
+        precondition(answering.questionPlaybackOffsetMS(for: "guest", nowMS: 18_000) == 8_000)
+        precondition(answering.questionPlaybackOffsetMS(for: "host", nowMS: 18_000) == nil)
+        let closed = try room(["pushClosed": true])
+        precondition(closed.questionPlaybackOffsetMS(for: "guest", nowMS: 18_000) == nil)
+        let missingStart = try room(["startAt": NSNull()])
+        precondition(missingStart.questionPlaybackOffsetMS(for: "guest", nowMS: 18_000) == nil)
+        for phase in ["lobby", "preparing", "countdown", "listening", "answering", "reveal", "finished"] {
+            let state = try room(["phase": phase])
+            precondition(state.acceptsNewPlayers == (phase != "finished"))
+            if ["lobby", "preparing", "reveal", "finished"].contains(phase) {
+                precondition(state.questionPlaybackOffsetMS(for: "guest", nowMS: 18_000) == nil)
+            }
+        }
+    }
+
     @MainActor static func main() async throws {
         try statisticsSurviveRestart()
         try ledgerMergesWithoutLosingDeduplication()
         try demoReviewsUseCurrentBundle()
         await preparationCancellation()
         sessionGuards()
-        print("Game recovery tests passed (statistics restart, accepted PUSH time, cloud merge, portable demos, cancellation, session guards)")
+        try lateJoinPlayback()
+        print("Game recovery tests passed (statistics restart, accepted PUSH time, cloud merge, portable demos, cancellation, session guards, late-join playback)")
     }
 }

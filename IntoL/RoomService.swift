@@ -166,6 +166,18 @@ struct RoomState: Decodable, Identifiable {
     var roundSongs: [RoomCurrent]? = nil
 
     var questionAudioClosed: Bool { !settings.endless && (pushClosed || audioStoppedAt != nil) }
+    var acceptsNewPlayers: Bool {
+        ["lobby", "preparing", "countdown", "listening", "answering", "reveal"].contains(phase)
+    }
+
+    /// Read immediately before playback, after any loading, using the latest room clock.
+    func questionPlaybackOffsetMS(for id: String, nowMS: Double) -> Int? {
+        guard ["countdown", "listening", "answering"].contains(phase),
+              pausedAt == nil, !questionAudioClosed, !isAnswering(id),
+              current != nil, let startAt, nowMS.isFinite, startAt.isFinite,
+              nowMS < (roundDeadline ?? startAt + 30_000) else { return nil }
+        return Int(min(30_000, max(0, nowMS - startAt)))
+    }
 
     func player(_ id: String) -> RoomPlayer? { players.first { $0.id == id } }
     func isAnswering(_ id: String) -> Bool { activeAnswers.contains { $0.playerId == id } }

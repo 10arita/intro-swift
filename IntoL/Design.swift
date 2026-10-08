@@ -10,6 +10,8 @@ enum Studio {
     static let onAccent = Color("StudioOnAccent")
     static let warning = Color("StudioWarning")
     static let success = Color("StudioSuccess")
+    static let correctBadge = Color("StudioCorrectBadge")
+    static let wrongBadge = Color("StudioWrongBadge")
     static let gold = Color("StudioGold")
     static let silver = Color("StudioSilver")
     static let bronze = Color("StudioBronze")

@@ -131,3 +131,62 @@ test('WebSocket actions and state broadcasts share one authenticated connection'
     await new Promise(resolve => server.close(resolve));
   }
 });
+
+test('a player joining during countdown receives the running room and broadcasts to existing sockets', async () => {
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const sockets = [];
+  const post = async (path, body, token) => {
+    const response = await fetch(`${base}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify(body)
+    });
+    assert.ok(response.ok, `${path}: ${response.status}`);
+    return response.json();
+  };
+  try {
+    const room = await post('/rooms', { playerId: 'late-socket-host', name: 'Host',
+      settings: { questionCount: 1, targetScore: 0 } });
+    const path = `/rooms/${room.id}`;
+    const connect = async (playerId, token) => {
+      const socket = new WebSocket(`${base.replace('http:', 'ws:')}${path}/socket?playerId=${playerId}`,
+        { headers: { Authorization: `Bearer ${token}` } });
+      sockets.push(socket);
+      const next = feed(socket);
+      await once(socket, 'open');
+      return { socket, next, state: (await next(message => message.type === 'state')).state };
+    };
+    const host = await connect('late-socket-host', room.sessionToken);
+    const action = (name, client = host) => {
+      const id = randomUUID();
+      client.socket.send(JSON.stringify({ type: 'action', id, action: name, payload: {} }));
+      return client.next(message => message.id === id);
+    };
+    await action('assets-ready');
+    await action('start');
+    const countdown = await action('ready');
+    assert.equal(countdown.state.phase, 'countdown');
+    const guest = await post(`${path}/join`, { playerId: 'late-socket-guest', name: 'Guest' });
+    assert.equal(guest.phase, 'countdown');
+    assert.equal(guest.startAt, countdown.state.startAt);
+    const update = await host.next(message => message.type === 'state' && message.state.players.length === 2);
+    assert.ok(update.state.players.some(player => player.id === 'late-socket-guest'));
+    const visitor = await connect('late-socket-guest', guest.sessionToken);
+    assert.equal(visitor.state.startAt, countdown.state.startAt);
+    assert.equal(visitor.state.current.title, undefined);
+    const listening = await visitor.next(message => message.type === 'state' &&
+      message.state.phase === 'listening', 6_000);
+    assert.equal(listening.state.startAt, countdown.state.startAt);
+    const push = await action('push', visitor);
+    assert.equal(push.type, 'result');
+    assert.ok(push.state.activeAnswers.some(answer => answer.playerId === 'late-socket-guest'));
+    const observed = await host.next(message => message.type === 'state' &&
+      message.state.pushedIds.includes('late-socket-guest'));
+    assert.equal(observed.state.players.length, 2);
+  } finally {
+    for (const socket of sockets) socket.terminate();
+    await new Promise(resolve => server.close(resolve));
+  }
+});

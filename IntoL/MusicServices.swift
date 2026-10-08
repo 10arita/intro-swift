@@ -282,7 +282,7 @@ private struct AppleMusicLibrarySongResponse: Decodable {
         }
     }
 
-    func play(_ song: Song, offsetMS: Int = 0) async throws {
+    func play(_ song: Song, offsetMS: Int = 0, offsetProvider: (() throws -> Int)? = nil) async throws {
         let initialRequest = playRequest
         let item = try await playableSong(for: song.id)
         guard initialRequest == playRequest, !Task.isCancelled else { throw CancellationError() }
@@ -297,7 +297,7 @@ private struct AppleMusicLibrarySongResponse: Decodable {
             queuedSongID = song.id
         }
         guard request == playRequest, !Task.isCancelled else { return }
-        player.playbackTime = TimeInterval(max(0, offsetMS)) / 1000
+        player.playbackTime = TimeInterval(max(0, try offsetProvider?() ?? offsetMS)) / 1000
         try await player.play()
         if request == playRequest && Task.isCancelled { player.stop() }
         for _ in 0..<40 {

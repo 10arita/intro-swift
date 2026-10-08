@@ -199,6 +199,9 @@ function authorizedProfile(body, authorization) {
 function profileIdentity(body) {
   return profileFrom(body.profileId, body.profileToken)?.id || null;
 }
+function acceptsNewPlayers(room) {
+  return room && ['lobby', 'preparing', 'countdown', 'listening', 'answering', 'reveal'].includes(room.phase);
+}
 function publicFriends(profile) {
   return {
     friends: (profile.friends || []).map(id => profiles.get(id)).filter(Boolean)
@@ -206,12 +209,12 @@ function publicFriends(profile) {
     requests: (profile.friendRequests || []).filter(item => profiles.has(item.fromId)),
     invites: (profile.invites || []).filter(item => {
       const room = rooms.get(item.roomId);
-      return room?.phase === 'lobby' && room.players.some(player => player.profileId === item.fromId);
+      return acceptsNewPlayers(room) && room.players.some(player => player.profileId === item.fromId);
     }).map(item => ({ ...item, mode: rooms.get(item.roomId).mode })),
     sentInvites: (profile.friends || []).flatMap(targetId =>
       (profiles.get(targetId)?.invites || []).filter(item => {
         const room = rooms.get(item.roomId);
-        return item.fromId === profile.id && room?.phase === 'lobby' &&
+        return item.fromId === profile.id && acceptsNewPlayers(room) &&
           room.players.some(player => player.profileId === profile.id);
       }).map(item => ({ roomId: item.roomId, targetId })))
   };
@@ -539,7 +542,8 @@ export function handle(method, path, body, query, authorization, origin = 'https
     if (!profile) return fail(403, 'プロフィールを確認できません');
     const invite = (profile.invites || []).find(item => item.id === body.inviteId);
     const room = invite && rooms.get(invite.roomId);
-    if (!room || room.phase !== 'lobby' || !room.players.some(player => player.profileId === invite.fromId))
+    if (room) refresh(room);
+    if (!acceptsNewPlayers(room) || !room.players.some(player => player.profileId === invite.fromId))
       return fail(409, '招待されたルームには参加できません');
     if (room.players.length >= 4) return fail(409, '満員です');
     const id = String(body.playerId || '');
@@ -593,7 +597,7 @@ export function handle(method, path, body, query, authorization, origin = 'https
   let newlyJoined = false;
   if (action === 'join' && method === 'POST') {
     if (!player) {
-      if (room.phase !== 'lobby') return fail(409, '開始後は参加できません');
+      if (!acceptsNewPlayers(room)) return fail(409, 'このゲームは終了しました。次のゲームの待機室で参加してください');
       if (room.players.length >= 4) return fail(409, '満員です');
       if (!/^[A-Za-z0-9-]{1,64}$/.test(playerId)) return fail(400, 'プレイヤー情報が無効です');
       player = addPlayer(room, body, profileIdentity(body));
@@ -625,7 +629,7 @@ export function handle(method, path, body, query, authorization, origin = 'https
     const sender = profiles.get(player.profileId);
     const target = profiles.get(String(body.targetProfileId || ''));
     if (!sender || !target || !(sender.friends || []).includes(target.id)) return fail(403, 'フレンドのみ招待できます');
-    if (room.phase !== 'lobby') return fail(409, 'ルーム作成後、開始前に招待できます');
+    if (!acceptsNewPlayers(room)) return fail(409, 'このゲームは終了しました。次のゲームの待機室で招待してください');
     if (room.players.length >= 4) return fail(409, '満員です');
     if (room.players.some(item => item.profileId === target.id)) return fail(409, '既に同じルームにいます');
     target.invites ||= [];

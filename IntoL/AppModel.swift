@@ -74,6 +74,7 @@ struct SoloGame {
     @Published var friendsLoading = false
     @Published private(set) var locallyInvitedFriendIDs: Set<String> = []
     @Published var roomPushPending = false
+    @Published private(set) var roomPendingPushTimeMS: Double?
     @Published var roomChoicePending = false
     @Published var roomRematchPending = false
     @Published var roomPreparationStatus: String?
@@ -453,24 +454,26 @@ struct SoloGame {
         }
     }
 
-    private func startPreparedRoundAudio(_ song: Song, offsetMS: Int = 0) async throws {
+    private func startPreparedRoundAudio(_ song: Song, offsetMS: Int = 0,
+                                         offsetProvider: (() throws -> Int)? = nil) async throws {
         if song.id.hasPrefix("applemusic:") {
             await appleMusicPauseTask?.value
             try Task.checkCancellation()
             appleMusicPlaying = true
-            try await playAppleMusicWithRetry(song, offsetMS: offsetMS)
+            try await playAppleMusicWithRetry(song, offsetMS: offsetMS, offsetProvider: offsetProvider)
         } else if let url = song.previewURL {
-            try player.startPrepared(url, offset: Double(offsetMS) / 1000)
+            try player.startPrepared(url, offset: Double(try offsetProvider?() ?? offsetMS) / 1000)
         }
     }
 
-    private func playAppleMusicWithRetry(_ song: Song, offsetMS: Int) async throws {
-        do { try await appleMusic.play(song, offsetMS: offsetMS) }
+    private func playAppleMusicWithRetry(_ song: Song, offsetMS: Int,
+                                         offsetProvider: (() throws -> Int)? = nil) async throws {
+        do { try await appleMusic.play(song, offsetMS: offsetMS, offsetProvider: offsetProvider) }
         catch {
             guard RoomService.isConnectionError(error), !Task.isCancelled else { throw error }
             try await Task.sleep(for: .milliseconds(300))
             try Task.checkCancellation()
-            try await appleMusic.play(song, offsetMS: offsetMS)
+            try await appleMusic.play(song, offsetMS: offsetMS, offsetProvider: offsetProvider)
         }
     }
 
@@ -1166,7 +1169,8 @@ struct SoloGame {
     }
 
     func inviteFriend(_ profileID: String) async {
-        guard let id = roomID, room?.phase == "lobby", !friendsLoading,
+        guard let id = roomID, room?.acceptsNewPlayers == true,
+              (room?.players.count ?? 4) < 4, !friendsLoading,
               !hasInvitedFriend(profileID) else { return }
         friendsLoading = true; defer { friendsLoading = false }
         do {
@@ -1255,6 +1259,7 @@ struct SoloGame {
         roomNoticeTask?.cancel(); roomNoticeTask = nil
         roomNotice = nil
         roomPushPending = false
+        roomPendingPushTimeMS = nil
         roomChoicePending = false
         preloadedRoomID = nil
         roomPreloadTask?.cancel()
@@ -1314,6 +1319,7 @@ struct SoloGame {
                 if streamSupported { retrySeconds = min(retrySeconds * 2, 8) }
             }
         }
+        receiveRoom(state)
     }
 
     private func receiveNetworkRoom(_ state: RoomState) {
@@ -1329,6 +1335,9 @@ struct SoloGame {
 
     private func receiveRoom(_ state: RoomState) {
         let old = room
+        if old?.id != state.id || old?.gameNumber != state.gameNumber || old?.round != state.round {
+            roomPendingPushTimeMS = nil
+        }
         if let old, old.id == state.id, old.gameNumber == state.gameNumber, old.round == state.round,
            let pending = pendingRoomChoice {
             let result = state.player(rooms.playerId)?.currentResult
@@ -1547,18 +1556,24 @@ struct SoloGame {
               let current = playbackState.current else { return }
         roomAudioStarting = true
         defer { if roomAudioRevision == revision { roomAudioStarting = false } }
+        func playbackOffset() throws -> Int {
+            try Task.checkCancellation()
+            guard matchesRoomRound(state), roomAudioRevision == revision,
+                  let offset = room?.questionPlaybackOffsetMS(for: rooms.playerId, nowMS: rooms.serverNowMS) else {
+                throw CancellationError()
+            }
+            return offset
+        }
         do {
-            let elapsed = max(0, rooms.serverNowMS - (playbackState.startAt ?? rooms.serverNowMS))
             if playbackState.mode == "applemusic" {
                 try await startPreparedRoundAudio(Song(id: current.id, title: "", artist: "", artworkURL: nil,
-                    previewURL: nil, trackURL: nil, durationMS: 180_000, genre: "その他"), offsetMS: Int(elapsed))
+                    previewURL: nil, trackURL: nil, durationMS: 180_000, genre: "その他"), offsetProvider: playbackOffset)
             } else if let preview = current.previewURL {
-                do { try player.startPrepared(preview, offset: elapsed / 1000) }
+                do { try player.startPrepared(preview, offset: Double(try playbackOffset()) / 1000) }
                 catch {
+                    if error is CancellationError { throw error }
                     try await player.prepare(preview)
-                    try Task.checkCancellation()
-                    guard matchesRoomRound(state), roomAudioRevision == revision else { return }
-                    try player.startPrepared(preview, offset: elapsed / 1000)
+                    try player.startPrepared(preview, offset: Double(try playbackOffset()) / 1000)
                 }
             } else { throw AppError.message("この曲の音源がありません") }
             guard !Task.isCancelled, matchesRoomRound(state), roomAudioRevision == revision else { return }
@@ -1567,6 +1582,7 @@ struct SoloGame {
             if room?.pausedAt != nil || room?.questionAudioClosed == true || room?.isAnswering(rooms.playerId) == true { pauseAudio() }
             if room?.phase == "reveal" || room?.phase == "finished" { stopAudio() }
         } catch {
+            if error is CancellationError { return }
             guard matchesRoomRound(state), roomAudioRevision == revision, !Task.isCancelled else { return }
             roomAudioStarted = false
             roomError = state.mode == "applemusic" && RoomService.isConnectionError(error)
@@ -1584,8 +1600,10 @@ struct SoloGame {
     }
 
     func beginRoomPush() {
-        guard let roomID, !roomPushPending,
-              room?.canPush(rooms.playerId, nowMS: rooms.serverNowMS) == true else { return }
+        let nowMS = rooms.serverNowMS
+        guard let roomID, let room, !roomPushPending,
+              room.canPush(rooms.playerId, nowMS: nowMS) else { return }
+        roomPendingPushTimeMS = max(0, min(30_000, nowMS - (room.startAt ?? nowMS)))
         roomPushPending = true
         Task { [weak self] in
             guard let self, self.roomID == roomID else { return }
@@ -1620,7 +1638,10 @@ struct SoloGame {
         let previousAnswer = roomAnswer
         let previousRound = room?.round
         defer {
-            if action == "push" { roomPushPending = false }
+            if action == "push", self.roomID == roomID {
+                roomPushPending = false
+                roomPendingPushTimeMS = nil
+            }
             if action == "choose", self.roomID == roomID {
                 roomChoicePending = false
                 pendingRoomChoice = nil
@@ -1717,6 +1738,7 @@ struct SoloGame {
         preparedRoomSongs = nil
         roomNoticeTask?.cancel(); roomNoticeTask = nil
         roomNotice = nil; roomPushPending = false
+        roomPendingPushTimeMS = nil
         roomChoicePending = false
         roomPreloadTask?.cancel(); roomPreloadTask = nil
         preloadedRoomID = nil; roomPreparationStatus = nil

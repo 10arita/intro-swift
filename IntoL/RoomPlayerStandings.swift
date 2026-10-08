@@ -18,6 +18,7 @@ struct RoomPlayerStandings: View {
   let localID: String
   let avatarData: Data?
   let pushPending: Bool
+  let pendingPushTimeMS: Double?
   let profile: (RoomPlayer) -> Void
   let friends: () -> Void
 
@@ -36,7 +37,7 @@ struct RoomPlayerStandings: View {
           pending: player.id == localID && pushPending,
           skipped: room.skippedIds.contains(player.id),
           pushRank: (room.pushOrderIds ?? room.pushedIds).firstIndex(of: player.id),
-          showPushTime: room.phase == "reveal",
+          pushTimeMS: player.pushTimeMS ?? (player.id == localID ? pendingPushTimeMS : nil),
           profile: { profile(player) }
         )
         .contextMenu { RoomPlayerActions(player: player, friends: friends) }
@@ -58,7 +59,7 @@ private struct RoomPlayerTile: View {
   let pending: Bool
   let skipped: Bool
   let pushRank: Int?
-  let showPushTime: Bool
+  let pushTimeMS: Double?
   let profile: () -> Void
   @State private var scoreDelta = 0
   @State private var deltaVisible = false
@@ -95,7 +96,16 @@ private struct RoomPlayerTile: View {
               }
             }
             .overlay(alignment: .topTrailing) {
-              if answering || pending || pushRank != nil {
+              if player.currentResult == "correct" || player.currentResult == "wrong" {
+                Image(systemName: player.currentResult == "correct" ? "circle" : "xmark")
+                  .font(.system(size: 10, weight: .bold)).foregroundStyle(.white)
+                  .frame(width: 20, height: 20)
+                  .background(
+                    player.currentResult == "correct" ? Studio.correctBadge : Studio.wrongBadge,
+                    in: Circle())
+                  .offset(x: 6, y: -4)
+                  .accessibilityHidden(true)
+              } else if answering || pending || pushRank != nil {
                 Image(systemName: answering ? "pencil" : pending ? "ellipsis" : "hand.tap.fill")
                   .font(.system(size: 9, weight: .bold)).foregroundStyle(Studio.accent)
                   .padding(4).background(Studio.raised, in: Circle()).offset(x: 6, y: -4)
@@ -138,11 +148,11 @@ private struct RoomPlayerTile: View {
       .accessibilityLabel(
         "\(player.currentResult == "correct" ? "正解" : player.currentResult == "wrong" ? "不正解" : "未判定")、ライフ\(livesUnlimited ? "無制限" : "\(player.lives)")"
       )
-      if showPushTime, let time = player.pushTimeMS {
-        Text(String(format: "%.3f秒", time / 1000)).font(.caption2.monospacedDigit())
-          .foregroundStyle(Studio.secondary).lineLimit(1).minimumScaleFactor(0.8)
-          .accessibilityLabel("PUSH時刻 \(String(format: "%.3f", time / 1000))秒")
-      }
+      Text(String(format: "%.3f秒", (pushTimeMS ?? 0) / 1000)).font(.caption2.monospacedDigit())
+        .foregroundStyle(Studio.secondary).lineLimit(1).minimumScaleFactor(0.8)
+        .opacity(pushTimeMS == nil ? 0 : 1)
+        .accessibilityLabel("PUSH時刻 \(String(format: "%.3f", (pushTimeMS ?? 0) / 1000))秒")
+        .accessibilityHidden(pushTimeMS == nil)
       if player.disqualified { Text("失格").font(.caption.bold()).foregroundStyle(Studio.warning) }
     }
     .foregroundStyle(Studio.primary)

@@ -271,14 +271,14 @@ struct FriendsView: View {
                     }
                     .buttonStyle(StudioButtonStyle(.tertiary))
                     .accessibilityLabel("\(friend.name)のプロフィールを見る")
-                    if model.room?.phase == "lobby" {
+                    if model.room?.acceptsNewPlayers == true {
                         if model.room?.players.contains(where: { $0.friendProfileId == friend.id }) == true {
                             Text("参加中").font(.caption).foregroundStyle(Studio.secondary)
                         } else {
                             let invited = model.hasInvitedFriend(friend.id)
                             Button(invited ? "招待済み" : "招待") { Task { await model.inviteFriend(friend.id) } }
                                 .buttonStyle(StudioButtonStyle(.secondary))
-                                .disabled(model.friendsLoading || invited)
+                                .disabled(model.friendsLoading || invited || (model.room?.players.count ?? 4) >= 4)
                         }
                     } else {
                         Image(systemName: "chevron.right").font(.caption).foregroundStyle(Studio.secondary)

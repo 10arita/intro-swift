@@ -124,6 +124,7 @@ struct RoomGameView: View {
                   RoomPlayerStandings(
                     room: room, localID: model.rooms.playerId,
                     avatarData: model.avatarData, pushPending: model.roomPushPending,
+                    pendingPushTimeMS: model.roomPendingPushTimeMS,
                     profile: { player in
                       selectedProfile = PlayerProfileTarget(
                         id: player.id, name: player.name, roomID: room.id)
