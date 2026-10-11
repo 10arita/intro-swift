@@ -1,6 +1,8 @@
 import Foundation
 
 @main private struct ChorusDeveloperTests {
+    private struct PlaylistItem: Identifiable { let id: String }
+
     static func annotation(id: String = "001234", catalogID: String? = "001234", start: Int = 0,
                            duration: Int = 270_000, storefront: String = "jp") -> ChorusAnnotation {
         ChorusAnnotation(musicID: id, catalogID: catalogID, libraryID: id.hasPrefix("i.") ? id : nil,
@@ -36,6 +38,48 @@ import Foundation
         let restored = ChorusDeveloperStore(directory: store.directory)
         try restored.load()
         precondition(restored.session.records == store.session.records, "Records must survive a fresh store instance")
+        let source = ChorusSourceSong(row: 2, title: "元の名前", artist: "元の歌手", album: "盤", durationSeconds: 270)
+        precondition(ChorusSubmissionProgress.isSubmitted(source, records: restored.session.records),
+                     "Submitted TXT rows must remain marked after reopening")
+        let otherSource = ChorusSourceSong(row: 2, title: "別の名前", artist: "元の歌手", album: "盤", durationSeconds: 270)
+        precondition(!ChorusSubmissionProgress.isSubmitted(otherSource, records: restored.session.records),
+                     "A different import using the same row number must not be marked submitted")
+
+        let linked = annotation(id: "i.library", start: 73_000)
+        precondition(ChorusSubmissionProgress.annotation(musicID: "001234", storefront: "jp", records: [linked]) == linked,
+                     "Catalog candidates must show submissions made using a linked library recording")
+        precondition(ChorusSubmissionProgress.annotation(musicID: "i.library", storefront: "jp", records: [linked]) == linked)
+        precondition(ChorusSubmissionProgress.annotation(musicID: "another-library-id", catalogID: "001234",
+                                                         storefront: "jp", records: [linked]) == linked)
+        precondition(ChorusSubmissionProgress.annotation(musicID: "001234", storefront: "us", records: [linked]) == nil,
+                     "Submission status must not copy timestamps between storefronts")
+        precondition(ChorusSubmissionProgress.annotation(musicID: "different-recording", storefront: "jp", records: [linked]) == nil,
+                     "Identical titles must not mark a different recording submitted")
+        let catalogRecord = ChorusAnnotation(musicID: "001234", catalogID: "001234", libraryID: "i.library", storefront: "jp",
+                                              isrc: nil, title: linked.title, artist: linked.artist, album: linked.album,
+                                              durationMS: linked.durationMS, chorusStartMS: linked.chorusStartMS,
+                                              checkedAt: linked.checkedAt, notes: "", playlist: "", sourceRow: nil,
+                                              sourceTitle: nil, sourceArtist: nil)
+        precondition(ChorusSubmissionProgress.annotation(musicID: "i.library", storefront: "jp", records: [catalogRecord]) == catalogRecord,
+                     "Retained library aliases must display submission status")
+
+        let playlist = ["pending-before", "001234", "i.library", "pending-after"].map { PlaylistItem(id: $0) }
+        func submitted(_ item: PlaylistItem) -> Bool {
+            ChorusSubmissionProgress.annotation(musicID: item.id, storefront: "jp", records: [linked]) != nil
+        }
+        precondition(ChorusSubmissionProgress.nextPending(in: playlist, after: "001234", isSubmitted: submitted)?.id == "pending-after",
+                     "Next must skip already submitted recordings, including their library aliases")
+        precondition(ChorusSubmissionProgress.nextPending(in: playlist, after: "pending-after", isSubmitted: submitted)?.id == "pending-before",
+                     "Next must wrap to unfinished earlier rows")
+        precondition(ChorusSubmissionProgress.nextPending(in: playlist, after: nil, isSubmitted: submitted)?.id == "pending-before")
+        precondition(ChorusSubmissionProgress.nextPending(in: playlist, after: "missing", isSubmitted: submitted)?.id == "pending-before")
+        precondition(ChorusSubmissionProgress.nextPending(in: playlist, after: "001234", isSubmitted: { _ in true }) == nil,
+                     "A completed playlist must finish without looping")
+        precondition(ChorusSubmissionProgress.nextPending(in: [PlaylistItem](), after: nil, isSubmitted: submitted) == nil)
+        let txtQueue = [source, ChorusSourceSong(row: 3, title: "次の曲", artist: "歌手", album: "盤", durationSeconds: 240)]
+        precondition(ChorusSubmissionProgress.nextPending(in: txtQueue, after: source.id,
+                      isSubmitted: { ChorusSubmissionProgress.isSubmitted($0, records: restored.session.records) })?.row == 3,
+                     "TXT advance must select the next unsubmitted source row")
         try Data(contentsOf: store.workbookURL).write(to: output.appendingPathComponent("records.xlsx"))
         try ChorusWorkbook.data(records: []).write(to: output.appendingPathComponent("empty.xlsx"))
         let bulk = (0..<600).map { annotation(id: "\($0)", catalogID: "\($0)", start: 72_345) }
@@ -65,6 +109,8 @@ import Foundation
         let recovered = ChorusDeveloperStore(directory: failedExport.directory)
         try recovered.load()
         precondition(recovered.session.records.count == 1, "A workbook failure must not lose the submitted record")
+        precondition(ChorusSubmissionProgress.isSubmitted(source, records: recovered.session.records),
+                     "A submitted record must still display after an XLSX export failure")
 
         let corruptDirectory = output.appendingPathComponent("corrupt")
         try FileManager.default.createDirectory(at: corruptDirectory, withIntermediateDirectories: true)

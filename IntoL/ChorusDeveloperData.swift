@@ -112,6 +112,35 @@ struct ChorusDeveloperSession: Codable {
     var importedSongs: [ChorusSourceSong] = []
 }
 
+enum ChorusSubmissionProgress {
+    static func annotation(musicID: String, catalogID: String? = nil, storefront: String,
+                           records: [ChorusAnnotation]) -> ChorusAnnotation? {
+        records.first {
+            $0.storefront == storefront &&
+                ($0.musicID == musicID || $0.libraryID == musicID || $0.catalogID == musicID ||
+                 (catalogID != nil && $0.catalogID == catalogID))
+        }
+    }
+
+    static func isSubmitted(_ source: ChorusSourceSong, records: [ChorusAnnotation]) -> Bool {
+        records.contains {
+            $0.sourceRow == source.row && $0.sourceTitle == source.title && $0.sourceArtist == source.artist
+        }
+    }
+
+    /// Continue in list order, wrapping once and skipping submitted recordings.
+    static func nextPending<Item: Identifiable>(in items: [Item], after currentID: Item.ID?,
+                                               isSubmitted: (Item) -> Bool) -> Item? {
+        guard !items.isEmpty else { return nil }
+        let start = currentID.flatMap { id in items.firstIndex { $0.id == id } }.map { $0 + 1 } ?? 0
+        for offset in 0..<items.count {
+            let item = items[(start + offset) % items.count]
+            if !isSubmitted(item) { return item }
+        }
+        return nil
+    }
+}
+
 /// JSON is the durable source of truth. XLSX is regenerated on each submission.
 final class ChorusDeveloperStore {
     let directory: URL

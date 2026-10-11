@@ -34,6 +34,7 @@ final class ChorusDeveloperModel {
     var exportURL: URL?
     private(set) var isReady = false
     private(set) var canWrite = false
+    private(set) var isPlaylistLoaded = false
     let isPreview: Bool
     private let previewSong: ChorusPlayingSongSummary?
     @ObservationIgnored private let player = ApplicationMusicPlayer.shared
@@ -42,6 +43,7 @@ final class ChorusDeveloperModel {
     @ObservationIgnored private var operationID = UUID()
     @ObservationIgnored private var storefront = ""
     @ObservationIgnored private var selectedCatalogID: String?
+    private var catalogIDsByMusicID: [String: String] = [:]
 
     init(preview: Bool = false) {
         isPreview = preview
@@ -49,7 +51,20 @@ final class ChorusDeveloperModel {
                                                         artistName: "IntoL", albumTitle: "開発者ツールのプレビュー", duration: 270) : nil
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         store = ChorusDeveloperStore(directory: documents.appendingPathComponent("ChorusDeveloper", isDirectory: true))
-        if preview { positionSeconds = 72.3; chorusStartMS = 72_300 }
+        if preview {
+            positionSeconds = 72.3
+            chorusStartMS = 72_300
+            storefront = "jp"
+            let source = ChorusSourceSong(row: 2, title: "テスト音源（画面確認用）", artist: "IntoL",
+                                          album: "開発者ツールのプレビュー", durationSeconds: 270)
+            importedSongs = [source, ChorusSourceSong(row: 3, title: "次の未提出曲（画面確認用）", artist: "IntoL",
+                                                      album: "開発者ツールのプレビュー", durationSeconds: 240)]
+            selectedSource = source
+            records = [ChorusAnnotation(musicID: "preview-only", catalogID: nil, libraryID: nil, storefront: "jp", isrc: nil,
+                                        title: source.title, artist: source.artist, album: source.album, durationMS: 270_000,
+                                        chorusStartMS: 72_300, checkedAt: Date(), notes: "", playlist: "TXTから検索",
+                                        sourceRow: source.row, sourceTitle: source.title, sourceArtist: source.artist)]
+        }
     }
 
     var displaySong: ChorusPlayingSongSummary? {
@@ -69,6 +84,18 @@ final class ChorusDeveloperModel {
     var canSubmit: Bool {
         guard canWrite, canCapture, recordingConfirmed, let chorusStartMS else { return false }
         return chorusStartMS >= 0 && Double(chorusStartMS) < durationSeconds * 1000
+    }
+    var selectedAnnotation: ChorusAnnotation? {
+        guard let song = displaySong else { return nil }
+        return ChorusSubmissionProgress.annotation(musicID: song.id, catalogID: selectedCatalogID,
+                                                   storefront: storefront, records: records)
+    }
+    var hasNextTrackContext: Bool { selectedSource != nil || isPlaylistLoaded }
+
+    func annotation(for song: MusicKit.Song) -> ChorusAnnotation? {
+        let id = String(describing: song.id)
+        return ChorusSubmissionProgress.annotation(musicID: id, catalogID: catalogIDsByMusicID[id],
+                                                   storefront: storefront, records: records)
     }
 
     func loadSavedWork() {
@@ -111,6 +138,7 @@ final class ChorusDeveloperModel {
             self.selectedSource = nil
             self.playlistName = playlist.name
             self.songs = []
+            self.isPlaylistLoaded = false
             let detailed = try await playlist.with(.tracks, preferredSource: .library)
             guard var tracks = detailed.tracks else { return }
             while tracks.hasNextBatch {
@@ -126,6 +154,7 @@ final class ChorusDeveloperModel {
                 $0.artistName.localizedStandardCompare($1.artistName) == .orderedAscending ||
                     ($0.artistName == $1.artistName && $0.title.localizedStandardCompare($1.title) == .orderedAscending)
             }
+            self.isPlaylistLoaded = true
             self.statusMessage = "\(self.songs.count)曲を読み込みました"
         }
     }
@@ -136,6 +165,7 @@ final class ChorusDeveloperModel {
         await perform {
             self.clearPlayback()
             self.songs = []
+            self.isPlaylistLoaded = false
             self.playlistName = self.selectedSource == nil ? "カタログ検索" : "TXTから検索"
             var request = MusicCatalogSearchRequest(term: term, types: [MusicKit.Song.self])
             request.limit = 25
@@ -154,6 +184,7 @@ final class ChorusDeveloperModel {
             clearPlayback()
             selectedSource = nil
             songs = []
+            isPlaylistLoaded = false
             importedSongs = imported
             statusMessage = "\(imported.count)曲を取り込みました。曲を選ぶとApple Musicで候補を検索します。"
             errorMessage = nil
@@ -162,6 +193,9 @@ final class ChorusDeveloperModel {
 
     func chooseSource(_ song: ChorusSourceSong) async {
         guard !isBusy else { return }
+        clearPlayback()
+        songs = []
+        isPlaylistLoaded = false
         selectedSource = song
         selectedPlaylistID = ""
         searchTerm = "\(song.title) \(song.artist)"
@@ -170,15 +204,33 @@ final class ChorusDeveloperModel {
     }
 
     func sourceIsSubmitted(_ song: ChorusSourceSong) -> Bool {
-        records.contains { $0.sourceRow == song.row && $0.sourceTitle == song.title && $0.sourceArtist == song.artist }
+        ChorusSubmissionProgress.isSubmitted(song, records: records)
     }
 
     func nextSource() async {
-        guard !importedSongs.isEmpty else { return }
-        let start = selectedSource.flatMap { source in importedSongs.firstIndex(where: { $0.id == source.id }) }.map { $0 + 1 } ?? 0
-        let ordered = Array(importedSongs.dropFirst(start)) + Array(importedSongs.prefix(start))
-        if let next = ordered.first(where: { !sourceIsSubmitted($0) }) { await chooseSource(next) }
+        guard !isBusy, !importedSongs.isEmpty else { return }
+        if let next = ChorusSubmissionProgress.nextPending(in: importedSongs, after: selectedSource?.id, isSubmitted: sourceIsSubmitted) {
+            await chooseSource(next)
+        }
         else { statusMessage = "TXTの全曲を提出済みです" }
+    }
+
+    func nextTrack() async {
+        guard !isBusy, !isPreview else { return }
+        if selectedSource != nil { await nextSource(); return }
+        guard isPlaylistLoaded else { return }
+        if let next = ChorusSubmissionProgress.nextPending(in: songs, after: selectedSong?.id, isSubmitted: { annotation(for: $0) != nil }) {
+            await select(next)
+        } else { statusMessage = "このプレイリストの全曲を提出済みです" }
+    }
+
+    func submitAndAdvance() async {
+        guard submit() else { return }
+        let receipt = statusMessage
+        await nextTrack()
+        if let receipt, let nextStatus = statusMessage, receipt != nextStatus {
+            statusMessage = "\(receipt)\n\(nextStatus)"
+        }
     }
 
     func select(_ song: MusicKit.Song) async {
@@ -192,9 +244,8 @@ final class ChorusDeveloperModel {
             let linkedID = await self.catalogID(for: song)
             guard self.operationID == requestID, !Task.isCancelled else { throw CancellationError() }
             self.selectedCatalogID = linkedID
-            let saved = self.records.first {
-                $0.storefront == self.storefront && ($0.musicID == String(describing: song.id) || (linkedID != nil && $0.catalogID == linkedID))
-            }
+            if let linkedID { self.catalogIDsByMusicID[String(describing: song.id)] = linkedID }
+            let saved = self.selectedAnnotation
             self.chorusStartMS = saved?.chorusStartMS
             self.notes = saved?.notes ?? ""
             self.player.state.shuffleMode = .off
@@ -270,15 +321,17 @@ final class ChorusDeveloperModel {
         }
     }
 
-    func submit() {
-        guard canSubmit, let song = selectedSong, let chorusStartMS else { return }
+    @discardableResult func submit() -> Bool {
+        guard canSubmit, let song = selectedSong, let chorusStartMS else { return false }
         let musicID = String(describing: song.id)
         let isLibraryID = !Self.isCatalogID(musicID)
-        let record = ChorusAnnotation(musicID: musicID, catalogID: selectedCatalogID, libraryID: isLibraryID ? musicID : nil,
+        let previous = selectedAnnotation
+        let record = ChorusAnnotation(musicID: musicID, catalogID: selectedCatalogID, libraryID: isLibraryID ? musicID : previous?.libraryID,
                                       storefront: storefront, isrc: song.isrc, title: song.title, artist: song.artistName,
                                       album: song.albumTitle ?? "", durationMS: Int(durationSeconds * 1000), chorusStartMS: chorusStartMS,
-                                      checkedAt: Date(), notes: notes, playlist: playlistName, sourceRow: selectedSource?.row,
-                                      sourceTitle: selectedSource?.title, sourceArtist: selectedSource?.artist)
+                                      checkedAt: Date(), notes: notes, playlist: playlistName, sourceRow: selectedSource?.row ?? previous?.sourceRow,
+                                      sourceTitle: selectedSource?.title ?? previous?.sourceTitle,
+                                      sourceArtist: selectedSource?.artist ?? previous?.sourceArtist)
         do {
             try store.submit(record)
             records = store.session.records
@@ -286,11 +339,13 @@ final class ChorusDeveloperModel {
             statusMessage = "提出しました。\(records.count)曲分のXLSXを更新しました。"
             if record.catalogID == nil { statusMessage! += " カタログIDが未取得のため、共通DBへの登録前に曲の対応付けが必要です。" }
             errorMessage = nil
+            return true
         } catch {
             records = store.session.records
             // Never offer a stale workbook as the latest export after a failed rebuild.
             exportURL = nil
             errorMessage = store.session.records.contains(record) ? "記録は端末に保存済みです。XLSX更新に失敗しました。「XLSXを再生成」で再試行してください：\(error.localizedDescription)" : error.localizedDescription
+            return false
         }
     }
 

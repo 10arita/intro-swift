@@ -20,18 +20,29 @@ struct ChorusDeveloperView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                connectionSection
-                if let error = tool.errorMessage {
-                    Section { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
+            ScrollViewReader { proxy in
+                Form {
+                    connectionSection
+                    if let error = tool.errorMessage {
+                        Section { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
+                    }
+                    if let status = tool.statusMessage {
+                        Section { Text(status).font(.subheadline).accessibilityIdentifier("chorus-status") }
+                    }
+                    if tool.displaySong != nil { playerSection.id("chorus-player"); markerSection }
+                    exportSection
+                    sourceSection
+                    if tool.isConnected { catalogSection; songsSection.id("chorus-candidates") }
                 }
-                if let status = tool.statusMessage {
-                    Section { Text(status).font(.subheadline).accessibilityIdentifier("chorus-status") }
+                .onChange(of: tool.selectedSong?.id) { _, id in
+                    scrubPosition = nil
+                    if id != nil { proxy.scrollTo("chorus-player", anchor: .top) }
                 }
-                if tool.displaySong != nil { playerSection; markerSection }
-                exportSection
-                sourceSection
-                if tool.isConnected { catalogSection; songsSection }
+                .onChange(of: tool.songs.map(\.id)) { _, songs in
+                    if tool.selectedSource != nil, tool.selectedSong == nil, !songs.isEmpty {
+                        proxy.scrollTo("chorus-candidates", anchor: .top)
+                    }
+                }
             }
             .navigationTitle("サビ位置登録")
             .navigationBarTitleDisplayMode(.inline)
@@ -80,6 +91,12 @@ struct ChorusDeveloperView: View {
                     Text(song.artistName)
                     Text(song.albumTitle ?? "アルバム情報なし").font(.caption).foregroundStyle(.secondary)
                     Text("ID: \(String(describing: song.id))").font(.caption2).textSelection(.enabled)
+                    if let saved = tool.selectedAnnotation {
+                        ChorusSubmittedLabel()
+                            .accessibilityIdentifier("chorus-current-submitted")
+                        Text("保存済みのサビ：\(Self.time(Double(saved.chorusStartMS) / 1000, precision: true))")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
                 if let source = tool.selectedSource {
                     VStack(alignment: .leading, spacing: 4) {
@@ -143,13 +160,25 @@ struct ChorusDeveloperView: View {
                     .accessibilityIdentifier("chorus-confirm")
             } else { Text("再生位置をサビにすると、ここで微調整できます。").foregroundStyle(.secondary) }
             TextField("メモ（録音版や境界の補足）", text: $tool.notes, axis: .vertical)
-            Button("提出してXLSXを更新") { tool.submit() }
-                .buttonStyle(.borderedProminent)
-                .disabled(!tool.canSubmit)
-                .accessibilityIdentifier("chorus-submit")
+            if tool.hasNextTrackContext {
+                Button("提出して次の未提出曲へ") { Task { await tool.submitAndAdvance() } }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!tool.canSubmit)
+                    .accessibilityIdentifier("chorus-submit-next")
+                Button("提出してこの曲に留まる") { tool.submit() }
+                    .disabled(!tool.canSubmit)
+                    .accessibilityIdentifier("chorus-submit")
+            } else {
+                Button("提出してXLSXを更新") { tool.submit() }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!tool.canSubmit)
+                    .accessibilityIdentifier("chorus-submit")
+            }
             Text("サビの実時刻を保存します。1.5秒の前倒しは保存値には含めません。").font(.caption).foregroundStyle(.secondary)
-            if tool.selectedSource != nil {
-                Button("次の未提出曲へ") { Task { await tool.nextSource() } }.disabled(tool.isBusy)
+            if tool.hasNextTrackContext {
+                Button("次の未提出曲へ") { Task { await tool.nextTrack() } }
+                    .disabled(tool.isBusy || tool.isPreview)
+                    .accessibilityIdentifier("chorus-next")
             }
         }
     }
@@ -179,7 +208,10 @@ struct ChorusDeveloperView: View {
             if !tool.importedSongs.isEmpty {
                 LabeledContent("取り込み済み", value: "\(tool.importedSongs.count)曲")
                 Button("TXTの曲を選ぶ") { choosingSource = true }.disabled(tool.isBusy)
-                if let source = tool.selectedSource { Text("対象：\(source.title) / \(source.artist)").font(.caption) }
+                if let source = tool.selectedSource {
+                    Text("対象：\(source.title) / \(source.artist)").font(.caption)
+                    if tool.sourceIsSubmitted(source) { ChorusSubmittedLabel() }
+                }
                 Button("次の未提出曲を検索") { Task { await tool.nextSource() } }.disabled(tool.isBusy)
             }
         }
@@ -211,6 +243,7 @@ struct ChorusDeveloperView: View {
                             Text(song.title).foregroundStyle(.primary)
                             Text(song.artistName).font(.subheadline).foregroundStyle(.secondary)
                             Text("\(song.albumTitle ?? "") ・ \(Self.time(song.duration ?? 0))").font(.caption).foregroundStyle(.secondary)
+                            if tool.annotation(for: song) != nil { ChorusSubmittedLabel() }
                         }
                         Spacer()
                         Image(systemName: tool.selectedSong?.id == song.id ? "speaker.wave.2.fill" : "play.circle")
@@ -247,7 +280,7 @@ private struct ChorusSourcePicker: View {
                         HStack {
                             VStack(alignment: .leading) { Text(song.title); Text(song.artist).font(.caption).foregroundStyle(.secondary) }
                             Spacer()
-                            if tool.sourceIsSubmitted(song) { Image(systemName: "checkmark.circle.fill") }
+                            if tool.sourceIsSubmitted(song) { ChorusSubmittedLabel() }
                         }
                     }
                 }
@@ -256,6 +289,14 @@ private struct ChorusSourcePicker: View {
             .navigationTitle("TXTの曲を選ぶ")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("閉じる") { dismiss() } } }
         }
+    }
+}
+
+private struct ChorusSubmittedLabel: View {
+    var body: some View {
+        Label("提出済み", systemImage: "checkmark.circle.fill")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.green)
     }
 }
 
