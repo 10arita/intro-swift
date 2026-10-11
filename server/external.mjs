@@ -1,3 +1,5 @@
+import { manualChorusPosition } from './manual-chorus.mjs';
+
 // Only metadata and provider URLs are proxied. Audio remains on the provider's CDN.
 const cache = new Map();
 async function json(url, ttl = 60_000) {
@@ -56,6 +58,9 @@ export function fallbackChorus(durationMS) {
   return Math.max(0, Math.round(Math.min(estimated, playableDuration - 5000)));
 }
 export async function chorusPosition(song) {
+  const manual = manualChorusPosition(song);
+  if (manual !== null) return manual;
+  if (String(song?.id || '').startsWith('itunes:')) return null;
   if (!song?.songleURL && song?.title) {
     try {
       const search = new URL('https://widget.songle.jp/api/v1/songs/search.json');

@@ -4,6 +4,7 @@ import { createReadStream, readFileSync, statSync, existsSync, mkdirSync, writeF
 import { resolve, join } from 'node:path';
 import WebSocket, { WebSocketServer } from 'ws';
 import { searchItunes, matchItunes, topSongs, chorusPosition } from './external.mjs';
+import { manualChorusPosition } from './manual-chorus.mjs';
 
 const rooms = new Map();
 const profiles = new Map();
@@ -903,8 +904,12 @@ function closeRoomStreams(id) {
 function enrichStreamingChorus(id) {
   const room = rooms.get(id);
   const song = room && currentSong(room);
-  if (room && room.mode !== 'sabitro' && song && !Number.isFinite(song.chorusMS)) {
-    chorusPosition(song).then(position => { song.chorusMS = position; persist(); }).catch(() => {});
+  if (room && room.mode !== 'sabitro' && song) {
+    const manual = manualChorusPosition(song);
+    if (manual !== null) { song.chorusMS = manual; persist(); }
+    else if (!Number.isFinite(song.chorusMS)) {
+      chorusPosition(song).then(position => { song.chorusMS = position; persist(); }).catch(() => {});
+    }
   }
 }
 

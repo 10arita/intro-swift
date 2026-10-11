@@ -272,6 +272,7 @@ struct SavedProfile: Decodable {
 @MainActor final class RoomService {
     var baseURL = ""
     private let session: URLSession
+    private let databaseChorusLookup: ((Song) async -> Int?)?
     private var latestRoomState: RoomState?
     private(set) var serverClockOffsetMS = 0.0
     private var bestClockRTTMS = Double.infinity
@@ -301,8 +302,9 @@ struct SavedProfile: Decodable {
         for pending in waiting { pending.continuation.resume(throwing: URLError(.networkConnectionLost)) }
     }
 
-    init(session: URLSession = .shared) {
+    init(session: URLSession = .shared, databaseChorusLookup: ((Song) async -> Int?)? = nil) {
         self.session = session
+        self.databaseChorusLookup = databaseChorusLookup
         if let saved = UserDefaults.standard.string(forKey: "roomPlayerId") { playerId = saved }
         else { playerId = UUID().uuidString; UserDefaults.standard.set(playerId, forKey: "roomPlayerId") }
         // Keep the existing profile and friend graph when upgrading from account-based identity.
@@ -545,8 +547,17 @@ struct SavedProfile: Decodable {
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { return [] }
         return try JSONDecoder().decode(CorpusResponse.self, from: data).titles
     }
+    func databaseChorus(_ song: Song) async -> Int? {
+        guard !song.id.hasPrefix("itunes:"), !Task.isCancelled, let databaseChorusLookup,
+              let position = await databaseChorusLookup(song), !Task.isCancelled,
+              position >= 0, song.durationMS <= 0 || position < song.durationMS else { return nil }
+        return position
+    }
+
     func chorus(_ song: Song) async -> Int? {
         guard !song.id.hasPrefix("itunes:") else { return nil }
+        if let position = await databaseChorus(song) { return position }
+        guard !Task.isCancelled else { return nil }
         if let url = try? endpoint("chorus") {
             var request = URLRequest(url: url)
             request.httpMethod = "POST"

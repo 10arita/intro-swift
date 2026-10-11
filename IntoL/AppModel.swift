@@ -116,7 +116,7 @@ struct SoloGame {
 
     let player = PreviewPlayer()
     let sound = GameSoundPlayer()
-    let rooms = RoomService()
+    let rooms = RoomService(databaseChorusLookup: { await CloudChorusDatabase.shared.revealPosition(for: $0) })
     let appleMusic = AppleMusicService()
     private let artistTopSongs = ArtistTopSongsService()
     private let playlistPreparation = PlaylistPreparation()
@@ -808,7 +808,9 @@ struct SoloGame {
         revealAudioTask = Task { [weak self] in
             guard let self else { return }
             do {
-                try await RevealAudioPlayback.play(song, chorus: {
+                try await RevealAudioPlayback.play(song, databaseChorus: {
+                    await self.rooms.databaseChorus(song)
+                }, chorus: {
                     if let cached = RevealAudioPlayback.validChorus(self.chorusPositions[song.id], durationMS: song.durationMS) {
                         return cached
                     }

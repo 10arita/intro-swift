@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A00000000000000000000064 /* ManualChorusCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000064 /* ManualChorusCatalog.swift */; };
+		A00000000000000000000065 /* CloudChorusDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000065 /* CloudChorusDatabase.swift */; };
+		A00000000000000000000066 /* manual-chorus.json in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000066 /* manual-chorus.json */; };
 		A00000000000000000000060 /* ChorusDeveloperData.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000060 /* ChorusDeveloperData.swift */; };
 		A00000000000000000000061 /* ChorusWorkbook.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000061 /* ChorusWorkbook.swift */; };
 		A00000000000000000000062 /* ChorusDeveloperModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000062 /* ChorusDeveloperModel.swift */; };
@@ -52,6 +55,9 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		B00000000000000000000064 /* ManualChorusCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualChorusCatalog.swift; sourceTree = "<group>"; };
+		B00000000000000000000065 /* CloudChorusDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudChorusDatabase.swift; sourceTree = "<group>"; };
+		B00000000000000000000066 /* manual-chorus.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "server/manual-chorus.json"; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000060 /* ChorusDeveloperData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChorusDeveloperData.swift; sourceTree = "<group>"; };
 		B00000000000000000000061 /* ChorusWorkbook.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChorusWorkbook.swift; sourceTree = "<group>"; };
 		B00000000000000000000062 /* ChorusDeveloperModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChorusDeveloperModel.swift; sourceTree = "<group>"; };
@@ -128,6 +134,9 @@
 				40D296A3BF561B575315D4DA /* RevealEffects.swift */,
 				72075401BB99C8596E75DD0F /* AnswerViews.swift */,
 				B00000000000000000000003 /* Models.swift */,
+				B00000000000000000000064 /* ManualChorusCatalog.swift */,
+				B00000000000000000000065 /* CloudChorusDatabase.swift */,
+				B00000000000000000000066 /* manual-chorus.json */,
 				B00000000000000000000004 /* Services.swift */,
 				B00000000000000000000010 /* MusicServices.swift */,
 				B00000000000000000000060 /* ChorusDeveloperData.swift */,
@@ -246,6 +255,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A0000000000000000000000A /* Audio in Resources */,
+				A00000000000000000000066 /* manual-chorus.json in Resources */,
 				A0000000000000000000000F /* Assets.xcassets in Resources */,
 				A00000000000000000000014 /* server/corpus/famousSongs.json in Resources */,
 				A00000000000000000000015 /* server/corpus/famousSongsJapaneseExpansion.json in Resources */,
@@ -289,6 +299,8 @@
 				C04387BDE8F114D35D808B3D /* RevealEffects.swift in Sources */,
 				6F8D319968C95497085860C1 /* AnswerViews.swift in Sources */,
 				A00000000000000000000003 /* Models.swift in Sources */,
+				A00000000000000000000064 /* ManualChorusCatalog.swift in Sources */,
+				A00000000000000000000065 /* CloudChorusDatabase.swift in Sources */,
 				A00000000000000000000004 /* Services.swift in Sources */,
 				A0000000000000000000000E /* MusicServices.swift in Sources */,
 				A00000000000000000000060 /* ChorusDeveloperData.swift in Sources */,

@@ -67,6 +67,36 @@ private final class RevealMetadataProtocol: URLProtocol {
         }
     }
 
+    @MainActor static func databaseAlwaysPrecedesSongleAndCachedMetadata() async throws {
+        for id in ["applemusic:123", "shared:recording", "demo:aoi"] {
+            var events: [String] = []
+            try await RevealAudioPlayback.play(song(id, chorusMS: 63_500), databaseChorus: {
+                events.append("database"); return 48_681
+            }, chorus: { preconditionFailure("Songle must not override the manual database") },
+               preview: { preconditionFailure("Registered full audio must precede previews") },
+               playFullAudio: { position in
+                precondition(position == 48_681); events.append("full")
+            }, playPreview: { _ in }, isCurrent: { true })
+            precondition(events == ["database", "full"], "Cached Songle metadata must also yield to the database")
+        }
+        let service = RoomService(databaseChorusLookup: { _ in 48_681 })
+        service.baseURL = "https://room.test"
+        let position = await service.chorus(song("applemusic:123"))
+        precondition(position == 48_681, "Database lookup must precede the room server and direct Songle")
+        try await RevealAudioPlayback.play(song("itunes:123"), databaseChorus: {
+            preconditionFailure("Full-song database positions cannot seek preview excerpts")
+        }, chorus: { nil }, preview: { previewURL }, playFullAudio: { _ in }, playPreview: { _ in }, isCurrent: { true })
+        var current = true
+        do {
+            try await RevealAudioPlayback.play(song("applemusic:123"), databaseChorus: {
+                current = false; return 48_681
+            }, chorus: { preconditionFailure("An obsolete database lookup must cancel") }, preview: { nil },
+               playFullAudio: { _ in preconditionFailure("An obsolete database lookup must not play") },
+               playPreview: { _ in }, isCurrent: { current })
+            preconditionFailure("Cancellation must propagate after database lookup")
+        } catch is CancellationError { }
+    }
+
     @MainActor static func failuresTryTheNextSource() async throws {
         for previewFails in [false, true] {
             var events: [String] = []
@@ -189,6 +219,7 @@ private final class RevealMetadataProtocol: URLProtocol {
 
     @MainActor static func main() async throws {
         try await priorityForEveryFullAudioSource()
+        try await databaseAlwaysPrecedesSongleAndCachedMetadata()
         try await failuresTryTheNextSource()
         try await previewOnlyNeverSeeksUsingFullSongMetadata()
         try await obsoleteLookupsNeverStartPlayback()

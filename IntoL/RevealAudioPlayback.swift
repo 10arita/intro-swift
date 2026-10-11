@@ -1,6 +1,6 @@
 import Foundation
 
-/// Songle positions refer to the full recording, never to an iTunes excerpt.
+/// Database and Songle positions refer to the full recording, never to an iTunes excerpt.
 @MainActor enum RevealAudioPlayback {
     static func hasFullAudio(_ song: Song) -> Bool {
         !song.id.hasPrefix("itunes:") && (song.id.hasPrefix("applemusic:") || song.previewURL != nil)
@@ -20,6 +20,7 @@ import Foundation
     }
 
     static func play(_ song: Song,
+                     databaseChorus: () async -> Int? = { nil },
                      chorus: () async -> Int?,
                      preview: () async -> URL?,
                      playFullAudio: (Int?) async throws -> Void,
@@ -33,8 +34,10 @@ import Foundation
         try checkCurrent()
         let fullAudio = hasFullAudio(song)
         if fullAudio {
+            let manual = await databaseChorus()
+            try checkCurrent()
             let known = validChorus(song.chorusMS, durationMS: song.durationMS)
-            var position = known
+            var position = validChorus(manual, durationMS: song.durationMS) ?? known
             if position == nil { position = await chorus() }
             try checkCurrent()
             if let position = validChorus(position, durationMS: song.durationMS) {

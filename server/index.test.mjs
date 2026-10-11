@@ -426,6 +426,48 @@ for (const mode of ['applemusic', 'shared']) test(`${mode} room reveals the Song
   }
 });
 
+for (const chorusMS of [0, 63626]) test(`room reveal replaces cached chorus ${chorusMS} with the manual database across albums`, async () => {
+  const originalFetch = globalThis.fetch;
+  const originalNow = Date.now;
+  let now = originalNow();
+  Date.now = () => now;
+  let requests = 0;
+  globalThis.fetch = async () => { requests++; throw new Error('Registered songs must not query Songle'); };
+  try {
+    const playerId = `manual-chorus-host-${chorusMS}`;
+    const created = handle('POST', '/rooms', { playerId, name: 'Host', mode: 'applemusic',
+      songs: [{ id: 'applemusic:1234567890', title: 'ワタリドリ', artist: '[Alexandros]',
+        album: 'Another compilation', durationMS: 251760, chorusMS }],
+      settings: { questionCount: 1 } }, new URLSearchParams());
+    assert.equal(created.status, 201);
+    const path = `/rooms/${created.body.id}`;
+    const authorization = `Bearer ${created.body.sessionToken}`;
+    const send = action => handle('POST', `${path}/${action}`, { playerId }, new URLSearchParams(), authorization);
+    assert.equal(send('assets-ready').status, 200);
+    const request = Readable.from([Buffer.from(JSON.stringify({ playerId }))]);
+    request.method = 'POST'; request.url = `${path}/start`;
+    request.headers = { host: 'localhost', authorization };
+    const started = await new Promise(resolve => {
+      const response = {
+        writeHead(status) { this.status = status; },
+        end(data) { resolve({ status: this.status, body: JSON.parse(data) }); }
+      };
+      server.emit('request', request, response);
+    });
+    assert.equal(started.status, 200);
+    assert.equal(started.body.current.chorusMS, undefined, 'Keep metadata hidden until reveal');
+    assert.equal(send('ready').body.phase, 'countdown');
+    now += 5100;
+    const revealed = send('skip');
+    assert.equal(revealed.body.phase, 'reveal');
+    assert.equal(revealed.body.current.chorusMS, 50181 - 1500);
+    assert.equal(requests, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    Date.now = originalNow;
+  }
+});
+
 test('room API arbitrates PUSH, validates answers, scores, and protects sessions', async () => {
   const realNow = Date.now;
   let now = realNow();

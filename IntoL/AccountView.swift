@@ -106,14 +106,16 @@ struct AccountView: View {
                         }
                     }
                     #if DEBUG
-                    StudioCard {
-                        VStack(alignment: .leading, spacing: 12) {
-                            SectionCaption(title: "開発者ツール")
-                            Button { showChorusTool = true } label: {
-                                Label("Apple Musicのサビ位置を登録", systemImage: "waveform.badge.plus")
+                    if ProcessInfo.processInfo.arguments.contains("--show-developer-tools") {
+                        StudioCard {
+                            VStack(alignment: .leading, spacing: 12) {
+                                SectionCaption(title: "開発者ツール")
+                                Button { showChorusTool = true } label: {
+                                    Label("Apple Musicのサビ位置を登録", systemImage: "waveform.badge.plus")
+                                }
+                                .buttonStyle(StudioButtonStyle(.secondary))
+                                .accessibilityIdentifier("open-chorus-tool")
                             }
-                            .buttonStyle(StudioButtonStyle(.secondary))
-                            .accessibilityIdentifier("open-chorus-tool")
                         }
                     }
                     #endif
