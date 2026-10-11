@@ -7,6 +7,7 @@ struct RoomLobbyView: View {
   let handicap: () -> Void
   let profile: (RoomPlayer) -> Void
   @State private var showingRules = false
+  @State private var showingSettings = false
 
   private var isHost: Bool { room.hostId == model.rooms.playerId }
   private var canEdit: Bool { isHost && room.totalRounds == 0 }
@@ -14,12 +15,12 @@ struct RoomLobbyView: View {
   private var playlist: RoomPlaylist? { canEdit ? model.selectedRoomPlaylist : room.playlist }
 
   var body: some View {
-    VStack(spacing: 24) {
+    VStack(spacing: 20) {
       VStack(spacing: 8) {
-        Text(isHost ? "みんなを待っています" : "対戦待機室")
+        Text("対戦待機室")
           .font(.system(.title2, design: .rounded, weight: .bold))
           .foregroundStyle(Studio.primary)
-        Text(isHost ? "コードを共有して、友だちを招待しよう" : "ホストが開始するまでお待ちください")
+        Text(room.players.count >= 4 ? "満員です · 開始を待っています" : "待機中 · あと\(4 - room.players.count)人参加できます")
           .font(.subheadline).foregroundStyle(Studio.secondary)
           .multilineTextAlignment(.center)
       }
@@ -39,81 +40,101 @@ struct RoomLobbyView: View {
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(StudioButtonStyle(.secondary))
-        .disabled(room.players.count == 4)
+        .disabled(room.players.count >= 4)
+        if room.players.count >= 4 {
+          Text("満員です。これ以上招待できません")
+            .font(.caption).foregroundStyle(Studio.secondary)
+        }
       }
       .foregroundStyle(Studio.primary)
       StudioCard {
-        VStack(alignment: .leading, spacing: 16) {
-          HStack {
-            Text("対戦の設定").font(.headline)
-            Spacer()
-            if !isHost {
-              Label("ホストの設定", systemImage: "lock.fill")
-                .font(.caption).foregroundStyle(Studio.secondary)
-            } else if model.roomLobbySyncing {
-              ProgressView().controlSize(.small).accessibilityLabel("設定を共有中")
-            }
-          }
-          if canEdit && room.mode != "shared" {
-            DisclosureGroup {
-              if !model.appleMusicConnected {
-                Button("Apple Music に接続") { Task { await model.connectAppleMusic() } }
-                  .buttonStyle(StudioButtonStyle(.secondary))
-              } else if model.appleMusicPlaylists.isEmpty {
-                Button("プレイリストを読み込む") { Task { await model.loadAppleMusicPlaylists() } }
-                  .buttonStyle(StudioButtonStyle(.secondary))
-              } else {
-                Picker("プレイリスト", selection: $model.selectedAppleMusicPlaylistID) {
-                  Text("選択してください").tag("")
-                  ForEach(model.appleMusicPlaylists) { list in Text(list.name).tag(list.id) }
+        DisclosureGroup(isExpanded: $showingSettings) {
+          VStack(alignment: .leading, spacing: 10) {
+            if canEdit && room.mode != "shared" {
+              DisclosureGroup {
+                if !model.appleMusicConnected {
+                  Button("Apple Music に接続") { Task { await model.connectAppleMusic() } }
+                    .buttonStyle(StudioButtonStyle(.secondary))
+                } else if model.appleMusicPlaylists.isEmpty {
+                  Button("プレイリストを読み込む") { Task { await model.loadAppleMusicPlaylists() } }
+                    .buttonStyle(StudioButtonStyle(.secondary))
+                } else {
+                  Picker("プレイリスト", selection: $model.selectedAppleMusicPlaylistID) {
+                    Text("選択してください").tag("")
+                    ForEach(model.appleMusicPlaylists) { list in Text(list.name).tag(list.id) }
+                  }
+                  .pickerStyle(.menu)
+                  .onChange(of: model.selectedAppleMusicPlaylistID) { _, id in
+                    Task { await model.selectAppleMusicPlaylist(id) }
+                  }
                 }
-                .pickerStyle(.menu)
-                .onChange(of: model.selectedAppleMusicPlaylistID) { _, id in
-                  Task { await model.selectAppleMusicPlaylist(id) }
-                }
+              } label: {
+                LobbySettingLabel(
+                  title: "プレイリスト", symbol: "music.note.list",
+                  value: playlist?.name ?? "未選択")
               }
-            } label: {
+              .disabled(model.busy)
+            } else {
               LobbySettingLabel(
                 title: "プレイリスト", symbol: "music.note.list",
-                value: playlist?.name ?? "未選択")
+                value: room.mode == "shared" ? "IntoL デモ" : playlist?.name ?? "ホストが選択中")
             }
-            .disabled(model.busy)
-          } else {
-            LobbySettingLabel(
-              title: "プレイリスト", symbol: "music.note.list",
-              value: room.mode == "shared" ? "IntoL デモ" : playlist?.name ?? "ホストが選択中")
-          }
-          if let playlist, playlist.songCount > 0 {
-            Text("\(playlist.songCount)曲").font(.caption).foregroundStyle(Studio.secondary)
-          }
-          Divider()
-          HStack(alignment: .top) {
-            LobbySettingLabel(
-              title: "ルール", symbol: "slider.horizontal.3",
-              value:
-                "\(settings.questionCount)問 · \(settings.endless ? "エンドレス" : "解答権\(settings.answerSlots)人")"
-            )
-            if canEdit {
-              Button("変更") { showingRules = true }
+            if let playlist, playlist.songCount > 0 {
+              Text("\(playlist.songCount)曲").font(.caption).foregroundStyle(Studio.secondary)
+            }
+            if room.totalRounds == 0, let playlist, playlist.songCount < settings.questionCount {
+              Label("\(settings.questionCount)問に対して\(playlist.songCount)曲です。曲を増やすか問題数を減らしてください", systemImage: "exclamationmark.triangle")
+                .font(.caption).foregroundStyle(Studio.warning)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            Divider()
+            HStack(alignment: .top) {
+              LobbySettingLabel(
+                title: "ルール", symbol: "slider.horizontal.3",
+                value:
+                  "\(settings.questionCount)問 · ライフ\(RoomRule.lives.displayValue(settings.lives)) · \(settings.endless ? "エンドレス" : "解答権\(settings.answerSlots)人")"
+              )
+              Button(canEdit ? "変更" : "詳細") { showingRules = true }
                 .buttonStyle(StudioButtonStyle(.tertiary))
+                .frame(minWidth: 44)
                 .disabled(model.busy)
-                .accessibilityLabel("対戦ルールを変更")
+                .accessibilityLabel(canEdit ? "対戦ルールを変更" : "対戦ルールの詳細")
+            }
+            Divider()
+            HStack(alignment: .top) {
+              LobbySettingLabel(title: "ハンデ", symbol: "timer", value: handicapSummary)
+              if isHost {
+                Button("変更", action: handicap)
+                  .buttonStyle(StudioButtonStyle(.tertiary))
+                  .disabled(model.busy)
+                  .accessibilityLabel("プレイヤーのハンデを変更")
+              }
             }
           }
-          RoomRuleSummary(settings: settings)
-          Divider()
-          HStack(alignment: .top) {
-            LobbySettingLabel(title: "ハンデ", symbol: "timer", value: handicapSummary)
-            if isHost {
-              Button("変更", action: handicap)
-                .buttonStyle(StudioButtonStyle(.tertiary))
-                .disabled(model.busy)
-                .accessibilityLabel("プレイヤーのハンデを変更")
+          .padding(.top, 12)
+        } label: {
+          VStack(alignment: .leading, spacing: 8) {
+            HStack {
+              Text("対戦の設定").font(.headline)
+              Spacer()
+              if !isHost {
+                Image(systemName: "lock.fill").font(.caption).foregroundStyle(Studio.secondary)
+                  .accessibilityLabel("ホストの設定")
+              } else if model.roomLobbySyncing {
+                ProgressView().controlSize(.small).accessibilityLabel("設定を共有中")
+              }
+            }
+            Text("\(playlist?.name ?? (room.mode == "shared" ? "IntoL デモ" : "プレイリスト未選択")) · \(settings.questionCount)問 · ライフ\(RoomRule.lives.displayValue(settings.lives))")
+              .font(.subheadline).foregroundStyle(Studio.secondary)
+              .fixedSize(horizontal: false, vertical: true)
+            if room.totalRounds == 0, let playlist, playlist.songCount < settings.questionCount {
+              Label("曲数が足りません（\(playlist.songCount)曲）", systemImage: "exclamationmark.triangle")
+                .font(.caption).foregroundStyle(Studio.warning)
             }
           }
         }
         .foregroundStyle(Studio.primary)
-        .tint(Studio.accent)
+        .tint(Studio.secondary)
       }
       if isHost {
         if room.players.count > 1 {
@@ -129,13 +150,17 @@ struct RoomLobbyView: View {
           .buttonStyle(StudioButtonStyle(.tertiary))
           .disabled(model.busy)
         }
-      } else {
-        Label("ホストがゲームを開始します", systemImage: "hourglass")
-          .font(.subheadline).foregroundStyle(Studio.secondary)
       }
     }
-    .sheet(isPresented: $showingRules) { RoomRuleSettingsView().environmentObject(model) }
+    .sheet(isPresented: $showingRules) {
+      if canEdit {
+        RoomRuleSettingsView().environmentObject(model)
+      } else {
+        RoomRuleDetailsView(settings: settings)
+      }
+    }
     .task { model.scheduleRoomLobbySync() }
+    .onAppear { showingSettings = playlist == nil && room.mode != "shared" }
     .onChange(of: model.roomSettings) { _, _ in model.scheduleRoomLobbySync() }
     .onChange(of: model.selectedRoomPlaylist) { _, _ in model.scheduleRoomLobbySync() }
     .onChange(of: room.hostId) { _, _ in model.scheduleRoomLobbySync() }
@@ -153,14 +178,20 @@ struct RoomLobbyView: View {
 struct RoomLobbyStartButton: View {
   @EnvironmentObject private var model: AppModel
   var body: some View {
-    PrimaryButton(
-      title: model.busy ? "ゲームを準備中" : model.roomPlaylistReady ? "ゲームを開始" : "プレイリストを選んでください",
-      symbol: "play.fill", disabled: model.busy || !model.roomPlaylistReady
-    ) {
-      model.beginGameStart()
-      Task {
-        await model.startRoom()
-        model.finishGameStart()
+    VStack(spacing: 8) {
+      if !model.busy, let reason = model.roomStartBlockReason {
+        Text(reason).font(.caption).foregroundStyle(Studio.secondary)
+          .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+      }
+      PrimaryButton(
+        title: model.busy ? "ゲームを準備中" : "ゲームを開始",
+        symbol: "play.fill", disabled: model.busy || model.roomStartBlockReason != nil
+      ) {
+        model.beginGameStart()
+        Task {
+          await model.startRoom()
+          model.finishGameStart()
+        }
       }
     }
   }
@@ -172,7 +203,7 @@ private struct LobbySettingLabel: View {
   let value: String
   var body: some View {
     HStack(alignment: .top, spacing: 12) {
-      Image(systemName: symbol).frame(width: 20).foregroundStyle(Studio.accent).accessibilityHidden(
+      Image(systemName: symbol).frame(width: 20).foregroundStyle(Studio.secondary).accessibilityHidden(
         true)
       VStack(alignment: .leading, spacing: 5) {
         Text(title).font(.caption).foregroundStyle(Studio.secondary)
@@ -186,29 +217,38 @@ private struct LobbySettingLabel: View {
 }
 
 struct RoomInvitationCard: View {
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   let code: String
   @State private var copied = false
   var body: some View {
     VStack(spacing: 12) {
-      SectionCaption(title: "ROOM CODE")
-      Button {
-        UIPasteboard.general.string = code
-        copied = true
-      } label: {
-        RoomCodeBoxes(code: code).contentShape(Rectangle())
-      }
-      .buttonStyle(.plain)
-      .accessibilityLabel("ルームコード \(code.map(String.init).joined(separator: " "))")
-      .accessibilityHint("タップでコピー")
-      .accessibilityIdentifier("lobby-room-code")
-      HStack(spacing: 16) {
-        Label(copied ? "コピーしました" : "タップでコピー", systemImage: copied ? "checkmark" : "doc.on.doc")
-          .font(.caption).foregroundStyle(copied ? Studio.success : Studio.secondary)
-        Spacer(minLength: 0)
+      SectionCaption(title: "ルームコード")
+      Text(code)
+        .font(.system(.largeTitle, design: .monospaced, weight: .bold))
+        .tracking(6)
+        .foregroundStyle(Studio.primary)
+        .lineLimit(1).minimumScaleFactor(0.6)
+        .padding(.horizontal, 20).padding(.vertical, 12)
+        .frame(maxWidth: .infinity)
+        .background(Studio.raised, in: Capsule())
+        .accessibilityLabel("ルームコード \(code.map(String.init).joined(separator: " "))")
+        .accessibilityIdentifier("lobby-room-code")
+      let layout = dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 12)) : AnyLayout(HStackLayout(spacing: 12))
+      layout {
+        Button {
+          UIPasteboard.general.string = code
+          copied = true
+        } label: {
+          Label(copied ? "コピー済み" : "コピー", systemImage: copied ? "checkmark" : "doc.on.doc")
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(StudioButtonStyle(.secondary))
+        .accessibilityIdentifier("copy-room-code")
         ShareLink(item: "IntoLでイントロ対戦しよう！\nルームコード: \(code)") {
           Label("共有", systemImage: "square.and.arrow.up")
+            .frame(maxWidth: .infinity)
         }
-        .buttonStyle(StudioButtonStyle(.tertiary))
+        .buttonStyle(StudioButtonStyle(.secondary))
       }
     }
     .sensoryFeedback(.success, trigger: copied) { _, new in new }
@@ -240,7 +280,7 @@ private struct LobbyPlayerSlots: View {
             Button {
               profile(player)
             } label: {
-              VStack(spacing: 10) {
+              VStack(spacing: 6) {
                 PlayerAvatarView(
                   data: player.id == localID ? avatarData : nil, size: 52, encoded: player.avatar
                 )
@@ -253,12 +293,14 @@ private struct LobbyPlayerSlots: View {
                 }
                 Text(player.name).font(.caption.weight(.semibold)).lineLimit(2)
                   .foregroundStyle(Studio.primary)
+                Text(player.id == localID ? "あなた" : player.isHost ? "ホスト" : "参加者")
+                  .font(.caption2.weight(.semibold)).foregroundStyle(Studio.secondary)
               }
               .frame(maxWidth: .infinity, minHeight: 96)
             }
             .buttonStyle(.plain)
             .contextMenu { RoomPlayerActions(player: player, friends: friends) }
-            .accessibilityLabel("\(player.name)\(player.isHost ? "、ホスト" : "")のプロフィール")
+            .accessibilityLabel("\(player.name)\(player.id == localID ? "、あなた" : "")\(player.isHost ? "、ホスト" : "")のプロフィール")
           } else {
             Image(systemName: "person.badge.plus")
               .font(.title2).foregroundStyle(Studio.secondary)
@@ -274,61 +316,102 @@ private struct LobbyPlayerSlots: View {
         )
         .overlay(
           RoundedRectangle(cornerRadius: Studio.Radius.md).strokeBorder(
-            Studio.line,
-            style: StrokeStyle(lineWidth: 1, dash: index < room.players.count ? [] : [5, 4])))
+            index < room.players.count && room.players[index].id == localID ? Studio.secondary : Studio.line,
+            style: StrokeStyle(lineWidth: index < room.players.count && room.players[index].id == localID ? 2 : 1,
+                               dash: index < room.players.count ? [] : [5, 4])))
       }
     }
   }
 }
 
-private struct RoomRuleSummary: View {
+struct RoomRuleDetailsView: View {
+  @Environment(\.dismiss) private var dismiss
   let settings: RoomSettings
+  @State private var ruleHelp: RoomRule?
+
   var body: some View {
-    VStack(alignment: .leading, spacing: 6) {
-      Text(
-        "勝利目標 \(settings.targetScore == 0 ? "なし" : "\(settings.targetScore)点") · ライフ \(settings.lives == 0 ? "無制限" : "\(settings.lives)")"
-      )
-      Text("正解 \(settings.correctPoints)点 · 1st正解 +\(settings.firstBonus)点")
-      Text("誤答 −\(settings.wrongPenalty)点 · 1st誤答 −\(settings.firstWrongPenalty)点")
+    NavigationStack {
+      List {
+        Section("出題") {
+          ruleRow(.questionCount, settings.questionCount)
+          ruleRow(.answerSlots, settings.answerSlots, valueLabel: settings.endless ? "制限なし" : nil)
+          ruleRow(.endless, settings.endless ? 1 : 0)
+        }
+        Section("得点とライフ") {
+          ruleRow(.targetScore, settings.targetScore)
+          ruleRow(.correctPoints, settings.correctPoints)
+          ruleRow(.firstBonus, settings.firstBonus)
+          ruleRow(.wrongPenalty, settings.wrongPenalty)
+          ruleRow(.firstWrongPenalty, settings.firstWrongPenalty)
+          ruleRow(.lives, settings.lives)
+        }
+        .listRowBackground(Studio.background)
+      }
+      .listStyle(.plain)
+      .scrollContentBackground(.hidden)
+      .background(Studio.background)
+      .environment(\.defaultMinListRowHeight, 52)
+      .navigationTitle("対戦ルール")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbar {
+        ToolbarItem(placement: .topBarTrailing) {
+          Button("完了") { dismiss() }
+        }
+      }
     }
-    .font(.caption).foregroundStyle(Studio.secondary)
-    .fixedSize(horizontal: false, vertical: true)
+    .modifier(RoomRuleHelpPresentation(rule: $ruleHelp))
+  }
+
+  private func ruleRow(_ rule: RoomRule, _ value: Int, valueLabel: String? = nil) -> some View {
+    HStack {
+      RoomRuleLabel(rule: rule) { ruleHelp = $0 }
+      Spacer(minLength: 8)
+      Text(valueLabel ?? rule.displayValue(value)).monospacedDigit().foregroundStyle(Studio.secondary)
+    }
+    .listRowBackground(Studio.background)
+    .accessibilityElement(children: .contain)
   }
 }
 
-private struct RoomRuleSettingsView: View {
+struct RoomRuleSettingsView: View {
   @EnvironmentObject private var model: AppModel
   @Environment(\.dismiss) private var dismiss
+  @State private var ruleHelp: RoomRule?
   var body: some View {
     NavigationStack {
       Form {
         Section("出題") {
           RuleDialRow(
-            title: "問題数", value: $model.roomSettings.questionCount, range: 1...50, suffix: "問")
+            rule: .questionCount, value: $model.roomSettings.questionCount, range: 1...50,
+            onHelp: showHelp)
           RuleDialRow(
-            title: "解答権人数", value: $model.roomSettings.answerSlots, range: 1...4, suffix: "人",
-            disabled: model.roomSettings.endless)
-          Toggle("エンドレスモード", isOn: $model.roomSettings.endless)
+            rule: .answerSlots, value: $model.roomSettings.answerSlots, range: 1...4,
+            disabled: model.roomSettings.endless,
+            valueLabel: model.roomSettings.endless ? "制限なし" : nil, onHelp: showHelp)
+          HStack {
+            RoomRuleLabel(rule: .endless, onHelp: showHelp)
+            Spacer(minLength: 8)
+            Toggle("エンドレスモード", isOn: $model.roomSettings.endless).labelsHidden()
+          }
         }
         Section("得点とライフ") {
           RuleDialRow(
-            title: "勝利目標", value: $model.roomSettings.targetScore, range: 0...500, step: 10,
-            suffix: "点")
+            rule: .targetScore, value: $model.roomSettings.targetScore, range: 0...500, step: 10,
+            onHelp: showHelp)
           RuleDialRow(
-            title: "正解", value: $model.roomSettings.correctPoints, range: 10...50, step: 10,
-            suffix: "点")
+            rule: .correctPoints, value: $model.roomSettings.correctPoints, range: 10...50, step: 10,
+            onHelp: showHelp)
           RuleDialRow(
-            title: "1st正解", value: $model.roomSettings.firstBonus, range: 0...50, step: 10,
-            prefix: "+", suffix: "点")
+            rule: .firstBonus, value: $model.roomSettings.firstBonus, range: 0...50, step: 10,
+            onHelp: showHelp)
           RuleDialRow(
-            title: "誤答", value: $model.roomSettings.wrongPenalty, range: 0...50, step: 10,
-            prefix: "−", suffix: "点")
+            rule: .wrongPenalty, value: $model.roomSettings.wrongPenalty, range: 0...50, step: 10,
+            onHelp: showHelp)
           RuleDialRow(
-            title: "1st誤答", value: $model.roomSettings.firstWrongPenalty, range: 0...50, step: 10,
-            prefix: "−", suffix: "点")
-          RuleDialRow(title: "ライフ", value: $model.roomSettings.lives, range: 0...10)
-          Text("勝利目標0点は目標なし、ライフ0は無制限です。")
-            .font(.caption).foregroundStyle(Studio.secondary)
+            rule: .firstWrongPenalty, value: $model.roomSettings.firstWrongPenalty, range: 0...50, step: 10,
+            onHelp: showHelp)
+          RuleDialRow(rule: .lives, value: $model.roomSettings.lives, range: 0...10,
+            onHelp: showHelp)
         }
       }
       .disabled(model.room?.phase != "lobby" || model.room?.hostId != model.rooms.playerId)
@@ -337,5 +420,8 @@ private struct RoomRuleSettingsView: View {
       .navigationBarTitleDisplayMode(.inline)
       .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("完了") { dismiss() } } }
     }
+    .modifier(RoomRuleHelpPresentation(rule: $ruleHelp))
   }
+
+  private func showHelp(_ rule: RoomRule) { ruleHelp = rule }
 }

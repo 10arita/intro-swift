@@ -210,7 +210,8 @@ function publicFriends(profile) {
     invites: (profile.invites || []).filter(item => {
       const room = rooms.get(item.roomId);
       return acceptsNewPlayers(room) && room.players.some(player => player.profileId === item.fromId);
-    }).map(item => ({ ...item, mode: rooms.get(item.roomId).mode })),
+    }).map(item => ({ ...item, mode: rooms.get(item.roomId).mode,
+      playerCount: rooms.get(item.roomId).players.length })),
     sentInvites: (profile.friends || []).flatMap(targetId =>
       (profiles.get(targetId)?.invites || []).filter(item => {
         const room = rooms.get(item.roomId);
@@ -564,6 +565,7 @@ export function handle(method, path, body, query, authorization, origin = 'https
     const suppliedTopTitles = new Map((Array.isArray(body.songs) ? body.songs : [])
       .filter(song => song && typeof song.id === 'string').map(song => [song.id, artistTopTitles(song.artistTopTitles)]));
     const deferred = body.deferQuestions === true;
+    if (body.minimumPlayers !== undefined && body.minimumPlayers !== 2) return fail(400, '対戦は2人以上で開始できます');
     const songs = uniqueSongs(mode === 'shared' ? catalogSongs(origin).map(song => ({ ...song,
       artistTopTitles: suppliedTopTitles.get(song.id) || [] })) : supplied);
     if (!deferred && !songs.length) return fail(400, '再生できる曲がありません');
@@ -571,7 +573,7 @@ export function handle(method, path, body, query, authorization, origin = 'https
     let id; do { id = Array.from({length: 6}, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ'[randomInt(24)]).join(''); } while (rooms.has(id));
     const s = settings(body.settings);
     if (!deferred && songs.length < s.questionCount) return fail(400, `問題数分の曲がありません（利用可能: ${songs.length}曲）`);
-    const room = { id, mode, settings: s, songs: deferred ? [] : shuffled(songs).slice(0, s.questionCount), playedSongIDs: [], corpus: [...new Set([...songs.map(song => song.title), ...seedTitles, ...(Array.isArray(body.corpus) ? body.corpus.filter(s => typeof s === 'string').slice(0, 500) : [])])], phase: 'lobby', round: -1, gameNumber: 0,
+    const room = { id, mode, minimumPlayers: body.minimumPlayers ?? 1, settings: s, songs: deferred ? [] : shuffled(songs).slice(0, s.questionCount), playedSongIDs: [], corpus: [...new Set([...songs.map(song => song.title), ...seedTitles, ...(Array.isArray(body.corpus) ? body.corpus.filter(s => typeof s === 'string').slice(0, 500) : [])])], phase: 'lobby', round: -1, gameNumber: 0,
       hostId: String(body.playerId), players: [{ id: String(body.playerId), secret: randomUUID(), profileId: profileIdentity(body), name: String(body.name).trim().slice(0, 24),
         badge: String(body.badge || '').slice(0, 24), avatar: playerAvatar(body.avatar), score: 0, correctCount: 0, wrongCount: 0,
         roundResults: [], lives: s.lives, disqualified: false, joinedAt: Date.now(), lastSeen: Date.now() }],
@@ -639,6 +641,8 @@ export function handle(method, path, body, query, authorization, origin = 'https
     target.invites = target.invites.slice(-50);
   } else if (action === 'start') {
     if (room.hostId !== playerId || room.phase !== 'lobby') return fail(403, 'ホストのみ開始できます');
+    // Current app rooms require two players; retain compatibility with legacy rooms.
+    if (room.players.length < (room.minimumPlayers ?? 1)) return fail(409, 'あと1人で開始できます');
     const playlist = playlistSummary(body.playlist);
     if (playlist === undefined) return fail(400, 'プレイリスト情報が無効です');
     if (room.songs.length > 0 && room.players.some(p => !room.assetsReadyIds?.has(p.id))) {

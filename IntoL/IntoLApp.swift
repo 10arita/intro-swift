@@ -45,7 +45,11 @@ struct IntoLApp: App {
         WindowGroup {
             Group {
                 #if DEBUG
-                if let preview = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--ui-preview=") }) {
+                if ProcessInfo.processInfo.arguments.contains("--chorus-tool") {
+                    ChorusDeveloperView(allowsDismissal: false)
+                } else if ProcessInfo.processInfo.arguments.contains("--chorus-tool-preview") {
+                    ChorusDeveloperView(preview: true, allowsDismissal: false)
+                } else if let preview = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--ui-preview=") }) {
                     UIExamples(scenario: String(preview.dropFirst("--ui-preview=".count)))
                 } else { RootView().environmentObject(model) }
                 #else

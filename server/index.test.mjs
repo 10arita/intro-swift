@@ -209,6 +209,13 @@ test('room friends require approval and invitations join without entering a code
   assert.ok(afterInvite.body.players.some(player => player.id === 'friend-alice'));
   const invitation = handle('GET', '/friends', {}, new URLSearchParams({ profileId: bob.id }), `Bearer ${bob.token}`).body.invites[0];
   assert.ok(invitation.id);
+  assert.equal(invitation.mode, room.mode);
+  assert.equal(invitation.playerCount, 1);
+  const observer = handle('POST', `${roomPath}/join`, { playerId: 'friend-observer', name: 'Observer' }, query);
+  assert.equal(observer.status, 200);
+  const refreshedInvite = handle('GET', '/friends', {}, new URLSearchParams({ profileId: bob.id }), `Bearer ${bob.token}`).body.invites[0];
+  assert.equal(refreshedInvite.playerCount, 2);
+  handle('POST', `${roomPath}/leave`, { playerId: 'friend-observer' }, query, `Bearer ${observer.body.sessionToken}`);
   const accepted = handle('POST', '/friends/invites/join', { profileId: bob.id,
     inviteId: invitation.id, playerId: 'friend-bob', name: 'Bob' }, query, `Bearer ${bob.token}`);
   assert.equal(accepted.status, 200);

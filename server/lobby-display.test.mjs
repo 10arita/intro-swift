@@ -22,6 +22,25 @@ const rules = { questionCount: 2, answerSlots: 1, targetScore: 100, correctPoint
   firstBonus: 10, wrongPenalty: 10, firstWrongPenalty: 0, lives: 5, endless: true };
 const playlist = { name: '夜に聴く曲', songCount: 32 };
 
+test('current app rooms cannot start alone, including after a guest leaves', () => {
+  const query = new URLSearchParams();
+  const created = handle('POST', '/rooms', { playerId: 'minimum-host', name: 'Host',
+    mode: 'applemusic', deferQuestions: true, minimumPlayers: 2 }, query);
+  assert.equal(created.status, 201);
+  const path = `/rooms/${created.body.id}`;
+  const send = payload => handle('POST', `${path}/start`, { playerId: 'minimum-host',
+    settings: { questionCount: 1 }, songs: [{ id: 'applemusic:1000000001', title: '青空', artist: 'Artist' }],
+    ...payload }, query, `Bearer ${created.body.sessionToken}`);
+  assert.equal(send().status, 409);
+  const guest = handle('POST', `${path}/join`, { playerId: 'minimum-guest', name: 'Guest' }, query);
+  assert.equal(guest.status, 200);
+  assert.equal(handle('POST', `${path}/leave`, { playerId: 'minimum-guest' }, query,
+    `Bearer ${guest.body.sessionToken}`).status, 200);
+  assert.equal(send().status, 409);
+  assert.equal(handle('POST', `${path}/join`, { playerId: 'minimum-guest', name: 'Guest' }, query).status, 200);
+  assert.equal(send().body.phase, 'preparing');
+});
+
 test('host settings and playlist reach guests while handicaps survive changes', () => {
   const room = lobby('display-sync');
   assert.equal(room.host('handicaps', { handicaps: { [room.guestID]: 4 } }).status, 200);

@@ -7,6 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A00000000000000000000060 /* ChorusDeveloperData.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000060 /* ChorusDeveloperData.swift */; };
+		A00000000000000000000061 /* ChorusWorkbook.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000061 /* ChorusWorkbook.swift */; };
+		A00000000000000000000062 /* ChorusDeveloperModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000062 /* ChorusDeveloperModel.swift */; };
+		A00000000000000000000063 /* ChorusDeveloperView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000063 /* ChorusDeveloperView.swift */; };
 		0D6CE5963A135289D1E07B58 /* RoomLobbyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CFFF645A506C1DDDEC7DF1F /* RoomLobbyView.swift */; };
 		2A917093D77C6F91BA1E2204 /* RoomPlayerStandings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1728359B56266971280996B /* RoomPlayerStandings.swift */; };
 		6F8D319968C95497085860C1 /* AnswerViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72075401BB99C8596E75DD0F /* AnswerViews.swift */; };
@@ -48,6 +52,10 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		B00000000000000000000060 /* ChorusDeveloperData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChorusDeveloperData.swift; sourceTree = "<group>"; };
+		B00000000000000000000061 /* ChorusWorkbook.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChorusWorkbook.swift; sourceTree = "<group>"; };
+		B00000000000000000000062 /* ChorusDeveloperModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChorusDeveloperModel.swift; sourceTree = "<group>"; };
+		B00000000000000000000063 /* ChorusDeveloperView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChorusDeveloperView.swift; sourceTree = "<group>"; };
 		2CFFF645A506C1DDDEC7DF1F /* RoomLobbyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomLobbyView.swift; sourceTree = "<group>"; };
 		40D296A3BF561B575315D4DA /* RevealEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RevealEffects.swift; sourceTree = "<group>"; };
 		72075401BB99C8596E75DD0F /* AnswerViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnswerViews.swift; sourceTree = "<group>"; };
@@ -122,6 +130,10 @@
 				B00000000000000000000003 /* Models.swift */,
 				B00000000000000000000004 /* Services.swift */,
 				B00000000000000000000010 /* MusicServices.swift */,
+				B00000000000000000000060 /* ChorusDeveloperData.swift */,
+				B00000000000000000000061 /* ChorusWorkbook.swift */,
+				B00000000000000000000062 /* ChorusDeveloperModel.swift */,
+				B00000000000000000000063 /* ChorusDeveloperView.swift */,
 				B00000000000000000000013 /* GameAssets.swift */,
 				B00000000000000000000018 /* PlayerAvatar.swift */,
 				B00000000000000000000019 /* CloudProfile.swift */,
@@ -279,6 +291,10 @@
 				A00000000000000000000003 /* Models.swift in Sources */,
 				A00000000000000000000004 /* Services.swift in Sources */,
 				A0000000000000000000000E /* MusicServices.swift in Sources */,
+				A00000000000000000000060 /* ChorusDeveloperData.swift in Sources */,
+				A00000000000000000000061 /* ChorusWorkbook.swift in Sources */,
+				A00000000000000000000062 /* ChorusDeveloperModel.swift in Sources */,
+				A00000000000000000000063 /* ChorusDeveloperView.swift in Sources */,
 				A00000000000000000000013 /* GameAssets.swift in Sources */,
 				A00000000000000000000018 /* PlayerAvatar.swift in Sources */,
 				A00000000000000000000019 /* CloudProfile.swift in Sources */,

@@ -59,6 +59,7 @@ struct RoomInvite: Decodable, Identifiable {
     let fromName: String
     let roomId: String
     let mode: String
+    let playerCount: Int?
     let createdAt: Double
 }
 
@@ -168,6 +169,36 @@ struct RoomState: Decodable, Identifiable {
     var questionAudioClosed: Bool { !settings.endless && (pushClosed || audioStoppedAt != nil) }
     var acceptsNewPlayers: Bool {
         ["lobby", "preparing", "countdown", "listening", "answering", "reveal"].contains(phase)
+    }
+
+    /// The lobby and start action share the same eligibility rules.
+    func startBlockReason(localID: String, settings: RoomSettings, playlist: RoomPlaylist?) -> String? {
+        guard phase == "lobby", hostId == localID else { return "ホストがゲームを開始します" }
+        guard players.count >= 2 else { return "あと \(2 - players.count) 人で開始できます" }
+        if totalRounds > 0 {
+            if let assetsReadyIds, players.contains(where: { !assetsReadyIds.contains($0.id) }) {
+                return "全員の音源の準備が終わるまでお待ちください"
+            }
+            return nil
+        }
+        guard mode != "shared" else { return nil }
+        guard let playlist else { return "プレイリストを選んでください" }
+        guard playlist.songCount >= settings.questionCount else {
+            return "\(playlist.songCount)曲では\(settings.questionCount)問を出題できません。曲を増やすか問題数を減らしてください"
+        }
+        return nil
+    }
+
+    func exitExplanation(localID: String) -> String {
+        let message: String
+        switch phase {
+        case "lobby": message = "この待機室から抜けます。"
+        case "finished": message = "対戦結果の表示を終了し、ルームから抜けます。"
+        default: message = "進行中のゲームから抜けます。今回の最終順位には表示されません。"
+        }
+        if players.count == 1 { return message + "\nあなたが退室するとルームは閉じられます。" }
+        if hostId == localID { return message + "\nホストは残った参加者に自動で引き継がれます。" }
+        return message
     }
 
     /// Read immediately before playback, after any loading, using the latest room clock.
@@ -353,7 +384,8 @@ struct SavedProfile: Decodable {
         let songData = try JSONEncoder().encode(songs)
         let songList = try JSONSerialization.jsonObject(with: songData)
         return try await request("rooms", method: "POST", payload: ["name": name, "badge": badge ?? "", "avatar": avatar ?? "", "profileId": profileID, "profileToken": identity ?? "", "settings": rule,
-                                                                  "mode": mode, "songs": songList, "corpus": corpus, "deferQuestions": deferQuestions])
+                                                                  "mode": mode, "songs": songList, "corpus": corpus, "deferQuestions": deferQuestions,
+                                                                  "minimumPlayers": 2])
     }
 
     func join(_ id: String, name: String, badge: String? = nil, avatar: String? = nil) async throws -> RoomState {

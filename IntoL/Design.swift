@@ -20,7 +20,25 @@ enum Studio {
         static let md: CGFloat = 16
         static let lg: CGFloat = 22
     }
+    enum Card {
+        static let actionRadius = Radius.lg
+        static let groupRadius = Radius.md
+        static let borderWidth: CGFloat = 1
+        static let padding: CGFloat = 16
+    }
     static let spring = Animation.spring(response: 0.38, dampingFraction: 0.88)
+}
+
+struct StudioCardSurface: ViewModifier {
+    var interactive = false
+    private var radius: CGFloat { interactive ? Studio.Card.actionRadius : Studio.Card.groupRadius }
+
+    func body(content: Content) -> some View {
+        content
+            .background(Studio.surface, in: RoundedRectangle(cornerRadius: radius))
+            .overlay(RoundedRectangle(cornerRadius: radius)
+                .strokeBorder(Studio.line, lineWidth: Studio.Card.borderWidth))
+    }
 }
 
 struct StudioCard<Content: View>: View {
@@ -28,10 +46,9 @@ struct StudioCard<Content: View>: View {
 
     var body: some View {
         content
-            .padding(16)
+            .padding(Studio.Card.padding)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Studio.surface, in: RoundedRectangle(cornerRadius: Studio.Radius.md))
-            .overlay(RoundedRectangle(cornerRadius: Studio.Radius.md).strokeBorder(Studio.line))
+            .modifier(StudioCardSurface())
     }
 }
 
@@ -94,7 +111,7 @@ struct Artwork: View {
 
 /// Shared, interruptible feedback; accessibility settings disable spatial motion.
 struct StudioButtonStyle: ButtonStyle {
-    enum Role { case primary, secondary, tertiary }
+    enum Role { case primary, secondary, tertiary, destructive }
     let role: Role
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -103,9 +120,9 @@ struct StudioButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(role == .primary ? .headline : .subheadline, design: .rounded, weight: .semibold))
-            .foregroundStyle(isEnabled ? (role == .primary ? Studio.onAccent : Studio.accent) : Studio.secondary)
-            .padding(.horizontal, role == .primary ? 22 : role == .secondary ? 15 : 0)
-            .frame(minHeight: role == .primary ? 52 : 44)
+            .foregroundStyle(isEnabled ? (role == .primary ? Studio.onAccent : role == .destructive ? Studio.accent : Studio.primary) : Studio.secondary)
+            .padding(.horizontal, role == .primary ? 22 : role == .tertiary ? 0 : 15)
+            .frame(minHeight: role == .primary || role == .destructive ? 52 : 44)
             .background {
                 if role != .tertiary {
                     RoundedRectangle(cornerRadius: Studio.Radius.md)
@@ -113,8 +130,9 @@ struct StudioButtonStyle: ButtonStyle {
                 }
             }
             .overlay {
-                if role == .secondary {
-                    RoundedRectangle(cornerRadius: Studio.Radius.md).strokeBorder(Studio.line)
+                if role == .secondary || role == .destructive {
+                    RoundedRectangle(cornerRadius: Studio.Radius.md)
+                        .strokeBorder(role == .destructive ? Studio.accent.opacity(0.4) : Studio.line)
                 }
             }
             .contentShape(Rectangle())

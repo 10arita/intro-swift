@@ -7,7 +7,7 @@ enum CloudProfileError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .notConfigured: return "CloudKit未設定です。データは端末に保存しています"
+        case .notConfigured: return "iCloud に接続されていません。データはこの端末だけに保存されています"
         case .signedOut: return "iCloudにサインインしてください。データは端末に保存しています"
         case .restricted: return "この端末ではiCloudの利用が制限されています"
         case .temporarilyUnavailable: return "iCloudを確認できません。時間をおいて同期してください"

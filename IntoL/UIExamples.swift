@@ -13,8 +13,15 @@
 
     var body: some View {
       Group {
-        if scenario == "solo-answer" || scenario == "solo-result" {
+        if ["home", "mode", "room-selection", "code"].contains(scenario)
+          || scenario.hasPrefix("friends") || scenario.hasPrefix("account") {
+          RootView(previewStep: scenario)
+        } else if scenario == "solo-answer" || scenario == "solo-result" {
           SoloGameView()
+        } else if scenario.hasPrefix("rules-host") {
+          RoomRuleSettingsView()
+        } else if scenario.hasPrefix("rules-guest") {
+          RoomRuleDetailsView(settings: model.roomSettings)
         } else {
           RoomGameView()
         }
@@ -25,12 +32,27 @@
     }
 
     @MainActor private static func makeModel(scenario: String) -> AppModel {
-      let model = AppModel()
+      let model = AppModel(serverURL: "http://127.0.0.1:1")
+      if scenario.hasPrefix("account") { model.profileSyncStatus = CloudProfileError.notConfigured.localizedDescription }
+      if scenario == "friends-request" || scenario == "friends-invite" {
+        let request: [[String: Any]] = scenario == "friends-request" ? [[
+          "id": "fixture-request", "fromId": "fixture-haru", "fromName": "はる",
+          "roomId": "ABCDEF", "createdAt": 0,
+        ]] : []
+        let invites: [[String: Any]] = scenario == "friends-invite" ? [[
+          "id": "fixture-invite", "fromId": "fixture-haru", "fromName": "はる",
+          "roomId": "ABCDEF", "mode": "sabitro", "playerCount": 2, "createdAt": 0,
+        ]] : []
+        model.friendsState = try! JSONDecoder().decode(FriendsState.self,
+          from: JSONSerialization.data(withJSONObject: ["friends": [], "requests": request, "invites": invites]))
+      }
       let songs = ["青い空", "春風", "夜明け"].enumerated().map { index, title in
         Song(
           id: "demo:ui-\(index)", title: title, artist: "IntoL Studio", durationMS: 180_000,
           genre: "Pop")
       }
+      if ["home", "mode", "room-selection", "code"].contains(scenario)
+        || scenario.hasPrefix("friends") || scenario.hasPrefix("account") { return model }
       if scenario == "solo-answer" || scenario == "solo-result" {
         var game = SoloGame(songs: songs, playlist: "夜に聴く曲")
         game.stage = scenario == "solo-answer" ? .answering : .finished
@@ -58,7 +80,7 @@
       let ids = [localID, "fixture-b", "fixture-c", "fixture-d"]
       let names = [model.nickname, "はる", "あおい", "ゆう"]
       var players: [[String: Any]] = []
-      for index in 0..<(phase == "lobby" && !guest ? 1 : 4) {
+      for index in 0..<(phase == "lobby" && !guest ? (scenario.contains("ready") ? 2 : 1) : 4) {
         var player: [String: Any] = [
           "id": ids[index], "name": names[index], "lives": 3,
           "disqualified": false, "connected": true,
@@ -77,9 +99,18 @@
         players.append(player)
       }
       var rules = model.roomSettings
+      rules.questionCount = scenario.contains("shortage") ? 6 : songs.count
       rules.handicaps = guest ? [ids[2]: 3] : nil
+      if scenario.contains("unlimited") {
+        rules.targetScore = 0
+        rules.lives = 0
+        rules.firstBonus = 0
+        rules.wrongPenalty = 0
+        rules.firstWrongPenalty = 0
+      }
       model.roomSettings = rules
       model.appleMusicConnected = true
+      model.appleMusicPlayable = true
       model.appleMusicPlaylists = [AppleMusicPlaylist(id: "fixture", name: "夜に聴く曲")]
       if !empty {
         model.selectedAppleMusicPlaylistID = "fixture"
@@ -97,7 +128,7 @@
         "skippedIds": phase == "lobby" ? [] : [ids[3]],
         "readyIds": [], "correctPlayerIDs": phase == "reveal" ? [localID, ids[1]] : [],
         "supportsLobbyConfiguration": false,
-        "playlist": empty ? NSNull() : ["name": "夜に聴く曲", "songCount": 3],
+        "playlist": empty ? NSNull() : ["name": "夜に聴く曲", "songCount": songs.count],
       ]
       if phase == "finished" || phase == "reveal" {
         state["current"] = try! JSONSerialization.jsonObject(with: JSONEncoder().encode(songs[2]))
@@ -114,7 +145,13 @@
 
   #Preview("ホスト待機室") { UIExamples(scenario: "lobby-host") }
   #Preview("プレイリスト未選択") { UIExamples(scenario: "lobby-empty") }
+  #Preview("開始可能") { UIExamples(scenario: "lobby-ready") }
+  #Preview("曲数不足") { UIExamples(scenario: "lobby-guest-shortage") }
+  #Preview("待機室・大きな文字") { UIExamples(scenario: "lobby-guest-large-text") }
   #Preview("参加者・ダーク") { UIExamples(scenario: "lobby-guest-dark") }
+  #Preview("ルール・制限なし") { UIExamples(scenario: "rules-host-unlimited") }
+  #Preview("ルール説明・大きな文字") { UIExamples(scenario: "rules-host-unlimited-large-text") }
+  #Preview("ルール詳細・ダーク") { UIExamples(scenario: "rules-guest-unlimited-dark") }
   #Preview("対戦中") { UIExamples(scenario: "answer") }
   #Preview("対戦中・ダーク") { UIExamples(scenario: "answer-dark") }
   #Preview("大きな文字") { UIExamples(scenario: "answer-large-text") }

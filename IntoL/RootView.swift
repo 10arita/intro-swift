@@ -6,6 +6,7 @@ import CloudKit
 private enum MainTab { case play, review, friends, account }
 
 struct RootView: View {
+    var previewStep: String? = nil
     @EnvironmentObject private var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var shortcut = PracticeShortcutRoute.shared
@@ -20,13 +21,13 @@ struct RootView: View {
             VStack(spacing: 0) {
                 Group {
                     switch selectedTab {
-                    case .play: PlayView(homeToken: playHomeToken, startsTogether: startsTogether)
+                    case .play: PlayView(homeToken: playHomeToken, startsTogether: startsTogether, previewStep: previewStep)
                     case .review: ReviewView()
                     case .friends: FriendsView(onCreateRoom: {
                         startsTogether = true
                         playHomeToken += 1
                         selectedTab = .play
-                    })
+                    }, automaticallyRefresh: previewStep == nil)
                     case .account: AccountView()
                     }
                 }
@@ -58,6 +59,7 @@ struct RootView: View {
             Text(model.alert ?? "")
         }
         .task {
+            guard previewStep == nil else { return }
             model.setAppActive(scenePhase == .active)
             Task { await model.restoreRoom() }
             if model.searchSongs.isEmpty { await model.search() }
@@ -67,7 +69,7 @@ struct RootView: View {
             await model.refreshFriends(reportErrors: false)
         }
         .task(id: scenePhase) {
-            guard scenePhase == .active, model.serverConfigured else { return }
+            guard previewStep == nil, scenePhase == .active, model.serverConfigured else { return }
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .seconds(10)) }
                 catch { break }
@@ -78,6 +80,7 @@ struct RootView: View {
             Task { await openRequestedPractice() }
         }
         .onChange(of: scenePhase) { _, phase in
+            guard previewStep == nil else { return }
             model.setAppActive(phase == .active)
             if phase == .active {
                 Task {
@@ -88,6 +91,12 @@ struct RootView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .CKAccountChanged)) { _ in
             model.cloudAccountChanged()
+        }
+        .onAppear {
+            #if DEBUG
+            if previewStep?.hasPrefix("friends") == true { selectedTab = .friends }
+            if previewStep?.hasPrefix("account") == true { selectedTab = .account }
+            #endif
         }
     }
 

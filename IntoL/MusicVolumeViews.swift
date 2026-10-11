@@ -18,7 +18,7 @@ struct VolumeSettingsControls: View {
         VStack(alignment: .leading, spacing: 14) {
             volumeSlider("BGM", value: $model.bgmVolume)
             volumeSlider("効果音", value: $model.effectsVolume)
-            volumeSlider("曲（アプリ音源）", value: $model.songVolume)
+            volumeSlider("曲の音量", value: $model.songVolume)
             if model.appleMusicConnected {
                 Divider()
                 Text("Apple Music の曲（端末音量）")

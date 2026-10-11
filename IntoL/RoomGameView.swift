@@ -6,6 +6,7 @@ import SwiftUI
 private struct RoomExitConfirmation: View {
   let isPresented: Bool
   let isLeaving: Bool
+  let explanation: String
   let onCancel: () -> Void
   let onLeave: () -> Void
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -27,26 +28,27 @@ private struct RoomExitConfirmation: View {
             .fixedSize(horizontal: false, vertical: true)
             .accessibilityAddTraits(.isHeader)
             .accessibilityFocused($titleFocused)
+          Text(explanation)
+            .font(.subheadline).foregroundStyle(Studio.secondary)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
           VStack(spacing: 12) {
+            Button(role: .cancel, action: onCancel) {
+              Text("キャンセル").frame(maxWidth: .infinity)
+            }
+              .buttonStyle(StudioButtonStyle(.primary))
+              .keyboardShortcut(.cancelAction)
             Button(role: .destructive, action: onLeave) {
               HStack(spacing: 10) {
-                if isLeaving { ProgressView().tint(Studio.onAccent) }
+                if isLeaving { ProgressView().tint(Studio.accent) }
                 Text(isLeaving ? "退室しています…" : "退室する")
                   .font(.headline)
               }
-              .foregroundStyle(Studio.onAccent)
+              .foregroundStyle(Studio.accent)
               .frame(maxWidth: .infinity, minHeight: 52)
-              .background(Studio.accent, in: RoundedRectangle(cornerRadius: Studio.Radius.sm))
             }
-            Button(action: onCancel) {
-              Text("キャンセル")
-                .font(.headline)
-                .foregroundStyle(Studio.accent)
-                .frame(maxWidth: .infinity, minHeight: 52)
-                .background(Studio.raised, in: RoundedRectangle(cornerRadius: Studio.Radius.sm))
-            }
+            .buttonStyle(StudioButtonStyle(.destructive))
           }
-          .buttonStyle(StudioButtonStyle(.tertiary))
           .disabled(isLeaving)
         }
         .padding(24)
@@ -87,26 +89,28 @@ struct RoomGameView: View {
               Button {
                 setLeaveConfirmation(true)
               } label: {
-                Image(systemName: "xmark").font(.headline).foregroundStyle(Studio.primary)
+                Image(systemName: "xmark").font(.system(size: 17, weight: .semibold)).foregroundStyle(Studio.primary)
                   .frame(width: 44, height: 44).background(Studio.surface, in: Circle())
               }
               .accessibilityLabel("ルームを退出")
               Spacer()
-              Text(room.phase == "lobby" ? "対戦待機室" : room.id)
+              if room.phase != "lobby" {
+                Text(room.id)
                 .font(.system(size: 17, weight: .bold, design: .monospaced))
                 .tracking(2)
-                .foregroundStyle(Studio.accent)
+                .foregroundStyle(Studio.secondary)
                 .textSelection(.enabled)
-              Button {
-                showFriends = true
-              } label: {
-                Image(systemName: "person.2")
-                  .font(.system(size: 17, weight: .medium))
-                  .foregroundStyle(Studio.primary)
-                  .frame(width: 44, height: 44)
-                  .background(Studio.surface, in: Circle())
+                Button {
+                  showFriends = true
+                } label: {
+                  Image(systemName: "person.2")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(Studio.primary)
+                    .frame(width: 44, height: 44)
+                    .background(Studio.surface, in: Circle())
+                }
+                .accessibilityLabel("フレンドと招待")
               }
-              .accessibilityLabel("フレンドと招待")
               GameVolumeButton { showVolumeSettings = true }
             }
             .padding(.horizontal, 24)
@@ -261,6 +265,16 @@ struct RoomGameView: View {
             }
             .scrollBounceBehavior(.basedOnSize)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .bottom) {
+              if room.phase == "lobby" {
+                LinearGradient(colors: [Studio.background.opacity(0), Studio.background],
+                               startPoint: .top, endPoint: .bottom)
+                  .frame(height: 24).allowsHitTesting(false).accessibilityHidden(true)
+              }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+              if room.phase == "lobby" { lobbyFooter(room) }
+            }
             .animation(
               reduceMotion || room.isAnswering(model.rooms.playerId) ? nil : Studio.spring,
               value: room.phase)
@@ -269,19 +283,6 @@ struct RoomGameView: View {
       }
     }
     .modifier(ChoiceFeedbackPresentation(feedback: model.roomChoiceFeedback))
-    .safeAreaInset(edge: .bottom, spacing: 0) {
-      if let room = model.room, room.phase == "lobby", room.hostId == model.rooms.playerId {
-        VStack(spacing: 8) {
-          if let progress = model.roomStartProgress {
-            PreparationProgressView(
-              status: model.preparationStatus ?? "ゲームを準備中", progress: progress)
-          }
-          RoomLobbyStartButton().frame(maxWidth: 560).padding(.horizontal, 20).padding(
-            .vertical, 12)
-        }
-        .frame(maxWidth: .infinity).background(Studio.background)
-      }
-    }
     .overlay {
       if showFriends {
         FriendsView(inRoom: true, onClose: { showFriends = false })
@@ -290,10 +291,12 @@ struct RoomGameView: View {
       }
     }
     .allowsHitTesting(!showLeaveConfirmation)
+    .accessibilityElement(children: .contain)
     .accessibilityHidden(showLeaveConfirmation)
     .overlay {
       RoomExitConfirmation(
         isPresented: showLeaveConfirmation, isLeaving: leavingRoom,
+        explanation: model.room?.exitExplanation(localID: model.rooms.playerId) ?? "",
         onCancel: { setLeaveConfirmation(false) }, onLeave: confirmLeaveRoom)
     }
     .sheet(isPresented: $showVolumeSettings) {
@@ -307,6 +310,28 @@ struct RoomGameView: View {
     .sheet(item: $selectedProfile) { target in
       PlayerProfileSheet(target: target).environmentObject(model)
     }
+  }
+
+  private func lobbyFooter(_ room: RoomState) -> some View {
+    VStack(spacing: 8) {
+      if room.hostId == model.rooms.playerId {
+        if let progress = model.roomStartProgress {
+          PreparationProgressView(status: model.preparationStatus ?? "ゲームを準備中", progress: progress)
+        }
+        RoomLobbyStartButton()
+      } else {
+        HStack(spacing: 10) {
+          if reduceMotion { Image(systemName: "hourglass").accessibilityHidden(true) }
+          else { ProgressView().tint(Studio.secondary).accessibilityHidden(true) }
+          Text("ホストの開始を待っています…")
+            .font(.subheadline).foregroundStyle(Studio.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, minHeight: 44)
+      }
+    }
+    .frame(maxWidth: 560).padding(.horizontal, 20).padding(.vertical, 12)
+    .frame(maxWidth: .infinity).background(Studio.background)
   }
 
   private func setLeaveConfirmation(_ presented: Bool) {

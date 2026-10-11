@@ -125,6 +125,7 @@ struct FriendsView: View {
     var inRoom = false
     var onClose: (() -> Void)? = nil
     var onCreateRoom: (() -> Void)? = nil
+    var automaticallyRefresh = true
     @State private var selectedProfile: PlayerProfileTarget?
 
     private var notificationCount: Int {
@@ -142,13 +143,6 @@ struct FriendsView: View {
                                 .foregroundStyle(Studio.primary)
                                 .accessibilityAddTraits(.isHeader)
                             Spacer()
-                            Button { Task { await model.refreshFriends() } } label: {
-                                Image(systemName: "arrow.clockwise")
-                                    .font(.system(size: 18, weight: .medium))
-                                    .frame(width: 44, height: 44)
-                            }
-                            .accessibilityLabel("フレンド情報を更新")
-                            .disabled(!model.serverConfigured || model.friendsLoading)
                             if inRoom {
                                 Button("閉じる") { onClose?() }
                                     .frame(minWidth: 44, minHeight: 44)
@@ -156,18 +150,21 @@ struct FriendsView: View {
                         }
                         if let state = model.friendsState {
                             if !state.invites.isEmpty {
-                                FriendNotificationBanner(title: "📩 ルーム招待が\(state.invites.count)件届いています") {
+                                FriendNotificationBanner(title: "ルーム招待が\(state.invites.count)件届いています", symbol: "envelope") {
                                     ForEach(state.invites) { invite in
                                         HStack(spacing: 12) {
                                             VStack(alignment: .leading, spacing: 4) {
                                                 Text(invite.fromName).font(.subheadline.bold())
-                                                Text("\(invite.mode == "shared" ? "共有音源" : invite.mode == "applemusic" ? "Apple Music" : "サビトロ") のルーム")
+                                                Text("\(invite.mode == "sabitro" ? "サビトロ" : "イントロ") · \(invite.playerCount.map { "\($0)/4人" } ?? "2〜4人")")
                                                     .font(.caption).foregroundStyle(Studio.secondary)
                                             }
                                             Spacer()
                                             Button("参加") { Task { await model.joinInvite(invite.id) } }
-                                                .buttonStyle(StudioButtonStyle(.secondary))
-                                                .disabled(model.busy || model.room != nil)
+                                                .buttonStyle(StudioButtonStyle(.primary))
+                                                .disabled(model.busy || model.room != nil || (invite.playerCount ?? 0) >= 4)
+                                            if (invite.playerCount ?? 0) >= 4 {
+                                                Text("満員です").font(.caption).foregroundStyle(Studio.secondary)
+                                            }
                                         }
                                         if invite.id != state.invites.last?.id { Divider() }
                                     }
@@ -178,16 +175,20 @@ struct FriendsView: View {
                                 }
                             }
                             if !state.requests.isEmpty {
-                                FriendNotificationBanner(title: "📩 フレンド申請が\(state.requests.count)件届いています") {
+                                FriendNotificationBanner(title: "フレンド申請が\(state.requests.count)件届いています", symbol: "person.crop.circle.badge.plus") {
                                     ForEach(state.requests) { request in
-                                        HStack(spacing: 8) {
+                                        VStack(alignment: .leading, spacing: 12) {
                                             Text(request.fromName).font(.subheadline.bold())
                                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                            Button("承認") { Task { await model.respondToFriendRequest(request.id, accept: true) } }
-                                                .buttonStyle(StudioButtonStyle(.secondary))
-                                            Button("拒否") { Task { await model.respondToFriendRequest(request.id, accept: false) } }
-                                                .foregroundStyle(Studio.secondary)
-                                                .frame(minWidth: 44, minHeight: 44)
+                                            HStack(spacing: 16) {
+                                                Button { Task { await model.respondToFriendRequest(request.id, accept: true) } } label: {
+                                                    Text("承認").frame(maxWidth: .infinity)
+                                                }
+                                                    .buttonStyle(StudioButtonStyle(.primary))
+                                                Button("拒否") { Task { await model.respondToFriendRequest(request.id, accept: false) } }
+                                                    .frame(minWidth: 64, minHeight: 44)
+                                                    .buttonStyle(StudioButtonStyle(.tertiary))
+                                            }
                                         }
                                         .disabled(model.friendsLoading)
                                         if request.id != state.requests.last?.id { Divider() }
@@ -217,7 +218,9 @@ struct FriendsView: View {
             }
             .background(Studio.background)
             .toolbar(.hidden, for: .navigationBar)
-            .task { await model.refreshFriends() }
+            .task {
+                if automaticallyRefresh { await model.refreshFriends() }
+            }
             .sheet(item: $selectedProfile) { target in
                 PlayerProfileSheet(target: target).environmentObject(model)
             }
@@ -232,10 +235,14 @@ struct FriendsView: View {
                 .frame(width: 104, height: 104)
                 .background(Studio.raised, in: Circle())
                 .accessibilityHidden(true)
-            Text("対戦後にフレンド申請を送れます")
+            Text("まずは友だちと対戦してみよう")
                 .font(.headline)
                 .foregroundStyle(Studio.primary)
                 .multilineTextAlignment(.center)
+            Text("ルームで一緒に遊んだ相手に、フレンド申請を送れます")
+                .font(.subheadline).foregroundStyle(Studio.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
             if model.room == nil, let onCreateRoom {
                 PrimaryButton(title: "ルームを作成する", symbol: "plus", disabled: !model.serverConfigured, action: onCreateRoom)
                     .frame(maxWidth: 320)
@@ -297,6 +304,7 @@ struct FriendsView: View {
 
 private struct FriendNotificationBanner<Content: View>: View {
     let title: String
+    let symbol: String
     @ViewBuilder var content: Content
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var appeared = false
@@ -305,15 +313,15 @@ private struct FriendNotificationBanner<Content: View>: View {
         DisclosureGroup {
             VStack(alignment: .leading, spacing: 12) { content }.padding(.top, 12)
         } label: {
-            Text(title)
+            Label(title, systemImage: symbol)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(Studio.primary)
                 .frame(minHeight: 44)
         }
-        .tint(Studio.accent)
+        .tint(Studio.secondary)
         .padding(.horizontal, 16)
         .padding(.vertical, 4)
-        .background(Studio.raised, in: RoundedRectangle(cornerRadius: Studio.Radius.md))
+        .modifier(StudioCardSurface())
         .scaleEffect(appeared || reduceMotion ? 1 : 0.94)
         .opacity(appeared ? 1 : 0)
         .transition(.opacity.combined(with: .scale(scale: 0.94, anchor: .top)))

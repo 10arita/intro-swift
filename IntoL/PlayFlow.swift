@@ -17,6 +17,8 @@ func playSharedAxisTransition(forward: Bool, reduceMotion: Bool) -> AnyTransitio
 struct PlayView: View {
     let homeToken: Int
     var startsTogether = false
+    // Used by the offline UIExamples fixtures.
+    var previewStep: String? = nil
     @EnvironmentObject private var model: AppModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var step: PlayStep = .home
@@ -36,7 +38,17 @@ struct PlayView: View {
             .toolbar(.hidden, for: .navigationBar)
             .sensoryFeedback(.selection, trigger: step)
             .onChange(of: homeToken) { _, _ in resetToHome() }
-            .onAppear { if startsTogether { step = .together } }
+            .onAppear {
+                if startsTogether { step = .together }
+                #if DEBUG
+                switch previewStep {
+                case "mode": step = .mode(.solo)
+                case "room-selection": step = .together
+                case "code": step = .join
+                default: break
+                }
+                #endif
+            }
         }
     }
 
@@ -51,7 +63,7 @@ struct PlayView: View {
                         VStack(alignment: .leading, spacing: 10) {
                             Text(contextTitle)
                                 .font(.caption.weight(.bold))
-                                .foregroundStyle(Studio.accent)
+                                .foregroundStyle(Studio.secondary)
                             Text(pageTitle)
                                 .font(.system(.largeTitle, design: .rounded, weight: .bold))
                                 .foregroundStyle(Studio.primary)
@@ -98,12 +110,12 @@ struct PlayView: View {
                     }
                     Spacer(minLength: 8)
                     VStack(spacing: 16) {
-                        PlayFlowCard(title: "ひとりで", subtitle: "好きなプレイリストで、じっくり腕試し。",
-                                     symbol: "headphones", badge: "SOLO", emphasized: true) {
+                        PlayFlowCard(title: "ひとりで", subtitle: "じっくり腕試し",
+                                     symbol: "headphones") {
                             navigate(to: .mode(.solo))
                         }
-                        PlayFlowCard(title: "みんなで", subtitle: "ルームを作って、友だちと早押し対戦。",
-                                     symbol: "person.2.fill", badge: "2–4 PLAYERS", disabled: !model.serverConfigured) {
+                        PlayFlowCard(title: "みんなで", subtitle: "友だちと早押し対戦",
+                                     symbol: "person.2.fill", badge: "2〜4人", disabled: !model.serverConfigured) {
                             navigate(to: .together)
                         }
                     }
@@ -126,7 +138,7 @@ struct PlayView: View {
                         .frame(minHeight: 44)
                 }
                 .buttonStyle(StudioButtonStyle(.tertiary))
-                .foregroundStyle(Studio.accent)
+                .foregroundStyle(Studio.primary)
                 .disabled(model.busy || creatingRoom)
                 Spacer()
                 Text("IntoL").font(.title3.bold()).foregroundStyle(Studio.primary)
@@ -143,24 +155,24 @@ struct PlayView: View {
         switch step {
         case .together:
             VStack(spacing: 16) {
-                PlayFlowCard(title: "ルームを作る", subtitle: "モードを選んで、みんなを招待。",
-                             symbol: "plus", badge: "HOST", emphasized: true) {
+                PlayFlowCard(title: "ルームを作る", subtitle: "友だちを招待しよう",
+                             symbol: "plus") {
                     navigate(to: .mode(.together))
                 }
-                PlayFlowCard(title: "コードで参加", subtitle: "届いた6文字のコードで合流。",
-                             symbol: "ticket.fill", badge: "JOIN") {
+                PlayFlowCard(title: "コードで参加", subtitle: "6文字のコードで合流",
+                             symbol: "ticket.fill") {
                     navigate(to: .join)
                 }
             }
         case .mode(let party):
             VStack(spacing: 16) {
-                PlayFlowCard(title: "イントロ", subtitle: "曲のはじまりで、曲名を当てよう。",
-                             symbol: "play.fill", badge: "INTRO", emphasized: true,
+                PlayFlowCard(title: "イントロ", subtitle: "曲のはじまりを聴こう",
+                             symbol: "play.fill",
                              disabled: model.busy || creatingRoom) {
                     choose(.intro, party: party)
                 }
-                PlayFlowCard(title: "サビトロ", subtitle: "おなじみのサビから、早押しクイズ。",
-                             symbol: "waveform", badge: "SABITRO",
+                PlayFlowCard(title: "サビトロ", subtitle: "サビを聴いて当てよう",
+                             symbol: "music.note.list", badge: "SABITRO",
                              disabled: !model.serverConfigured || model.busy || creatingRoom) {
                     choose(.sabitro, party: party)
                 }
@@ -252,8 +264,7 @@ private struct PlayFlowCard: View {
     let title: String
     let subtitle: String
     let symbol: String
-    let badge: String
-    var emphasized = false
+    var badge: String? = nil
     var disabled = false
     let action: () -> Void
 
@@ -262,31 +273,32 @@ private struct PlayFlowCard: View {
             HStack(spacing: 16) {
                 Image(systemName: symbol)
                     .font(.system(size: 26, weight: .semibold))
-                .foregroundStyle(emphasized && !disabled ? Studio.onAccent : Studio.accent)
-                .frame(width: 64, height: 64)
-                .background(emphasized && !disabled ? Studio.onAccent.opacity(0.12) : Studio.raised,
+                .foregroundStyle(Studio.accent)
+                .frame(width: 48, height: 56)
+                .background(Studio.raised,
                             in: RoundedRectangle(cornerRadius: Studio.Radius.md))
                 .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 7) {
-                    Text(badge).font(.caption2.weight(.bold)).tracking(1.4)
+                    if let badge {
+                        Text(badge).font(.caption2.weight(.semibold)).foregroundStyle(Studio.secondary)
+                    }
                     Text(title).font(.system(.title3, design: .rounded, weight: .bold))
                     Text(subtitle)
                         .font(.subheadline)
-                        .opacity(emphasized && !disabled ? 0.9 : 1)
+                        .foregroundStyle(Studio.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .foregroundStyle(emphasized && !disabled ? Studio.onAccent : Studio.primary)
+                .foregroundStyle(Studio.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
                 Image(systemName: "chevron.right")
                     .font(.subheadline.bold())
-                    .foregroundStyle(emphasized && !disabled ? Studio.onAccent : Studio.accent)
+                    .foregroundStyle(Studio.secondary)
                     .accessibilityHidden(true)
             }
             .padding(18)
             .frame(maxWidth: .infinity, minHeight: 126, alignment: .leading)
-            .background(emphasized && !disabled ? Studio.accent : Studio.surface,
-                        in: RoundedRectangle(cornerRadius: Studio.Radius.lg))
-            .overlay(RoundedRectangle(cornerRadius: Studio.Radius.lg).strokeBorder(emphasized && !disabled ? .clear : Studio.line))
+            .modifier(StudioCardSurface(interactive: true))
             .opacity(disabled ? 0.6 : 1)
             .contentShape(RoundedRectangle(cornerRadius: Studio.Radius.lg))
         }

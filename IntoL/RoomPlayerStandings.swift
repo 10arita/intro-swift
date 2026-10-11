@@ -146,7 +146,7 @@ private struct RoomPlayerTile: View {
       }
       .accessibilityElement(children: .ignore)
       .accessibilityLabel(
-        "\(player.currentResult == "correct" ? "正解" : player.currentResult == "wrong" ? "不正解" : "未判定")、ライフ\(livesUnlimited ? "無制限" : "\(player.lives)")"
+        "\(player.currentResult == "correct" ? "正解" : player.currentResult == "wrong" ? "不正解" : "未判定")、ライフ\(livesUnlimited ? "制限なし" : "\(player.lives)")"
       )
       Text(String(format: "%.3f秒", (pushTimeMS ?? 0) / 1000)).font(.caption2.monospacedDigit())
         .foregroundStyle(Studio.secondary).lineLimit(1).minimumScaleFactor(0.8)

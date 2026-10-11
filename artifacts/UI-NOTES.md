@@ -1,43 +1,53 @@
-# UI refresh
+# UI refresh — 2026-10-11
 
-The play flow keeps the Studio red, pink and white palette. Home retains the IntoL wordmark and animated waveform, displays the app version, and uses horizontal cards with a leading icon, descriptions and a trailing chevron. Solo proceeds through quiz mode and Apple Music playlist selection. Multiplayer branches into creating a room or entering a code before choosing any quiz mode. The headings are “ルーム選択” and “モード選択”, and the Sabitro card uses “SABITRO”. Host mode selection creates a deferred-question room directly; playlists and rules stay in the lobby. Original-audio, shared-audio and preview-song-search choices have been removed from this flow. On iOS 26, the bottom menu uses a glass capsule.
+Home, room selection, and quiz mode selection use matching white action cards. Only the leading icons carry the Studio red; chevrons, back actions, breadcrumb text, and player names use neutral text colors. Red remains on primary actions and selected tabs. Repeated SOLO / INTRO / HOST / JOIN overlines were removed. Player metadata is Japanese “2〜4人”; SABITRO remains the brand label. Short Japanese descriptions fit comfortably at the default text size. Sabitro uses music.note.list, distinct from the Play tab's waveform.
 
-Each forward/back step uses a horizontal shared-axis transition with a fade. The same axis brings in the room lobby and solo game. Step bars and the small waveform illustrations beneath card icons have been removed. Reduce Motion uses only a fade.
+Shared card tokens define action-card and grouped-information radii, padding, and border width. Home choices, settings groups, volume cards, and friend notifications share the same surface and border system. Requests use SF Symbols, a primary approval button, and a text rejection control with at least a 44pt tap target. Friends uses pull-to-refresh and an empty-state explanation connecting multiplayer to friend requests. Invitations show the mode and current occupancy; full-room invitations are disabled with a reason. Older servers without occupancy data still decode and show the generic 2〜4人 range.
 
-Room entry presents six code boxes over one native text input, preserving keyboard editing, OTP autofill and native paste. Its subtitle is “英字6桁のルームコードを入力してください。”. The keyboard is ASCII-capable and capitalizes every letter. Clipboard text availability is checked on entry, foregrounding and pasteboard changes; content is read when the user presses “クリップボードから貼付”. Paste accepts a bare code or a labeled invitation, normalizes lowercase/full-width letters, and rejects incomplete, numeric or overlong codes. Six letters trigger one join request, with input disabled during the request and inline correction/retry controls after failure. The lobby shares a labeled invitation through ShareLink; copying is available in the system share sheet. The separate copy and Apple Music connection buttons have been removed from the lobby.
+The lobby header contains close and volume controls. “対戦待機室” appears once, with waiting/full state below it. The display code is a monospaced capsule, distinct from six input boxes. Copy and Share are matching secondary buttons. The local player has an outline and “あなた” label; the host has a crown and text role label. A full lobby explains why invitations are disabled. Guests have a fixed waiting footer; Reduce Motion uses a static hourglass. At accessibility text sizes, the player grid switches to two columns and Copy/Share stack vertically. The settings card summarizes playlist / questions / lives; configuration and read-only rule details remain accessible after expanding it. The footer occupies a safe-area inset and a small fade signals more scroll content.
 
-The room’s top-left close button opens “ルームを退室しますか？” during both lobby and game phases. The confirmation panel scales in over a dimmed background, blocks interaction with the room, and offers cancel and leave actions. Duplicate leave requests are blocked while leaving. Reduce Motion uses a fade, and VoiceOver focus moves to the confirmation heading.
+Read-only rule details now use a plain vertical list instead of a summary card. Each rule has its own label/value row, grouped under 出題 and 得点とライフ. Zero target score is shown as なし, zero lives as 無制限, and endless mode removes the answer-slot limit. The host's rule editor is unchanged. The follow-up built with no warnings or errors and was checked in the signed com.intro.IntoL app on iPhone 17 Pro / iOS 26.5: opening details, dismissing with 完了, all nine rows at the default text size, and scrolling to the final row at the largest system text size. The simulator's original large text-size setting was restored afterward. The new detail screenshot uses the current status-bar time.
 
-Review uses a native List with staggered card entrances, persistent segment counts, circular check/return controls, and native trailing swipe deletion. Artwork follows a shrinking arc into the destination segment, which pops on arrival. Learning changes persist at the start of the animation; switching tabs or enabling Reduce Motion cancels only the decoration. The native delete action animates the row removal and also remains available to VoiceOver.
+Start availability is shared between the lobby and start action. It requires two players, enough playlist songs for the question count, Apple Music authorization/subscription where applicable, and all players' asset readiness for already-prepared rooms. The action rechecks eligibility after lobby synchronization and after song preparation. Current app room creation sends minimumPlayers: 2; the server persists it and rejects starts if a participant leaves before the request arrives. Legacy room/client behavior is retained. Matching can still find fewer playable unique songs than the library count; the existing preparation error explains that shortage.
 
-Friends shows notification disclosures only when invitations or requests exist. An empty state guides players into the multiplayer flow; populated friend lists use the main area without surrounding empty cards. The account header combines avatar, name, and inline editing. Focus expands the name field ring. Apple Music and iCloud use grouped settings rows with status badges. A DisclosureGroup labeled “外部連携するとできること” sits below iCloud and explains playlist playback and iCloud data syncing when expanded. All new spatial motion respects Reduce Motion; oversized text wraps and retains scrolling.
+Exit confirmations emphasize Cancel and use an outlined destructive Leave button. The explanation follows the implementation: the host transfers automatically to a remaining participant, the final departure closes the room, and a player leaving during a game is removed from its final standings. Per-question statistics already saved remain recorded, so the dialog does not claim all score records are discarded. Account uses a neutral name with an adjacent edit icon, attention-colored inactive connection badges, “接続する” for Apple Music, plain iCloud/local-storage wording, and “曲の音量”.
 
-## Current screenshots — 2026-10-07
+## Current screenshots
 
-All 15 existing JPEG screenshots were replaced, and `account.jpg` was added. The captures show the current v5.1.0 code on iPhone 17 Pro / iOS 26.5, in light mode at the default text size. Images retain the existing 368 × 800 JPEG format, with the status bar time set to 9:41.
+All 16 existing JPEGs were refreshed and seven verification images were added. Captures use an isolated com.intro.IntoL.UIReview bundle on iPhone 17 Pro / iOS 26.5, v5.1.1, 368 × 800 JPEG, with the status bar fixed to 9:41. Offline Debug fixtures use a local-only service URL and skip automatic friend refresh. Normal app data and repository environment settings were preserved. Account fixtures show the iCloud-not-connected message without exercising live iCloud. The original 3-song / 6-question fixture mismatch is fixed to 3 questions; explicit shortage fixtures retain 6 questions.
 
 | Screen | Screenshot |
 | --- | --- |
-| Home | [play-flow-home.jpg](play-flow-home.jpg), [home.jpg](home.jpg) |
+| Home | [home.jpg](home.jpg), [play-flow-home.jpg](play-flow-home.jpg) |
 | Room selection | [play-flow-room-selection.jpg](play-flow-room-selection.jpg) |
-| Solo mode selection | [play-flow-mode.jpg](play-flow-mode.jpg) |
-| Solo playlist / Apple Music connection | [play-flow-playlist.jpg](play-flow-playlist.jpg), [sources.jpg](sources.jpg) |
-| Room code entry | [play-flow-code.jpg](play-flow-code.jpg) |
-| Host lobby | [play-flow-host.jpg](play-flow-host.jpg) |
-| Participant lobby | [play-flow-participant.jpg](play-flow-participant.jpg) |
-| Lobby exit confirmation | [room-exit-confirmation.jpg](room-exit-confirmation.jpg) |
-| Game exit confirmation | [game-exit-confirmation.jpg](game-exit-confirmation.jpg) |
-| Friends, empty state | [friends.jpg](friends.jpg) |
-| Incoming friend request, expanded | [friend-request.jpg](friend-request.jpg) |
-| Incoming room invitation, expanded | [invite.jpg](invite.jpg) |
-| Account settings | [account.jpg](account.jpg) |
-| External connection benefits, expanded | [account-connection-benefits.jpg](account-connection-benefits.jpg) |
+| Mode selection | [play-flow-mode.jpg](play-flow-mode.jpg) |
+| Solo playlist connection | [play-flow-playlist.jpg](play-flow-playlist.jpg), [sources.jpg](sources.jpg) |
+| Input code boxes, keyboard hidden | [play-flow-code.jpg](play-flow-code.jpg) |
+| Host, one participant / disabled start | [play-flow-host.jpg](play-flow-host.jpg) |
+| Guest, full lobby / waiting footer | [play-flow-participant.jpg](play-flow-participant.jpg) |
+| Guest, read-only rule list | [lobby-guest-rule-details.jpg](lobby-guest-rule-details.jpg) |
+| Lobby exit / host transfer explanation | [room-exit-confirmation.jpg](room-exit-confirmation.jpg) |
+| Game exit | [game-exit-confirmation.jpg](game-exit-confirmation.jpg) |
+| Friends / requests / invitations | [friends.jpg](friends.jpg), [friend-request.jpg](friend-request.jpg), [invite.jpg](invite.jpg) |
+| Account / benefits | [account.jpg](account.jpg), [account-connection-benefits.jpg](account-connection-benefits.jpg) |
+| Two participants / enabled start | [lobby-ready.jpg](lobby-ready.jpg) |
+| Song shortage, host / guest | [lobby-host-song-shortage.jpg](lobby-host-song-shortage.jpg), [lobby-song-shortage.jpg](lobby-song-shortage.jpg) |
+| Dark lobby | [lobby-guest-dark.jpg](lobby-guest-dark.jpg) |
+| Largest Dynamic Type, code / players / settings | [lobby-large-text.jpg](lobby-large-text.jpg), [lobby-large-text-players.jpg](lobby-large-text-players.jpg), [lobby-large-text-settings.jpg](lobby-large-text-settings.jpg) |
 
-- XcodeBuildMCP built the current source successfully with no warnings or errors. A separate `com.intro.IntoL.ArtifactsQA` app bundle used a temporary local server; repository configuration and the normal app's data were preserved.
-- Home, selections, code entry, empty Friends and Account were captured through the normal UI. Incoming requests and invitations used synthetic players against the current local server.
-- Host lobby, participant lobby and game exit confirmation used the existing `UIExamples.swift` fixtures (`lobby-host`, `lobby-guest`, `answer`); lobby exit confirmation was opened from the host fixture. Playlist names, songs, room code and player records in those images are sample data. The host image shows a selected sample playlist; the participant image shows four players.
-- The software keyboard is hidden in the code-entry capture. CloudKit is disabled in the isolated QA build, so Account shows “未設定”. Live Apple Music playback, subscription authorization and iCloud synchronization were not verified by these captures.
-- All 16 images were visually inspected before replacement. `home.jpg` and `sources.jpg` retain their existing filenames as aliases of the current home and playlist captures. `ui-demo.mp4` remains the historical 2026-09-28 recording.
+The app built with no warnings or errors. Runtime checks covered neutral choice cards, copy feedback, Cancel retaining the room, full-room invitation state, enabled/disabled start, song shortage, the guest footer, connection benefits, and scrolling to players and settings at the largest Dynamic Type size. All images were visually inspected. Apple Music playback, actual subscription authorization, live iCloud synchronization, and multi-device timing were not exercised.
+
+Validation passed: server node --test (74 tests), room-lobby readiness, room-action recovery, playlist preparation, game recovery, CloudProfile, and room-code Swift tests. The full server suite was rerun with local socket permissions after the sandbox prevented a localhost WebSocket listener from opening. ui-demo.mp4 remains the historical 2026-09-28 recording. Server occupancy metadata and enforcement of the two-player minimum for new app rooms require redeploying the updated server.
+
+## Room rule help (2026-10-11)
+
+All nine room rules have a small, muted circled question mark beside the label. It opens a scale-and-fade explanation card; Reduce Motion uses a fade. Editing and read-only details share the descriptions. Help remains available when endless mode disables answer-slot editing. Long explanations scroll at the largest Dynamic Type size, with the close button kept visible; the underlying settings are hidden from accessibility while help is open.
+
+Victory target and lives display “制限なし” for zero in their original value positions and wheel options. Lobby summaries and guest details use the same wording. Zero bonuses and penalties remain numeric. Endless mode displays “制限なし” for its disabled answer-slot value.
+
+XcodeBuildMCP built the app with no warnings or errors on iPhone 17 Pro / iOS 26.5. Runtime verification covered opening and closing all nine explanations, unchanged setting values, the victory-target wheel, endless-mode help, dark details, and scrolling long explanations at accessibility5. Direct fixtures are `rules-host-unlimited`, `rules-host-unlimited-large-text`, and `rules-guest-unlimited-dark`.
+
+Screenshots: [rule settings](room-rules-unlimited.jpg), [explanation](room-rule-explanation.jpg), [dark explanation](room-rule-explanation-dark.jpg), [largest text](room-rule-explanation-large-text.jpg).
 
 ## References
 - Apple iOS UI Kit: https://www.sketch.com/s/04c24d8b-38fb-4afb-8836-36617e022f02/symbols

@@ -41,7 +41,7 @@ struct SoloGame {
     @Published var preparationStatus: String?
     @Published var roomStartProgress: Double?
     @Published var alert: String?
-    let serverURL = AppConfiguration.serverURL
+    let serverURL: String
     var serverConfigured: Bool { !serverURL.isEmpty }
     @Published var nickname = UserDefaults.standard.string(forKey: "nickname") ?? "プレイヤー" {
         didSet { UserDefaults.standard.set(nickname, forKey: "nickname"); persist() }
@@ -173,7 +173,8 @@ struct SoloGame {
     private var chorusLookups: [String: Task<Int?, Never>] = [:]
     private var revealAudioTask: Task<Void, Never>?
 
-    init() {
+    init(serverURL: String = AppConfiguration.serverURL) {
+        self.serverURL = serverURL
         if let data = UserDefaults.standard.data(forKey: "reviews"), let decoded = try? JSONDecoder().decode([ReviewSong].self, from: data) { reviews = decoded }
         if let data = UserDefaults.standard.data(forKey: "history"), let decoded = try? JSONDecoder().decode([SoloResult].self, from: data) { history = decoded }
         if let data = UserDefaults.standard.data(forKey: "stats"), let decoded = try? JSONDecoder().decode(PlayerStats.self, from: data) { stats = decoded }
@@ -969,10 +970,15 @@ struct SoloGame {
         return RoomPlaylist(name: String(playlist.name.prefix(60)), songCount: appleMusicSongs.count)
     }
 
-    var roomPlaylistReady: Bool {
-        guard let room else { return false }
-        return room.totalRounds > 0 || room.mode == "shared" ||
-            (selectedRoomPlaylist != nil && !appleMusicSongs.isEmpty)
+    var roomStartBlockReason: String? {
+        guard let room else { return "ルームに参加してください" }
+        if let reason = room.startBlockReason(localID: rooms.playerId, settings: roomSettings, playlist: selectedRoomPlaylist) {
+            return reason
+        }
+        if room.mode == "applemusic", !appleMusicConnected || !appleMusicPlayable {
+            return "Apple Music に接続し、サブスクリプションを確認してください"
+        }
+        return nil
     }
 
     /// Serialize lobby updates so a slower request cannot overwrite a newer selection.
@@ -1019,12 +1025,12 @@ struct SoloGame {
 
     func startRoom() async {
         guard let current = room, current.phase == "lobby", current.hostId == rooms.playerId,
-              !busy, roomPlaylistReady else { return }
+              !busy, roomStartBlockReason == nil else { return }
         // Complete pending metadata updates before the room leaves the lobby.
         await roomLobbySyncTask?.value
         guard room?.id == current.id, room?.gameNumber == current.gameNumber,
               room?.phase == "lobby", room?.hostId == rooms.playerId,
-              !busy, roomPlaylistReady else { return }
+              !busy, roomStartBlockReason == nil else { return }
         let selectedSettings = roomSettings
         let selectedPlaylistSongs = appleMusicSongs
         let selectedPlaylist = selectedRoomPlaylist
@@ -1097,6 +1103,7 @@ struct SoloGame {
             try Task.checkCancellation()
             guard room?.id == current.id, room?.phase == "lobby", room?.gameNumber == current.gameNumber,
                   room?.hostId == rooms.playerId else { return }
+            if let reason = roomStartBlockReason { throw AppError.message(reason) }
             preparationStatus = "ゲームを開始中"
             roomStartProgress = (preparationSteps - 1) / preparationSteps
             let started = try await rooms.action("start", id: current.id,

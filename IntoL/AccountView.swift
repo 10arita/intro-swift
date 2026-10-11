@@ -10,6 +10,9 @@ struct AccountView: View {
     @State private var showAvatarSettings = false
     @State private var editingName = false
     @State private var draftName = ""
+    #if DEBUG
+    @State private var showChorusTool = false
+    #endif
     @FocusState private var nameFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -102,6 +105,18 @@ struct AccountView: View {
                             VolumeSettingsControls()
                         }
                     }
+                    #if DEBUG
+                    StudioCard {
+                        VStack(alignment: .leading, spacing: 12) {
+                            SectionCaption(title: "開発者ツール")
+                            Button { showChorusTool = true } label: {
+                                Label("Apple Musicのサビ位置を登録", systemImage: "waveform.badge.plus")
+                            }
+                            .buttonStyle(StudioButtonStyle(.secondary))
+                            .accessibilityIdentifier("open-chorus-tool")
+                        }
+                    }
+                    #endif
                     }
                 }
                 .padding(20)
@@ -127,6 +142,9 @@ struct AccountView: View {
             AvatarSettingsView()
                 .environmentObject(model)
         }
+        #if DEBUG
+        .sheet(isPresented: $showChorusTool) { ChorusDeveloperView() }
+        #endif
     }
 
     private var profileHeader: some View {
@@ -159,13 +177,15 @@ struct AccountView: View {
                         draftName = model.nickname
                         editingName = true
                     } label: {
-                        HStack(spacing: 12) {
+                        HStack(spacing: 8) {
                             Text(model.nickname).font(.title3.bold())
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .foregroundStyle(Studio.primary)
+                                .fixedSize(horizontal: false, vertical: true)
                             Image(systemName: "pencil")
                                 .font(.system(size: 18, weight: .medium))
-                                .foregroundStyle(Studio.accent)
+                                .foregroundStyle(Studio.secondary)
                                 .accessibilityHidden(true)
+                            Spacer(minLength: 0)
                         }
                         .frame(minHeight: 44)
                         .contentShape(Rectangle())
@@ -206,7 +226,7 @@ struct AccountView: View {
                         else { await model.connectAppleMusic() }
                     }
                 } label: {
-                    connectionRow("Apple Music", badge: model.appleMusicConnected ? "接続済み" : "未接続",
+                    connectionRow("Apple Music", badge: model.appleMusicConnected ? "接続済み" : "接続する",
                                   active: model.appleMusicConnected) { AppleMusicIcon(size: 30) }
                 }
                 .disabled(model.busy)
@@ -242,7 +262,7 @@ struct AccountView: View {
                 .animation(reduceMotion ? nil : Studio.spring, value: showConnectionBenefits)
             }
             .buttonStyle(StudioButtonStyle(.tertiary))
-            .background(Studio.surface, in: RoundedRectangle(cornerRadius: Studio.Radius.md))
+            .modifier(StudioCardSurface())
 
             if let status = model.profileSyncStatus {
                 Text(status)
@@ -266,8 +286,9 @@ struct AccountView: View {
     private var cloudBadge: String {
         if model.profileSyncing { return "同期中" }
         if cloudSaved { return "同期済み" }
-        guard AppConfiguration.cloudKitEnabled else { return "未設定" }
+        guard AppConfiguration.cloudKitEnabled else { return "未接続" }
         let status = model.profileSyncStatus ?? ""
+        if status.contains("接続されていません") { return "未接続" }
         if status.contains("サインイン") { return "未接続" }
         if status.contains("同期待ち") || status.contains("操作終了後") { return "同期待ち" }
         return "要確認"
@@ -285,10 +306,10 @@ struct AccountView: View {
             Text(badge)
                 .font(.caption.weight(.semibold))
                 .dynamicTypeSize(...DynamicTypeSize.accessibility1)
-                .foregroundStyle(active ? Studio.accent : Studio.secondary)
+                .foregroundStyle(active ? Studio.success : Studio.warning)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
-                .background(active ? Studio.accent.opacity(0.09) : Studio.raised, in: Capsule())
+                .background((active ? Studio.success : Studio.warning).opacity(0.1), in: Capsule())
                 .fixedSize()
             Image(systemName: "chevron.right")
                 .font(.system(size: 13, weight: .semibold)).foregroundStyle(Studio.secondary)
