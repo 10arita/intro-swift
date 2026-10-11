@@ -409,6 +409,7 @@ for (const mode of ['applemusic', 'shared']) test(`${mode} room reveals the Song
     });
     assert.equal(started.status, 200);
     assert.equal(started.body.current.chorusMS, undefined, 'Do not disclose chorus metadata before reveal');
+    assert.equal(started.body.current.chorusSource, undefined, 'Keep playback provenance hidden until reveal');
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(requests.length, 2);
     assert.equal(requests[1].searchParams.get('url'), `www.youtube.com/watch?v=${mode}-chorus-test`);
@@ -420,6 +421,7 @@ for (const mode of ['applemusic', 'shared']) test(`${mode} room reveals the Song
       new URLSearchParams(), authorization);
     assert.equal(revealed.body.phase, 'reveal');
     assert.equal(revealed.body.current.chorusMS, chorusStart - 1500);
+    assert.equal(revealed.body.current.chorusSource, 'songle');
   } finally {
     globalThis.fetch = originalFetch;
     Date.now = originalNow;
@@ -461,6 +463,7 @@ for (const chorusMS of [0, 63626]) test(`room reveal replaces cached chorus ${ch
     const revealed = send('skip');
     assert.equal(revealed.body.phase, 'reveal');
     assert.equal(revealed.body.current.chorusMS, 50181 - 1500);
+    assert.equal(revealed.body.current.chorusSource, 'manual_database');
     assert.equal(requests, 0);
   } finally {
     globalThis.fetch = originalFetch;

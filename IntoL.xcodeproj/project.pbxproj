@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A00000000000000000000067 /* ChorusReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000067 /* ChorusReport.swift */; };
+		A00000000000000000000068 /* ChorusReportViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000068 /* ChorusReportViews.swift */; };
 		A00000000000000000000064 /* ManualChorusCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000064 /* ManualChorusCatalog.swift */; };
 		A00000000000000000000065 /* CloudChorusDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000065 /* CloudChorusDatabase.swift */; };
 		A00000000000000000000066 /* manual-chorus.json in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000066 /* manual-chorus.json */; };
@@ -55,6 +57,8 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		B00000000000000000000067 /* ChorusReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChorusReport.swift; sourceTree = "<group>"; };
+		B00000000000000000000068 /* ChorusReportViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChorusReportViews.swift; sourceTree = "<group>"; };
 		B00000000000000000000064 /* ManualChorusCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualChorusCatalog.swift; sourceTree = "<group>"; };
 		B00000000000000000000065 /* CloudChorusDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudChorusDatabase.swift; sourceTree = "<group>"; };
 		B00000000000000000000066 /* manual-chorus.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "server/manual-chorus.json"; sourceTree = SOURCE_ROOT; };
@@ -149,6 +153,8 @@
 				B0000000000000000000001A /* CloudProfileService.swift */,
 				B0000000000000000000001C /* PlaylistPreparation.swift */,
 				B0000000000000000000001D /* RevealAudioPlayback.swift */,
+				B00000000000000000000067 /* ChorusReport.swift */,
+				B00000000000000000000068 /* ChorusReportViews.swift */,
 				B0000000000000000000001B /* IntoL.entitlements */,
 				B00000000000000000000005 /* AppModel.swift */,
 				B00000000000000000000006 /* RoomService.swift */,
@@ -313,6 +319,8 @@
 				A0000000000000000000001A /* CloudProfileService.swift in Sources */,
 				A0000000000000000000001B /* PlaylistPreparation.swift in Sources */,
 				A0000000000000000000001C /* RevealAudioPlayback.swift in Sources */,
+				A00000000000000000000067 /* ChorusReport.swift in Sources */,
+				A00000000000000000000068 /* ChorusReportViews.swift in Sources */,
 				A00000000000000000000005 /* AppModel.swift in Sources */,
 				A00000000000000000000006 /* RoomService.swift in Sources */,
 				A00000000000000000000020 /* MusicVolumeViews.swift in Sources */,

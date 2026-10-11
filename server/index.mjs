@@ -5,11 +5,13 @@ import { resolve, join } from 'node:path';
 import WebSocket, { WebSocketServer } from 'ws';
 import { searchItunes, matchItunes, topSongs, chorusPosition } from './external.mjs';
 import { manualChorusPosition } from './manual-chorus.mjs';
+import { createChorusReportHandler } from './chorus-reports.mjs';
 
 const rooms = new Map();
 const profiles = new Map();
 const DATA_DIR = process.env.DATA_DIR ? resolve(process.env.DATA_DIR) : null;
 const DATA_FILE = DATA_DIR ? join(DATA_DIR, 'state.json') : null;
+const reportChorus = createChorusReportHandler({ dataDir: DATA_DIR });
 if (DATA_FILE && existsSync(DATA_FILE)) {
   try {
     const saved = JSON.parse(readFileSync(DATA_FILE, 'utf8'));
@@ -158,7 +160,8 @@ function suppliedSongs(value, mode) {
       artworkURL: song.artworkURL || null, previewURL: mode === 'applemusic' ? null : song.previewURL,
       trackURL: song.trackURL || null, durationMS: Number(song.durationMS) || 180_000,
       genre: song.genre || 'その他', songleURL: song.songleURL || null,
-      chorusMS: Number.isFinite(song.chorusMS) ? song.chorusMS : null })) : [];
+      chorusMS: Number.isFinite(song.chorusMS) ? song.chorusMS : null,
+      chorusSource: ['manual_database', 'songle', 'song_metadata'].includes(song.chorusSource) ? song.chorusSource : null })) : [];
 }
 function artistTopTitles(value) {
   return Array.isArray(value) ? value.filter(t => typeof t === 'string' && normalize(t)).slice(0, 6).map(t => t.slice(0, 150)) : [];
@@ -447,7 +450,8 @@ function snapshot(room, playerId) {
       ...(disclosed ? { title: song.title, artist: song.artist, artworkURL: song.artworkURL,
         trackURL: song.trackURL, durationMS: song.durationMS, genre: song.genre,
         songleURL: song.songleURL || null,
-        chorusMS: Number.isFinite(song.chorusMS) ? Math.round(song.chorusMS) : null } : {})
+        chorusMS: Number.isFinite(song.chorusMS) ? Math.round(song.chorusMS) : null,
+        chorusSource: song.chorusSource || null } : {})
     } : null
   };
 }
@@ -906,9 +910,9 @@ function enrichStreamingChorus(id) {
   const song = room && currentSong(room);
   if (room && room.mode !== 'sabitro' && song) {
     const manual = manualChorusPosition(song);
-    if (manual !== null) { song.chorusMS = manual; persist(); }
+    if (manual !== null) { song.chorusMS = manual; song.chorusSource = 'manual_database'; persist(); }
     else if (!Number.isFinite(song.chorusMS)) {
-      chorusPosition(song).then(position => { song.chorusMS = position; persist(); }).catch(() => {});
+      chorusPosition(song).then(position => { song.chorusMS = position; song.chorusSource = position === null ? null : 'songle'; persist(); }).catch(() => {});
     }
   }
 }
@@ -974,11 +978,15 @@ export const server = createServer(async (request, response) => {
     let bytes = 0;
     for await (const chunk of request) {
       bytes += chunk.length;
-      if (bytes > MAX_BODY) { send(response, 413, { error: 'Too large' }); return; }
+      if (bytes > (url.pathname === '/chorus-reports' ? 16_384 : MAX_BODY)) { send(response, 413, { error: 'Too large' }); return; }
       chunks.push(chunk);
     }
     const input = Buffer.concat(chunks).toString('utf8');
     const body = input ? JSON.parse(input) : {};
+    if (request.method === 'POST' && url.pathname === '/chorus-reports') {
+      const result = await reportChorus(body);
+      send(response, result.status, result.body); return;
+    }
     if (request.method === 'GET' && url.pathname === '/itunes/search') {
       send(response, 200, { songs: await searchItunes(url.searchParams.get('term') || '') }); return;
     }

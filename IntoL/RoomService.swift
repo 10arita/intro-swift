@@ -105,6 +105,7 @@ struct RoomCurrent: Decodable {
     let genre: String?
     let songleURL: URL?
     let chorusMS: Double?
+    let chorusSource: String?
 
     var song: Song? {
         guard let title, let artist else { return nil }
@@ -117,7 +118,7 @@ struct RoomCurrent: Decodable {
         return Song(id: id, title: title, artist: artist, artworkURL: artworkURL, previewURL: previewURL,
                     trackURL: trackURL,
                     durationMS: durationMS ?? 180_000, genre: genre ?? "その他", songleURL: songleURL,
-                    chorusMS: chorusPosition)
+                    chorusMS: chorusPosition, chorusSource: chorusSource)
     }
 }
 
@@ -273,6 +274,7 @@ struct SavedProfile: Decodable {
     var baseURL = ""
     private let session: URLSession
     private let databaseChorusLookup: ((Song) async -> Int?)?
+    private(set) var chorusSources: [String: String] = [:]
     private var latestRoomState: RoomState?
     private(set) var serverClockOffsetMS = 0.0
     private var bestClockRTTMS = Double.infinity
@@ -556,7 +558,10 @@ struct SavedProfile: Decodable {
 
     func chorus(_ song: Song) async -> Int? {
         guard !song.id.hasPrefix("itunes:") else { return nil }
-        if let position = await databaseChorus(song) { return position }
+        if let position = await databaseChorus(song) {
+            chorusSources[song.id] = "manual_database"
+            return position
+        }
         guard !Task.isCancelled else { return nil }
         if let url = try? endpoint("chorus") {
             var request = URLRequest(url: url)
@@ -567,10 +572,13 @@ struct SavedProfile: Decodable {
             if let (data, response) = try? await session.data(for: request),
                (response as? HTTPURLResponse)?.statusCode == 200,
                let decoded = try? JSONDecoder().decode(ChorusResponse.self, from: data) {
+                if decoded.positionMS != nil { chorusSources[song.id] = "songle" }
                 return decoded.positionMS
             }
         }
-        return await songleChorus(song)
+        let position = await songleChorus(song)
+        if position != nil { chorusSources[song.id] = "songle" }
+        return position
     }
     private func songleChorus(_ song: Song) async -> Int? {
         var source = song.songleURL

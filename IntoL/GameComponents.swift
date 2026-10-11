@@ -243,6 +243,7 @@ struct RevealCard: View {
                         .foregroundStyle(Studio.accent)
                 }
             }
+            ChorusReportButton(song: song)
         }
         .frame(maxWidth: .infinity)
         .modifier(RevealSurface(song: song, correct: correct))

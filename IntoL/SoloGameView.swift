@@ -102,6 +102,7 @@ struct SoloGameView: View {
             }
         }
         .modifier(ChoiceFeedbackPresentation(feedback: model.soloChoiceFeedback))
+        .modifier(ChorusReportPresentation())
         .sheet(isPresented: $showVolumeSettings) {
             GameVolumeSettingsSheet()
                 .environmentObject(model)

@@ -172,9 +172,52 @@ struct SoloGame {
     private var chorusPositions: [String: Int] = [:]
     private var chorusLookups: [String: Task<Int?, Never>] = [:]
     private var revealAudioTask: Task<Void, Never>?
+    @Published private(set) var revealReport: ChorusReport?
+    @Published private(set) var chorusReportDraft: ChorusReport?
+    @Published private(set) var chorusReportSendingID: UUID?
+    @Published private(set) var chorusReportSentID: UUID?
+    @Published private(set) var chorusReportError: String?
+    private let chorusReportSender: (ChorusReport, String) async throws -> Void
 
-    init(serverURL: String = AppConfiguration.serverURL) {
+    func presentChorusReport(for song: Song) {
+        guard let report = revealReport, report.song.id == song.id,
+              chorusReportSentID != report.id, chorusReportSendingID == nil else { return }
+        chorusReportError = nil
+        chorusReportDraft = report
+    }
+
+    func dismissChorusReport() {
+        guard chorusReportSendingID == nil else { return }
+        chorusReportDraft = nil
+        chorusReportError = nil
+    }
+
+    func submitChorusReport() async {
+        guard let report = chorusReportDraft, chorusReportSendingID == nil,
+              chorusReportSentID != report.id else { return }
+        chorusReportSendingID = report.id
+        chorusReportError = nil
+        defer { chorusReportSendingID = nil }
+        do {
+            try await chorusReportSender(report, serverURL)
+            chorusReportSentID = report.id
+        } catch {
+            guard chorusReportDraft?.id == report.id else { return }
+            chorusReportError = "送信できませんでした。\n\(error.localizedDescription)"
+        }
+    }
+
+    func recordRevealPlayback(_ song: Song, source: RevealPlaybackSource, startPositionMS: Int) {
+        revealReport = ChorusReport(song: song, source: source, startPositionMS: startPositionMS,
+                                   playMode: room != nil ? "room" : "solo")
+    }
+
+    init(serverURL: String = AppConfiguration.serverURL,
+         chorusReportSender: @escaping (ChorusReport, String) async throws -> Void = { report, url in
+             try await ChorusReportService().send(report, serverURL: url)
+         }) {
         self.serverURL = serverURL
+        self.chorusReportSender = chorusReportSender
         if let data = UserDefaults.standard.data(forKey: "reviews"), let decoded = try? JSONDecoder().decode([ReviewSong].self, from: data) { reviews = decoded }
         if let data = UserDefaults.standard.data(forKey: "history"), let decoded = try? JSONDecoder().decode([SoloResult].self, from: data) { history = decoded }
         if let data = UserDefaults.standard.data(forKey: "stats"), let decoded = try? JSONDecoder().decode(PlayerStats.self, from: data) { stats = decoded }
@@ -794,6 +837,9 @@ struct SoloGame {
 
     private func stopAudio() {
         revealAudioTask?.cancel(); revealAudioTask = nil
+        revealReport = nil
+        chorusReportDraft = nil
+        chorusReportError = nil
         appleMusicPauseTask?.cancel(); appleMusicPauseTask = nil
         stopAudioPlayers()
     }
@@ -805,8 +851,12 @@ struct SoloGame {
 
     private func revealAudio(_ song: Song) {
         revealAudioTask?.cancel()
+        revealReport = nil
+        chorusReportDraft = nil
+        chorusReportError = nil
         revealAudioTask = Task { [weak self] in
             guard let self else { return }
+            var playbackStartMS = 0
             do {
                 try await RevealAudioPlayback.play(song, databaseChorus: {
                     await self.rooms.databaseChorus(song)
@@ -824,7 +874,7 @@ struct SoloGame {
                     guard !Task.isCancelled else { return nil }
                     return try? await self.rooms.matchItunes(song)?.previewURL
                 }, playFullAudio: { position in
-                    try await self.playRevealFullAudio(song, positionMS: position)
+                    playbackStartMS = try await self.playRevealFullAudio(song, positionMS: position)
                 }, playPreview: { preview in
                     self.appleMusic.stop()
                     self.appleMusicPlaying = false
@@ -832,7 +882,12 @@ struct SoloGame {
                     try Task.checkCancellation()
                     guard self.isRevealing(song) else { throw CancellationError() }
                     try await self.player.startPreparedAndWait(preview)
-                }, stopPlayback: { self.stopAudioPlayers() }, isCurrent: { self.isRevealing(song) })
+                }, stopPlayback: { self.stopAudioPlayers() }, chorusSource: {
+                    RevealPlaybackSource(rawValue: self.rooms.chorusSources[song.id] ?? "") ?? .songle
+                }, didStartPlayback: { source, _ in
+                    self.recordRevealPlayback(song, source: source,
+                                              startPositionMS: source == .preview ? 0 : playbackStartMS)
+                }, isCurrent: { self.isRevealing(song) })
             } catch {
                 guard !Task.isCancelled, !(error is CancellationError), self.isRevealing(song) else { return }
                 self.stopAudioPlayers()
@@ -845,7 +900,7 @@ struct SoloGame {
         }
     }
 
-    private func playRevealFullAudio(_ song: Song, positionMS: Int?) async throws {
+    private func playRevealFullAudio(_ song: Song, positionMS: Int?) async throws -> Int {
         try Task.checkCancellation()
         guard isRevealing(song) else { throw CancellationError() }
         let duration: TimeInterval
@@ -875,6 +930,7 @@ struct SoloGame {
         } else if let url = song.previewURL {
             try await player.startPreparedAndWait(url, offset: Double(offset) / 1000)
         }
+        return offset
     }
 
     private func isRevealing(_ song: Song) -> Bool {

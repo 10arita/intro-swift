@@ -27,6 +27,7 @@ enum Secrets {
 struct AppleMusicPlaylist: Identifiable, Hashable {
     let id: String
     let name: String
+    var artworkURL: URL? = nil
 }
 
 private struct AppleMusicLibrarySongResponse: Decodable {
@@ -92,7 +93,10 @@ private struct AppleMusicLibrarySongResponse: Decodable {
         request.limit = 0
         let items = try await request.response().items
         playlistsByID = Dictionary(uniqueKeysWithValues: items.map { (String(describing: $0.id), $0) })
-        return items.map { AppleMusicPlaylist(id: String(describing: $0.id), name: $0.name) }
+        return items.map {
+            AppleMusicPlaylist(id: String(describing: $0.id), name: $0.name,
+                               artworkURL: $0.artwork?.url(width: 300, height: 300))
+        }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 

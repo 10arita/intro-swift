@@ -299,6 +299,7 @@ struct RoomGameView: View {
         explanation: model.room?.exitExplanation(localID: model.rooms.playerId) ?? "",
         onCancel: { setLeaveConfirmation(false) }, onLeave: confirmLeaveRoom)
     }
+    .modifier(ChorusReportPresentation())
     .sheet(isPresented: $showVolumeSettings) {
       GameVolumeSettingsSheet()
         .environmentObject(model)
@@ -494,6 +495,7 @@ struct RoomGameView: View {
             }
           }
         }
+        ChorusReportButton(song: song)
       }
       let winners = room.correctPlayerIDs.enumerated().compactMap { index, id in
         room.player(id).map { "\(index + 1)位 \($0.name)" }

@@ -42,9 +42,10 @@ struct PlayView: View {
                 if startsTogether { step = .together }
                 #if DEBUG
                 switch previewStep {
-                case "mode": step = .mode(.solo)
-                case "room-selection": step = .together
-                case "code": step = .join
+                case let value? where value.hasPrefix("mode"): step = .mode(.solo)
+                case let value? where value.hasPrefix("room-selection"): step = .together
+                case let value? where value.hasPrefix("code"): step = .join
+                case let value? where value.hasPrefix("playlist"): step = .playlist(.intro)
                 default: break
                 }
                 #endif
@@ -58,29 +59,34 @@ struct PlayView: View {
         } else {
             VStack(spacing: 0) {
                 flowHeader
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 24) {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text(contextTitle)
-                                .font(.caption.weight(.bold))
-                                .foregroundStyle(Studio.secondary)
-                            Text(pageTitle)
-                                .font(.system(.largeTitle, design: .rounded, weight: .bold))
-                                .foregroundStyle(Studio.primary)
-                                .accessibilityAddTraits(.isHeader)
-                            Text(pageDescription)
-                                .font(.subheadline)
-                                .foregroundStyle(Studio.secondary)
+                GeometryReader { geometry in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 32) {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text(contextTitle)
+                                    .font(.caption.weight(.bold))
+                                    .foregroundStyle(Studio.secondary)
+                                Text(pageTitle)
+                                    .font(.system(.largeTitle, design: .rounded, weight: .bold))
+                                    .foregroundStyle(Studio.primary)
+                                    .accessibilityAddTraits(.isHeader)
+                                Text(pageDescription)
+                                    .font(.subheadline)
+                                    .foregroundStyle(Studio.secondary)
+                            }
+                            .fixedSize(horizontal: false, vertical: true)
+                            stepContent
                         }
-                        .fixedSize(horizontal: false, vertical: true)
-                        stepContent
+                        .padding(24)
+                        .frame(maxWidth: 600, alignment: .leading)
+                        // Center short steps in the available space, including above the keyboard.
+                        // Taller content keeps its natural height and remains scrollable.
+                        .frame(minHeight: geometry.size.height, alignment: .center)
+                        .frame(maxWidth: .infinity)
                     }
-                    .padding(24)
-                    .frame(maxWidth: 600, alignment: .leading)
-                    .frame(maxWidth: .infinity)
+                    .scrollBounceBehavior(.basedOnSize)
+                    .scrollDismissesKeyboard(.interactively)
                 }
-                .scrollBounceBehavior(.basedOnSize)
-                .scrollDismissesKeyboard(.interactively)
             }
         }
     }
@@ -156,23 +162,23 @@ struct PlayView: View {
         case .together:
             VStack(spacing: 16) {
                 PlayFlowCard(title: "ルームを作る", subtitle: "友だちを招待しよう",
-                             symbol: "plus") {
+                             symbol: "plus", prominent: true) {
                     navigate(to: .mode(.together))
                 }
                 PlayFlowCard(title: "コードで参加", subtitle: "6文字のコードで合流",
-                             symbol: "ticket.fill") {
+                             symbol: "ticket.fill", prominent: true) {
                     navigate(to: .join)
                 }
             }
         case .mode(let party):
             VStack(spacing: 16) {
                 PlayFlowCard(title: "イントロ", subtitle: "曲のはじまりを聴こう",
-                             symbol: "play.fill",
+                             symbol: "play.fill", prominent: true,
                              disabled: model.busy || creatingRoom) {
                     choose(.intro, party: party)
                 }
                 PlayFlowCard(title: "サビトロ", subtitle: "サビを聴いて当てよう",
-                             symbol: "music.note.list", badge: "SABITRO",
+                             symbol: "music.note.list", badge: "SABITRO", prominent: true,
                              disabled: !model.serverConfigured || model.busy || creatingRoom) {
                     choose(.sabitro, party: party)
                 }
@@ -265,39 +271,33 @@ private struct PlayFlowCard: View {
     let subtitle: String
     let symbol: String
     var badge: String? = nil
+    var prominent = false
     var disabled = false
     let action: () -> Void
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 16) {
-                Image(systemName: symbol)
-                    .font(.system(size: 26, weight: .semibold))
-                .foregroundStyle(Studio.accent)
-                .frame(width: 48, height: 56)
-                .background(Studio.raised,
-                            in: RoundedRectangle(cornerRadius: Studio.Radius.md))
-                .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 7) {
-                    if let badge {
-                        Text(badge).font(.caption2.weight(.semibold)).foregroundStyle(Studio.secondary)
+            Group {
+                if dynamicTypeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 16) {
+                        HStack {
+                            icon
+                            Spacer()
+                            chevron
+                        }
+                        text
                     }
-                    Text(title).font(.system(.title3, design: .rounded, weight: .bold))
-                    Text(subtitle)
-                        .font(.subheadline)
-                        .foregroundStyle(Studio.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    HStack(spacing: prominent ? 20 : 16) {
+                        icon
+                        text
+                        chevron
+                    }
                 }
-                .foregroundStyle(Studio.primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .fixedSize(horizontal: false, vertical: true)
-                Image(systemName: "chevron.right")
-                    .font(.subheadline.bold())
-                    .foregroundStyle(Studio.secondary)
-                    .accessibilityHidden(true)
             }
-            .padding(18)
-            .frame(maxWidth: .infinity, minHeight: 126, alignment: .leading)
+            .padding(prominent ? 24 : 18)
+            .frame(maxWidth: .infinity, minHeight: prominent ? 164 : 126, alignment: .leading)
             .modifier(StudioCardSurface(interactive: true))
             .opacity(disabled ? 0.6 : 1)
             .contentShape(RoundedRectangle(cornerRadius: Studio.Radius.lg))
@@ -306,6 +306,35 @@ private struct PlayFlowCard: View {
         .disabled(disabled)
         .accessibilityLabel("\(title)、\(subtitle)")
         .accessibilityHint(disabled ? "現在利用できません" : "次のステップへ進む")
+    }
+
+    private var icon: some View {
+        Image(systemName: symbol)
+            .font(.system(size: prominent ? 32 : 26, weight: .semibold))
+            .foregroundStyle(Studio.accent)
+            .frame(width: prominent ? 64 : 48, height: prominent ? 72 : 56)
+            .background(Studio.raised, in: RoundedRectangle(cornerRadius: Studio.Radius.md))
+            .accessibilityHidden(true)
+    }
+
+    private var text: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            if let badge {
+                Text(badge).font(.caption2.weight(.semibold)).foregroundStyle(Studio.secondary)
+            }
+            Text(title).font(.system(prominent ? .title2 : .title3, design: .rounded, weight: .bold))
+            Text(subtitle).font(.subheadline).foregroundStyle(Studio.secondary)
+        }
+        .foregroundStyle(Studio.primary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var chevron: some View {
+        Image(systemName: "chevron.right")
+            .font(.subheadline.bold())
+            .foregroundStyle(Studio.secondary)
+            .accessibilityHidden(true)
     }
 }
 
@@ -317,9 +346,9 @@ private struct SoloPlaylistSelection: View {
         VStack(alignment: .leading, spacing: 20) {
             if !model.appleMusicConnected {
                 StudioCard {
-                    VStack(alignment: .leading, spacing: 16) {
-                        HStack(spacing: 12) {
-                            AppleMusicIcon(size: 48)
+                    VStack(alignment: .leading, spacing: 20) {
+                        HStack(spacing: 16) {
+                            AppleMusicIcon(size: 64)
                             VStack(alignment: .leading, spacing: 6) {
                                 Text("あなたの好きな曲で").font(.headline).foregroundStyle(Studio.primary)
                                 Text("Apple Music のプレイリストを使います。")
@@ -332,6 +361,7 @@ private struct SoloPlaylistSelection: View {
                         Text(kind == .intro ? "ライブラリへのアクセスとサブスクリプションが必要です。" : "ライブラリへのアクセスが必要です。")
                             .font(.caption).foregroundStyle(Studio.secondary)
                     }
+                    .padding(8)
                 }
             } else {
                 HStack {
@@ -353,31 +383,11 @@ private struct SoloPlaylistSelection: View {
                 }
                 LazyVStack(spacing: 12) {
                     ForEach(model.appleMusicPlaylists) { playlist in
-                        Button {
+                        SoloPlaylistCard(playlist: playlist,
+                                         selected: model.selectedAppleMusicPlaylistID == playlist.id,
+                                         disabled: model.busy) {
                             Task { await model.selectAppleMusicPlaylist(playlist.id) }
-                        } label: {
-                            HStack(spacing: 14) {
-                                Image(systemName: "music.note.list")
-                                    .font(.title2).foregroundStyle(Studio.accent)
-                                    .frame(width: 56, height: 64)
-                                    .background(Studio.raised, in: RoundedRectangle(cornerRadius: Studio.Radius.sm))
-                                Text(playlist.name)
-                                    .font(.headline).foregroundStyle(Studio.primary)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                Image(systemName: model.selectedAppleMusicPlaylistID == playlist.id ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(model.selectedAppleMusicPlaylistID == playlist.id ? Studio.accent : Studio.line)
-                                    .font(.title3)
-                            }
-                            .padding(16)
-                            .background(Studio.surface, in: RoundedRectangle(cornerRadius: Studio.Radius.md))
-                            .overlay(RoundedRectangle(cornerRadius: Studio.Radius.md)
-                                .strokeBorder(model.selectedAppleMusicPlaylistID == playlist.id ? Studio.accent : Studio.line))
                         }
-                        .buttonStyle(StudioButtonStyle(.tertiary))
-                        .disabled(model.busy)
-                        .accessibilityLabel(playlist.name)
-                        .accessibilityValue(model.selectedAppleMusicPlaylistID == playlist.id ? "選択中" : "")
                     }
                 }
                 if !model.appleMusicSongs.isEmpty {
@@ -409,6 +419,60 @@ private struct SoloPlaylistSelection: View {
                     .tint(Studio.accent).frame(maxWidth: .infinity, minHeight: 44)
             }
         }
+    }
+}
+
+private struct SoloPlaylistCard: View {
+    let playlist: AppleMusicPlaylist
+    let selected: Bool
+    let disabled: Bool
+    let action: () -> Void
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        Button(action: action) {
+            Group {
+                if dynamicTypeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 16) {
+                        HStack {
+                            Artwork(url: playlist.artworkURL, size: 80)
+                            Spacer()
+                            selectionIndicator
+                        }
+                        name
+                    }
+                } else {
+                    HStack(spacing: 20) {
+                        Artwork(url: playlist.artworkURL, size: 80)
+                        name
+                        selectionIndicator
+                    }
+                }
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity, minHeight: 128, alignment: .leading)
+            .background(Studio.surface, in: RoundedRectangle(cornerRadius: Studio.Radius.md))
+            .overlay(RoundedRectangle(cornerRadius: Studio.Radius.md)
+                .strokeBorder(selected ? Studio.accent : Studio.line))
+        }
+        .buttonStyle(StudioButtonStyle(.tertiary))
+        .disabled(disabled)
+        .accessibilityLabel(playlist.name)
+        .accessibilityValue(selected ? "選択中" : "")
+    }
+
+    private var name: some View {
+        Text(playlist.name)
+            .font(.headline).foregroundStyle(Studio.primary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var selectionIndicator: some View {
+        Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+            .foregroundStyle(selected ? Studio.accent : Studio.line)
+            .font(.title3)
+            .accessibilityHidden(true)
     }
 }
 

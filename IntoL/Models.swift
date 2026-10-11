@@ -12,6 +12,7 @@ struct Song: Codable, Identifiable, Hashable {
     var songleURL: URL? = nil
     var chorusMS: Int? = nil
     var artistTopTitles: [String]? = nil
+    var chorusSource: String? = nil
 
     var playablePreview: Bool { previewURL != nil }
 

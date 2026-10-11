@@ -1,5 +1,13 @@
 import Foundation
 
+enum RevealPlaybackSource: String, Codable {
+    case manualDatabase = "manual_database"
+    case songMetadata = "song_metadata"
+    case songle
+    case preview = "itunes_preview"
+    case estimated = "duration_estimate"
+}
+
 /// Database and Songle positions refer to the full recording, never to an iTunes excerpt.
 @MainActor enum RevealAudioPlayback {
     static func hasFullAudio(_ song: Song) -> Bool {
@@ -26,6 +34,8 @@ import Foundation
                      playFullAudio: (Int?) async throws -> Void,
                      playPreview: (URL) async throws -> Void,
                      stopPlayback: () -> Void = {},
+                     chorusSource: () -> RevealPlaybackSource = { .songle },
+                     didStartPlayback: (RevealPlaybackSource, Int?) -> Void = { _, _ in },
                      isCurrent: () -> Bool) async throws {
         func checkCurrent() throws {
             try Task.checkCancellation()
@@ -37,13 +47,20 @@ import Foundation
             let manual = await databaseChorus()
             try checkCurrent()
             let known = validChorus(song.chorusMS, durationMS: song.durationMS)
-            var position = validChorus(manual, durationMS: song.durationMS) ?? known
-            if position == nil { position = await chorus() }
+            let database = validChorus(manual, durationMS: song.durationMS)
+            var position = database ?? known
+            var source: RevealPlaybackSource = database != nil ? .manualDatabase
+                : RevealPlaybackSource(rawValue: song.chorusSource ?? "") ?? .songMetadata
+            if position == nil {
+                position = await chorus()
+                source = chorusSource()
+            }
             try checkCurrent()
             if let position = validChorus(position, durationMS: song.durationMS) {
                 do {
                     try await playFullAudio(position)
                     try checkCurrent()
+                    didStartPlayback(source, position)
                     return
                 } catch {
                     if error is CancellationError { throw error }
@@ -58,6 +75,7 @@ import Foundation
             do {
                 try await playPreview(previewURL)
                 try checkCurrent()
+                didStartPlayback(.preview, 0)
                 return
             } catch {
                 if error is CancellationError { throw error }
@@ -70,5 +88,6 @@ import Foundation
         // nil asks the player to estimate from the actual full audio duration.
         try await playFullAudio(nil)
         try checkCurrent()
+        didStartPlayback(.estimated, nil)
     }
 }

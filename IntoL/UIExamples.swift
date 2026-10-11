@@ -13,10 +13,10 @@
 
     var body: some View {
       Group {
-        if ["home", "mode", "room-selection", "code"].contains(scenario)
+        if Self.isPlayFlow(scenario)
           || scenario.hasPrefix("friends") || scenario.hasPrefix("account") {
           RootView(previewStep: scenario)
-        } else if scenario == "solo-answer" || scenario == "solo-result" {
+        } else if scenario.hasPrefix("solo-reveal") || scenario == "solo-answer" || scenario == "solo-result" {
           SoloGameView()
         } else if scenario.hasPrefix("rules-host") {
           RoomRuleSettingsView()
@@ -31,8 +31,20 @@
       .environment(\.dynamicTypeSize, scenario.contains("large-text") ? .accessibility5 : .large)
     }
 
+    private static func isPlayFlow(_ scenario: String) -> Bool {
+      ["home", "mode", "room-selection", "code", "playlist"].contains {
+        scenario == $0 || scenario.hasPrefix($0 + "-")
+      }
+    }
+
     @MainActor private static func makeModel(scenario: String) -> AppModel {
-      let model = AppModel(serverURL: "http://127.0.0.1:1")
+      let model = AppModel(serverURL: "http://127.0.0.1:1", chorusReportSender: { report, url in
+        if scenario.contains("report-success") {
+          try await Task.sleep(for: .seconds(2))
+        } else {
+          try await ChorusReportService().send(report, serverURL: url)
+        }
+      })
       if scenario.hasPrefix("account") { model.profileSyncStatus = CloudProfileError.notConfigured.localizedDescription }
       if scenario == "friends-request" || scenario == "friends-invite" {
         let request: [[String: Any]] = scenario == "friends-request" ? [[
@@ -51,14 +63,33 @@
           id: "demo:ui-\(index)", title: title, artist: "IntoL Studio", durationMS: 180_000,
           genre: "Pop")
       }
-      if ["home", "mode", "room-selection", "code"].contains(scenario)
-        || scenario.hasPrefix("friends") || scenario.hasPrefix("account") { return model }
-      if scenario == "solo-answer" || scenario == "solo-result" {
+      if Self.isPlayFlow(scenario) {
+        if scenario.hasPrefix("playlist"), !scenario.contains("connect") {
+          model.appleMusicConnected = true
+          model.appleMusicPlayable = true
+          if !scenario.contains("empty") {
+            model.appleMusicPlaylists = [
+              AppleMusicPlaylist(id: "fixture-night", name: "夜に聴く曲"),
+              AppleMusicPlaylist(id: "fixture-favorites", name: "お気に入りの曲"),
+            ]
+          }
+          if scenario.contains("selected") {
+            model.selectedAppleMusicPlaylistID = "fixture-night"
+            model.appleMusicSongs = songs
+          }
+        }
+        return model
+      }
+      if scenario.hasPrefix("friends") || scenario.hasPrefix("account") { return model }
+      if scenario.hasPrefix("solo-reveal") || scenario == "solo-answer" || scenario == "solo-result" {
         var game = SoloGame(songs: songs, playlist: "夜に聴く曲")
-        game.stage = scenario == "solo-answer" ? .answering : .finished
+        game.stage = scenario.hasPrefix("solo-reveal") ? .reveal : scenario == "solo-answer" ? .answering : .finished
         game.choices = ["青", "春", "夜", "花"]
         game.secondsLeft = 4.8
         model.game = game
+        if game.stage == .reveal {
+          model.recordRevealPlayback(game.current, source: .manualDatabase, startPositionMS: 48_681)
+        }
         model.lastResult = SoloResult.make(
           playlist: game.playlist, total: 3, pushTimes: [1.2, 2.4],
           rounds: songs.enumerated().map {
@@ -136,6 +167,9 @@
       }
       model.room = try! JSONDecoder().decode(
         RoomState.self, from: JSONSerialization.data(withJSONObject: state))
+      if phase == "reveal" {
+        model.recordRevealPlayback(songs[2], source: .preview, startPositionMS: 0)
+      }
       model.roomAnswer = "青"
       model.roomOptions = ["い", "の", "き", "と"]
       model.roomSecondsLeft = 4.8
@@ -155,5 +189,15 @@
   #Preview("対戦中") { UIExamples(scenario: "answer") }
   #Preview("対戦中・ダーク") { UIExamples(scenario: "answer-dark") }
   #Preview("大きな文字") { UIExamples(scenario: "answer-large-text") }
+  #Preview("報告・送信と完了") { UIExamples(scenario: "reveal-report-success") }
   #Preview("結果") { UIExamples(scenario: "result-dark") }
+  #Preview("モード選択") { UIExamples(scenario: "mode") }
+  #Preview("ルーム選択") { UIExamples(scenario: "room-selection") }
+  #Preview("コード入力") { UIExamples(scenario: "code") }
+  #Preview("Apple Music 接続") { UIExamples(scenario: "playlist-connect") }
+  #Preview("プレイリスト選択") { UIExamples(scenario: "playlist") }
+  #Preview("プレイリスト・曲プレビュー") { UIExamples(scenario: "playlist-selected") }
+  #Preview("プレイリスト・空") { UIExamples(scenario: "playlist-empty") }
+  #Preview("モード選択・大きな文字") { UIExamples(scenario: "mode-large-text") }
+  #Preview("ルーム選択・ダーク") { UIExamples(scenario: "room-selection-dark") }
 #endif

@@ -181,9 +181,10 @@ private final class RevealMetadataProtocol: URLProtocol {
     @MainActor static func metadataHandlesZeroAndInvalidPositions() async throws {
         for position in [0.0, 63_500.4, -1, 180_000, 1e100] {
             let data = try JSONSerialization.data(withJSONObject: ["id": "applemusic:123", "title": "青い空",
-                "artist": "歌手", "durationMS": 180_000, "chorusMS": position])
+                "artist": "歌手", "durationMS": 180_000, "chorusMS": position, "chorusSource": "songle"])
             let current = try JSONDecoder().decode(RoomCurrent.self, from: data)
             precondition(current.song?.chorusMS == (position == 0 ? 0 : position == 63_500.4 ? 63_500 : nil))
+            precondition(current.song?.chorusSource == "songle")
         }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [RevealMetadataProtocol.self]
@@ -217,6 +218,39 @@ private final class RevealMetadataProtocol: URLProtocol {
                      "Shared recordings can use a matched iTunes excerpt as their second choice")
     }
 
+    @MainActor static func reportsOnlyTheSourceThatActuallyStarted() async throws {
+        for route in [RevealPlaybackSource.manualDatabase, .songMetadata, .songle, .preview, .estimated] {
+            var started: [(RevealPlaybackSource, Int?)] = []
+            try await RevealAudioPlayback.play(song("applemusic:123", chorusMS: route == .songMetadata ? 50_000 : nil),
+                databaseChorus: { route == .manualDatabase ? 48_681 : nil },
+                chorus: { route == .songle ? 63_500 : nil },
+                preview: { route == .preview ? previewURL : nil }, playFullAudio: { _ in },
+                playPreview: { _ in }, didStartPlayback: { started.append(($0, $1)) }, isCurrent: { true })
+            precondition(started.count == 1 && started[0].0 == route)
+            precondition(started[0].1 == (route == .manualDatabase ? 48_681 : route == .songMetadata ? 50_000
+                : route == .songle ? 63_500 : route == .preview ? 0 : nil))
+        }
+        var started: [RevealPlaybackSource] = []
+        try await RevealAudioPlayback.play(song("applemusic:123"), databaseChorus: { 48_681 }, chorus: { nil },
+            preview: { previewURL }, playFullAudio: { _ in throw URLError(.badServerResponse) },
+            playPreview: { _ in }, didStartPlayback: { source, _ in started.append(source) }, isCurrent: { true })
+        precondition(started == [.preview], "A failed DB attempt must be reported as the successful preview")
+        started = []
+        do {
+            try await RevealAudioPlayback.play(song("applemusic:123"), chorus: { nil }, preview: { nil },
+                playFullAudio: { _ in throw URLError(.badServerResponse) }, playPreview: { _ in },
+                didStartPlayback: { source, _ in started.append(source) }, isCurrent: { true })
+            preconditionFailure("Failed playback should throw")
+        } catch { precondition(started.isEmpty, "No reportable source exists when playback fails") }
+        var supplied = song("applemusic:123", chorusMS: 48_681)
+        supplied.chorusSource = "manual_database"
+        try await RevealAudioPlayback.play(supplied, chorus: { nil }, preview: { nil }, playFullAudio: { _ in },
+            playPreview: { _ in }, didStartPlayback: { source, _ in precondition(source == .manualDatabase) }, isCurrent: { true })
+        let service = RoomService(databaseChorusLookup: { _ in 48_681 })
+        _ = await service.chorus(supplied)
+        precondition(service.chorusSources[supplied.id] == "manual_database", "Prefetched DB timestamps retain their source")
+    }
+
     @MainActor static func main() async throws {
         try await priorityForEveryFullAudioSource()
         try await databaseAlwaysPrecedesSongleAndCachedMetadata()
@@ -225,6 +259,7 @@ private final class RevealMetadataProtocol: URLProtocol {
         try await obsoleteLookupsNeverStartPlayback()
         try await positionsStayWithinTheAudio()
         try await metadataHandlesZeroAndInvalidPositions()
+        try await reportsOnlyTheSourceThatActuallyStarted()
         print("Reveal audio tests passed (all sources, priority, failures, preview excerpts, cancellation, short audio)")
     }
 }
