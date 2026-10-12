@@ -3,7 +3,7 @@ import PhotosUI
 import MediaPlayer
 import CloudKit
 
-private enum MainTab { case play, review, friends, account }
+private enum MainTab: Hashable { case play, review, friends, account }
 
 struct RootView: View {
     var previewStep: String? = nil
@@ -18,23 +18,7 @@ struct RootView: View {
 
     var body: some View {
         ZStack {
-            VStack(spacing: 0) {
-                Group {
-                    switch selectedTab {
-                    case .play: PlayView(homeToken: playHomeToken, startsTogether: startsTogether, previewStep: previewStep)
-                    case .review: ReviewView()
-                    case .friends: FriendsView(onCreateRoom: {
-                        startsTogether = true
-                        playHomeToken += 1
-                        selectedTab = .play
-                    }, automaticallyRefresh: previewStep == nil)
-                    case .account: AccountView()
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                // Reserve the menu's actual height, including larger accessibility text.
-                if !showingSession { tabBar }
-            }
+            mainTabs
             .offset(x: showingSession && !reduceMotion ? -80 : 0)
             .opacity(showingSession ? 0 : 1)
             .allowsHitTesting(!showingSession)
@@ -102,76 +86,46 @@ struct RootView: View {
 
     private var showingSession: Bool { model.room != nil || model.game != nil }
 
-    private var tabBar: some View {
-        Group {
-            if #available(iOS 26, *) {
-                tabButtons(spacing: 0)
-                    .padding(4)
-                    .glassEffect(.regular, in: Capsule())
-                    .padding(.horizontal, 12)
-                    .padding(.top, 8)
-                    .padding(.bottom, 4)
-            } else {
-                tabButtons(spacing: 0)
-                    .padding(.top, 9)
-                    .padding(.bottom, 4)
-                    .background(Studio.surface.ignoresSafeArea(edges: .bottom))
-                    .overlay(alignment: .top) { Studio.line.frame(height: 1) }
+    private var mainTabs: some View {
+        // Standard tab bars adopt Liquid Glass on iOS 26 and retain the system
+        // appearance on earlier versions, including accessibility adaptations.
+        TabView(selection: tabSelection) {
+            PlayView(homeToken: playHomeToken, startsTogether: startsTogether, previewStep: previewStep)
+                .tabItem { Label("プレイ", systemImage: "waveform") }
+                .tag(MainTab.play)
+
+            ReviewView()
+                .tabItem { Label("復習", systemImage: "bookmark") }
+                .tag(MainTab.review)
+
+            FriendsView(onCreateRoom: {
+                startsTogether = true
+                playHomeToken += 1
+                selectedTab = .play
+            }, automaticallyRefresh: previewStep == nil)
+                .tabItem { Label("フレンド", systemImage: "person.2") }
+                .badge(inviteCount)
+                .tag(MainTab.friends)
+
+            AccountView()
+                .tabItem { Label("アカウント", systemImage: "person.crop.circle") }
+                .tag(MainTab.account)
+        }
+        .tint(Studio.accent)
+    }
+
+    private var inviteCount: Int {
+        (model.friendsState?.invites.count ?? 0) + (model.friendsState?.requests.count ?? 0)
+    }
+
+    private var tabSelection: Binding<MainTab> {
+        Binding(get: { selectedTab }, set: { tab in
+            if tab == .play {
+                startsTogether = false
+                playHomeToken += 1
             }
-        }
-    }
-
-    private func tabButtons(spacing: CGFloat) -> some View {
-        HStack(spacing: spacing) {
-            tabButton("プレイ", symbol: "waveform", tab: .play)
-            tabButton("復習", symbol: "bookmark", tab: .review)
-            tabButton("フレンド", symbol: "person.2", tab: .friends)
-            tabButton("アカウント", symbol: "person.crop.circle", tab: .account)
-        }
-    }
-
-    private func tabButton(_ title: String, symbol: String, tab: MainTab) -> some View {
-        let inviteCount = (model.friendsState?.invites.count ?? 0) + (model.friendsState?.requests.count ?? 0)
-        return Button {
-            if tab == .play { startsTogether = false; playHomeToken += 1 }
             selectedTab = tab
-        } label: {
-            VStack(spacing: 4) {
-                Image(systemName: symbol).font(.system(size: 21, weight: .medium))
-                    .frame(width: 60, height: 30)
-                    .overlay(alignment: .topTrailing) {
-                        if tab == .friends && inviteCount > 0 {
-                            Text("\(inviteCount)")
-                                .font(.system(size: 10, weight: .bold, design: .rounded))
-                                .foregroundStyle(Studio.onAccent)
-                                .frame(minWidth: 16, minHeight: 16)
-                                .padding(.horizontal, 3)
-                                .background(Studio.accent, in: Capsule())
-                                .offset(x: -2, y: -4)
-                                .accessibilityHidden(true)
-                        }
-                    }
-                    .background {
-                        if #unavailable(iOS 26), selectedTab == tab {
-                            Capsule().fill(Studio.raised)
-                        }
-                    }
-                Text(title).font(.caption2)
-            }
-            .foregroundStyle(selectedTab == tab ? Studio.accent : Studio.secondary)
-            .frame(maxWidth: .infinity, minHeight: 50)
-            .background {
-                if #available(iOS 26, *), selectedTab == tab {
-                    Capsule().fill(Studio.accent.opacity(0.12))
-                }
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(title)
-        .accessibilityValue(tab == .friends && inviteCount > 0
-            ? "\(selectedTab == tab ? "選択中、" : "")招待・申請\(inviteCount)件"
-            : (selectedTab == tab ? "選択中" : ""))
+        })
     }
 
     @MainActor

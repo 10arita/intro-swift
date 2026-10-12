@@ -42,12 +42,7 @@ struct ReviewView: View {
                                 .foregroundStyle(Studio.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
-                        HStack(spacing: 4) {
-                            reviewSegment(false)
-                            reviewSegment(true)
-                        }
-                        .padding(4)
-                        .background(Studio.raised, in: RoundedRectangle(cornerRadius: Studio.Radius.md))
+                        reviewSegments
                         Text("左にスワイプして削除")
                             .font(.caption)
                             .foregroundStyle(Studio.secondary)
@@ -115,48 +110,34 @@ struct ReviewView: View {
         }
     }
 
-    private func reviewSegment(_ value: Bool) -> some View {
-        let count = model.reviews.filter { $0.learned == value }.count
-        return Button {
-            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { learned = value }
-        } label: {
-            Group {
-                if dynamicTypeSize.isAccessibilitySize {
-                    VStack(spacing: 4) {
-                        Text(value ? "覚えた" : "覚えてない")
-                            .fixedSize(horizontal: false, vertical: true)
-                            .multilineTextAlignment(.center)
-                        countBadge(count)
-                    }
-                } else {
-                    HStack(spacing: 6) {
-                        Text(value ? "覚えた" : "覚えてない")
-                        countBadge(count)
-                    }
-                }
-            }
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(learned == value ? Studio.accent : Studio.secondary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 10)
-            .frame(maxWidth: .infinity, minHeight: 44)
-            .fixedSize(horizontal: false, vertical: true)
-            .background(learned == value ? Studio.surface : .clear, in: RoundedRectangle(cornerRadius: Studio.Radius.sm))
+    private var reviewSegments: some View {
+        // The native segmented picker owns Liquid Glass and slide-to-select interaction.
+        Picker("復習の表示", selection: $learned) {
+            reviewSegmentTitle(false).tag(false)
+            reviewSegmentTitle(true).tag(true)
         }
-        .buttonStyle(StudioButtonStyle(.tertiary))
-        .background(ReviewFrameReader(key: .segment(value)))
-        .modifier(ReviewTabPop(trigger: value ? learnedPop : unlearnedPop))
-        .accessibilityLabel("\(value ? "覚えた" : "覚えてない")、\(count)曲")
-        .accessibilityAddTraits(learned == value ? [.isSelected] : [])
+        .pickerStyle(.segmented)
+        .controlSize(.large)
+        .labelsHidden()
+        .accessibilityIdentifier("review-filter")
+        .background {
+            // Native picker labels do not host SwiftUI geometry readers. Keep
+            // invisible destination frames behind its two equal-width segments.
+            HStack(spacing: 0) {
+                Color.clear.background(ReviewFrameReader(key: .segment(false)))
+                Color.clear.background(ReviewFrameReader(key: .segment(true)))
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
+        .modifier(ReviewTabPop(trigger: learnedPop + unlearnedPop))
     }
 
-    private func countBadge(_ count: Int) -> some View {
-        Text("\(count)")
-            .font(.caption.weight(.bold).monospacedDigit())
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(Studio.accent.opacity(0.09), in: Capsule())
-            .contentTransition(.numericText())
+    private func reviewSegmentTitle(_ value: Bool) -> some View {
+        let title = value ? "覚えた" : "覚えてない"
+        let count = model.reviews.filter { $0.learned == value }.count
+        return Text("\(title) \(count)")
+            .accessibilityLabel("\(title)、\(count)曲")
     }
 
     private func moveReview(_ item: ReviewSong) {

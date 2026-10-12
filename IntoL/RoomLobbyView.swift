@@ -106,6 +106,7 @@ struct RoomLobbyView: View {
               if isHost {
                 Button("変更", action: handicap)
                   .buttonStyle(StudioButtonStyle(.tertiary))
+                  .frame(minWidth: 44)
                   .disabled(model.busy)
                   .accessibilityLabel("プレイヤーのハンデを変更")
               }

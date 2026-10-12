@@ -178,7 +178,7 @@ struct PlayView: View {
                     choose(.intro, party: party)
                 }
                 PlayFlowCard(title: "サビトロ", subtitle: "サビを聴いて当てよう",
-                             symbol: "music.note.list", badge: "SABITRO", prominent: true,
+                             symbol: "music.note.list", prominent: true,
                              disabled: !model.serverConfigured || model.busy || creatingRoom) {
                     choose(.sabitro, party: party)
                 }
