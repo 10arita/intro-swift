@@ -99,6 +99,10 @@ struct ReviewView: View {
             .background(Studio.background)
             .toolbar(.hidden, for: .navigationBar)
             .onChange(of: learned) { _, _ in stopPlayback() }
+            .onChange(of: model.game != nil || model.room != nil) { _, sessionActive in
+                // The session overlays this tab without removing it from the view hierarchy.
+                if sessionActive, activeSongID != nil { stopPlayback(stoppingAppleMusic: false) }
+            }
             .onChange(of: reduceMotion) { _, enabled in
                 if enabled { flights.removeAll() }
             }
@@ -265,7 +269,7 @@ struct ReviewView: View {
         }
     }
 
-    @MainActor private func stopPlayback() {
+    @MainActor private func stopPlayback(stoppingAppleMusic: Bool = true) {
         playbackTask?.cancel()
         playbackTask = nil
         playbackMonitor?.cancel()
@@ -273,7 +277,8 @@ struct ReviewView: View {
         seekTask?.cancel()
         seekTask = nil
         reviewPlayer.stop()
-        model.appleMusic.stop()
+        // The game may already own the shared MusicKit player when its overlay appears.
+        if stoppingAppleMusic { model.appleMusic.stop() }
         model.setReviewAudioPlaying(false)
         activeSongID = nil
         loadingSongID = nil

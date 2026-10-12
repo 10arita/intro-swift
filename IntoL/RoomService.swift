@@ -864,7 +864,11 @@ struct SavedProfile: Decodable {
         ], authentication: credential)
     }
     func profile() async throws -> SavedProfile {
-        let existingToken = Secrets.get(profileKey)
+        let requestedID = profileID
+        let requestedOrigin = baseURL
+        let tokenKey = profileKey
+        let registrationKey = profileRegistrationKey
+        let existingToken = Secrets.get(tokenKey)
         var url = try endpoint("profile")
         url.append(queryItems: [URLQueryItem(name: "id", value: profileID)])
         var request = URLRequest(url: url)
@@ -872,11 +876,11 @@ struct SavedProfile: Decodable {
             request.setValue("Bearer \(existingToken)", forHTTPHeaderField: "Authorization")
         } else {
             // Persist before sending so a lost request or acknowledgement can be retried.
-            let registration = Secrets.get(profileRegistrationKey) ?? UUID().uuidString
-            if Secrets.get(profileRegistrationKey) == nil {
-                Secrets.set(registration, for: profileRegistrationKey)
+            let registration = Secrets.get(registrationKey) ?? UUID().uuidString
+            if Secrets.get(registrationKey) == nil {
+                Secrets.set(registration, for: registrationKey)
             }
-            guard Secrets.get(profileRegistrationKey) == registration else {
+            guard Secrets.get(registrationKey) == registration else {
                 throw AppError.message("プロフィールの登録情報を端末に保存できません")
             }
             request.url = try endpoint("profile")
@@ -886,17 +890,20 @@ struct SavedProfile: Decodable {
         }
         request.timeoutInterval = 10
         let (data, response) = try await session.data(for: request)
+        try Task.checkCancellation()
+        // CloudKit account restoration can change identity while this request is in flight.
+        guard profileID == requestedID, baseURL == requestedOrigin else { throw CancellationError() }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200...299).contains(status) else {
             throw AppError.message("プロフィールの同期に失敗しました (\(status))")
         }
         let saved = try JSONDecoder().decode(SavedProfile.self, from: data)
         if let token = saved.token {
-            Secrets.set(token, for: profileKey)
-            guard Secrets.get(profileKey) == token else {
+            Secrets.set(token, for: tokenKey)
+            guard Secrets.get(tokenKey) == token else {
                 throw AppError.message("プロフィールの認証情報を端末に保存できません")
             }
-            Secrets.set(nil, for: profileRegistrationKey)
+            Secrets.set(nil, for: registrationKey)
             onProfileCredentialsChange?()
         }
         return saved

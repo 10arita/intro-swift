@@ -71,8 +71,16 @@ struct GameAsset: Decodable {
                     }
                 }
                 let playable = AVURLAsset(url: audioURL(for: source))
-                guard try await playable.load(.isPlayable) else {
-                    throw AppError.message("準備した音源を再生できません")
+                do {
+                    guard try await playable.load(.isPlayable) else {
+                        throw AppError.message("準備した音源を再生できません")
+                    }
+                } catch {
+                    // A failed download must be fetched again when the user retries.
+                    if !Task.isCancelled, let cached = audio.removeValue(forKey: source) {
+                        try? FileManager.default.removeItem(at: cached)
+                    }
+                    throw error
                 }
             }
             progress(index + 1, assets.count)

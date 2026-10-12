@@ -377,13 +377,28 @@ function wrong(room, player, answer) {
   }
   continueEndlessAfterWrong(room);
 }
+function clearMembership(room, playerId) {
+  room.readyIds.delete(playerId);
+  room.assetsReadyIds?.delete(playerId);
+  room.skipped.delete(playerId);
+  delete room.settings.handicaps?.[playerId];
+}
+function transferHost(room, playerId) {
+  if (room.hostId === playerId) return;
+  room.hostId = playerId;
+  // Unprepared questions still depend on the departing host's private library.
+  if (room.phase === 'lobby' && !room.songs.length) room.playlist = null;
+}
 function refresh(room) {
   const now = Date.now();
-  room.players = room.players.filter(p => p.id === room.hostId || now - p.lastSeen < GRACE);
-  const host = room.players.find(p => p.id === room.hostId);
-  if (!host || now - host.lastSeen >= GRACE) {
-    const next = room.players.filter(p => now - p.lastSeen < GRACE).sort((a,b) => a.joinedAt - b.joinedAt)[0];
-    if (next) room.hostId = next.id;
+  room.players = room.players.filter(player => {
+    if (now - player.lastSeen < GRACE) return true;
+    clearMembership(room, player.id);
+    return false;
+  });
+  if (!room.players.some(player => player.id === room.hostId)) {
+    const next = [...room.players].sort((a,b) => a.joinedAt - b.joinedAt)[0];
+    if (next) transferHost(room, next.id);
   }
   if (room.phase === 'preparing') {
     const active = room.players.filter(p => now - p.lastSeen < GRACE);
@@ -597,9 +612,10 @@ export function handle(method, path, body, query, authorization, origin = 'https
   }
   const match = path.match(/^\/rooms\/([A-Z]{6})(?:\/(join|heartbeat|assets-ready|assets-unready|ready|start|push|choose|skip|next|rematch|leave|transfer|handicaps|lobby-config|bind-profile|friend-request|invite))?$/);
   if (!match) return fail(404, '見つかりません');
+  const action = match[2];
+  if (method !== (action ? 'POST' : 'GET')) return fail(405, 'Method not allowed');
   const room = rooms.get(match[1]); if (!room) return fail(404, 'ルームが見つかりません');
   refresh(room);
-  const action = match[2];
   const playerId = String(method === 'GET' ? query.get('playerId') || '' : body.playerId || '');
   let player = room.players.find(p => p.id === playerId);
   let newlyJoined = false;
@@ -684,9 +700,7 @@ export function handle(method, path, body, query, authorization, origin = 'https
   } else if (action === 'transfer') {
     const target = room.players.find(p => p.id === body.targetId);
     if (room.phase !== 'lobby' || room.hostId !== playerId || !target) return fail(403, 'ホスト変更は待機中のホストのみ行えます');
-    room.hostId = target.id;
-    // An unprepared playlist belongs to the previous host's music library.
-    if (!room.songs.length) room.playlist = null;
+    transferHost(room, target.id);
   } else if (action === 'lobby-config') {
     if (room.phase !== 'lobby' || room.hostId !== playerId) return fail(403, '待機中のホストのみ設定を変更できます');
     if (room.songs.length) return fail(409, '準備済みのゲーム設定は変更できません');
@@ -793,10 +807,10 @@ export function handle(method, path, body, query, authorization, origin = 'https
   } else if (action === 'leave') {
     const attempt = room.answers.find(answer => answer.playerId === playerId && answer.status === 'active');
     room.players = room.players.filter(p => p.id !== playerId);
-    delete room.settings.handicaps?.[playerId];
+    clearMembership(room, playerId);
     if (!room.players.length) rooms.delete(room.id);
     else {
-      if (room.hostId === playerId) room.hostId = room.players.sort((a,b) => a.joinedAt - b.joinedAt)[0].id;
+      if (room.hostId === playerId) transferHost(room, [...room.players].sort((a,b) => a.joinedAt - b.joinedAt)[0].id);
       if (attempt) wrong(room, player, attempt);
       refresh(room);
     }
@@ -928,7 +942,9 @@ function enrichStreamingChorus(id) {
 }
 
 export const server = createServer(async (request, response) => {
-  const url = new URL(request.url, 'http://localhost');
+  let url;
+  try { url = new URL(request.url, 'http://localhost'); }
+  catch { send(response, 400, { error: 'Bad request' }); return; }
   if (!['GET', 'POST', 'PUT'].includes(request.method)) { send(response, 405, { error: 'Method not allowed' }); return; }
   const chorusSync = url.pathname === '/admin/chorus-sync';
   if (chorusSync) {

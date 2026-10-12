@@ -5,11 +5,13 @@ private final class TestRoomProtocol: URLProtocol {
         var state: [String: Any]?
         var error: Error?
         var status = 200
+        var held = false
     }
     static var replies: [Reply] = []
     static var requests: [URLRequest] = []
     static var bodies: [[String: Any]] = []
     static var onRequest: ((URLRequest, [String: Any]) -> Void)?
+    static var releaseReply: (() -> Void)?
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -30,6 +32,11 @@ private final class TestRoomProtocol: URLProtocol {
         Self.onRequest?(request, Self.bodies.last!)
         precondition(!Self.replies.isEmpty, "Unexpected request: \(request.url!)")
         let reply = Self.replies.removeFirst()
+        if reply.held {
+            Self.releaseReply = { [self] in finish(reply) }
+        } else { finish(reply) }
+    }
+    private func finish(_ reply: Reply) {
         if let error = reply.error {
             client?.urlProtocol(self, didFailWithError: error)
             return
@@ -62,6 +69,7 @@ private final class TestRoomProtocol: URLProtocol {
         TestRoomProtocol.replies = []
         TestRoomProtocol.bodies = []
         TestRoomProtocol.onRequest = nil
+        TestRoomProtocol.releaseReply = nil
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [TestRoomProtocol.self]
         let service = RoomService(session: URLSession(configuration: configuration))
@@ -85,6 +93,7 @@ private final class TestRoomProtocol: URLProtocol {
         try await realFailuresRemainVisible()
         try await answerRetryKeepsActionID()
         try await profileRegistrationRecovery()
+        try await obsoleteProfileResponse()
         try await expiredSessionErrors()
         print("Room action recovery tests passed")
     }
@@ -257,5 +266,26 @@ private final class TestRoomProtocol: URLProtocol {
         TestRoomProtocol.replies = [.init(error: URLError(.networkConnectionLost))]
         do { _ = try await service.state("ABCDEF"); preconditionFailure("Network failure must fail") }
         catch { precondition(!RoomService.isExpiredSession(error)) }
+    }
+
+    @MainActor static func obsoleteProfileResponse() async throws {
+        for changeOrigin in [false, true] {
+            let service = makeService()
+            let originalKey = "profileRegistration:\(service.baseURL):\(service.profileID)"
+            TestRoomProtocol.replies = [.init(state: ["reviews": [], "history": [], "token": "old-account-token"], held: true)]
+            let pending = Task { @MainActor in try await service.profile() }
+            while TestRoomProtocol.releaseReply == nil { await Task.yield() }
+            if changeOrigin { service.baseURL = "https://replacement.test" }
+            else { service.restoreProfileIdentity("replacement-profile", credentials: [:]) }
+            TestRoomProtocol.releaseReply!()
+            do {
+                _ = try await pending.value
+                preconditionFailure("An obsolete profile response must not be applied")
+            } catch is CancellationError { }
+            precondition(service.profileCredentialSnapshot.isEmpty,
+                         "An old response must never install its bearer token for a different account or server")
+            precondition(Secrets.get(originalKey) != nil,
+                         "Keep the original registration credential for a future retry of that identity")
+        }
     }
 }
