@@ -16,6 +16,8 @@
         if Self.isPlayFlow(scenario)
           || scenario.hasPrefix("friends") || scenario.hasPrefix("account") {
           RootView(previewStep: scenario)
+        } else if scenario == "review" {
+          ReviewView()
         } else if scenario.hasPrefix("solo-reveal") || scenario == "solo-answer" || scenario == "solo-result" {
           SoloGameView()
         } else if scenario.hasPrefix("rules-host") {
@@ -58,10 +60,18 @@
         model.friendsState = try! JSONDecoder().decode(FriendsState.self,
           from: JSONSerialization.data(withJSONObject: ["friends": [], "requests": request, "invites": invites]))
       }
+      let artworkURL = ProcessInfo.processInfo.arguments.first { $0.hasPrefix("--ui-artwork-url=") }
+        .flatMap { URL(string: String($0.dropFirst("--ui-artwork-url=".count))) }
       let songs = ["青い空", "春風", "夜明け"].enumerated().map { index, title in
         Song(
-          id: "demo:ui-\(index)", title: title, artist: "IntoL Studio", durationMS: 180_000,
+          id: "demo:ui-\(index)", title: title, artist: "IntoL Studio", artworkURL: artworkURL, durationMS: 180_000,
           genre: "Pop")
+      }
+      if scenario == "review" {
+        // Decode saved rows so this fixture also exercises artwork URLs after restoration.
+        let reviews = songs.enumerated().map { ReviewSong(song: $0.element, learned: $0.offset == 2) }
+        model.reviews = try! JSONDecoder().decode([ReviewSong].self, from: JSONEncoder().encode(reviews))
+        return model
       }
       if Self.isPlayFlow(scenario) {
         if scenario.hasPrefix("playlist"), !scenario.contains("connect") {
@@ -69,8 +79,8 @@
           model.appleMusicPlayable = true
           if !scenario.contains("empty") {
             model.appleMusicPlaylists = [
-              AppleMusicPlaylist(id: "fixture-night", name: "夜に聴く曲"),
-              AppleMusicPlaylist(id: "fixture-favorites", name: "お気に入りの曲"),
+              AppleMusicPlaylist(id: "fixture-night", name: "夜に聴く曲", artworkURL: artworkURL),
+              AppleMusicPlaylist(id: "fixture-favorites", name: "お気に入りの曲", artworkURL: artworkURL),
             ]
           }
           if scenario.contains("selected") {

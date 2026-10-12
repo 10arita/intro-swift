@@ -22,6 +22,7 @@
 		A0000000000000000000000E /* MusicServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000010 /* MusicServices.swift */; };
 		A0000000000000000000000F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000008 /* Assets.xcassets */; };
 		A00000000000000000000013 /* GameAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000013 /* GameAssets.swift */; };
+		A00000000000000000000069 /* ArtworkCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000069 /* ArtworkCache.swift */; };
 		A00000000000000000000014 /* server/corpus/famousSongs.json in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000014 /* server/corpus/famousSongs.json */; };
 		A00000000000000000000015 /* server/corpus/famousSongsJapaneseExpansion.json in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000015 /* server/corpus/famousSongsJapaneseExpansion.json */; };
 		A00000000000000000000016 /* server/corpus/famousSongsJpop2015Plus.json in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000016 /* server/corpus/famousSongsJpop2015Plus.json */; };
@@ -74,6 +75,7 @@
 		B0000000000000000000000C /* Audio */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Audio; sourceTree = "<group>"; };
 		B00000000000000000000010 /* MusicServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicServices.swift; sourceTree = "<group>"; };
 		B00000000000000000000013 /* GameAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameAssets.swift; sourceTree = "<group>"; };
+		B00000000000000000000069 /* ArtworkCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkCache.swift; sourceTree = "<group>"; };
 		B00000000000000000000014 /* server/corpus/famousSongs.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = server/corpus/famousSongs.json; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000015 /* server/corpus/famousSongsJapaneseExpansion.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = server/corpus/famousSongsJapaneseExpansion.json; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000016 /* server/corpus/famousSongsJpop2015Plus.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = server/corpus/famousSongsJpop2015Plus.json; sourceTree = SOURCE_ROOT; };
@@ -148,6 +150,7 @@
 				B00000000000000000000062 /* ChorusDeveloperModel.swift */,
 				B00000000000000000000063 /* ChorusDeveloperView.swift */,
 				B00000000000000000000013 /* GameAssets.swift */,
+				B00000000000000000000069 /* ArtworkCache.swift */,
 				B00000000000000000000018 /* PlayerAvatar.swift */,
 				B00000000000000000000019 /* CloudProfile.swift */,
 				B0000000000000000000001A /* CloudProfileService.swift */,
@@ -314,6 +317,7 @@
 				A00000000000000000000062 /* ChorusDeveloperModel.swift in Sources */,
 				A00000000000000000000063 /* ChorusDeveloperView.swift in Sources */,
 				A00000000000000000000013 /* GameAssets.swift in Sources */,
+				A00000000000000000000069 /* ArtworkCache.swift in Sources */,
 				A00000000000000000000018 /* PlayerAvatar.swift in Sources */,
 				A00000000000000000000019 /* CloudProfile.swift in Sources */,
 				A0000000000000000000001A /* CloudProfileService.swift in Sources */,

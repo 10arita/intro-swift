@@ -20,19 +20,27 @@ struct GameAsset: Decodable {
 @MainActor final class GameAssets {
     static let shared = GameAssets()
     private var audio: [URL: URL] = [:]
-    private var images: [URL: UIImage] = [:]
+    private let images = NSCache<NSURL, UIImage>()
+    private let artwork = ArtworkCache { UIImage(data: $0) != nil }
+
+    private init() { images.totalCostLimit = 32 * 1024 * 1024 }
 
     func audioURL(for url: URL) -> URL { audio[url] ?? url }
-    func image(for url: URL?) -> UIImage? { url.flatMap { images[$0] } }
+    func image(for url: URL?) -> UIImage? { url.flatMap { images.object(forKey: $0 as NSURL) } }
 
-    func prepareImage(_ url: URL) async throws {
-        guard images[url] == nil else { return }
-        let (data, response) = try await URLSession.shared.data(from: url)
-        guard (response as? HTTPURLResponse)?.statusCode == 200,
-              let image = UIImage(data: data) else {
+    func loadImage(_ url: URL) async throws -> UIImage {
+        if let image = image(for: url) { return image }
+        let data = try await artwork.data(for: url)
+        guard let image = UIImage(data: data) else {
             throw AppError.message("ジャケット画像を準備できませんでした。通信を確認してください")
         }
-        images[url] = image
+        let cost = (image.cgImage?.bytesPerRow ?? 0) * (image.cgImage?.height ?? 0)
+        images.setObject(image, forKey: url as NSURL, cost: cost)
+        return image
+    }
+
+    func prepareImage(_ url: URL) async throws {
+        _ = try await loadImage(url)
     }
 
     func prepare(_ assets: [GameAsset], progress: (Int, Int) -> Void) async throws {

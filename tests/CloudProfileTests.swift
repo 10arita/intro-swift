@@ -108,6 +108,17 @@ import Foundation
         let restored = try JSONDecoder().decode(CloudProfile.self, from: identity.encoded())
         expect(restored.serverProfileID == identity.serverProfileID && restored.serverCredentials == identity.serverCredentials,
                "The private CloudKit payload must round-trip with identity credentials")
+        var artworkSong = song("applemusic:123")
+        artworkSong.artworkURL = URL(string: "https://artwork.test/cover.jpg?size=300")
+        for learned in [false, true] {
+            let artworkReview = ReviewSong(song: artworkSong, learned: learned)
+            var artworkProfile = CloudProfile(reviews: [artworkReview])
+            capture(&artworkProfile, stats: artworkProfile.stats, device: "phone")
+            let artworkRestored = try JSONDecoder().decode(CloudProfile.self, from: artworkProfile.encoded())
+            expect(artworkRestored.reviews.first?.song.artworkURL == artworkSong.artworkURL &&
+                   artworkRestored.merging(artworkProfile).reviews.first?.song.artworkURL == artworkSong.artworkURL,
+                   "Review artwork URLs must survive saving, relaunching, and iCloud merging in either learned group")
+        }
         print("CloudProfile tests passed (offline merge, retry, deletion, settings, migration, identity, history)")
     }
 }

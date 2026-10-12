@@ -85,27 +85,37 @@ struct SectionCaption: View {
 struct Artwork: View {
     let url: URL?
     var size: CGFloat = 72
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var loadedImage: UIImage?
+    @State private var loadedURL: URL?
+
+    private struct LoadRequest: Equatable {
+        let url: URL?
+        let active: Bool
+    }
 
     var body: some View {
         Group {
-            if let image = GameAssets.shared.image(for: url) {
+            if let image = GameAssets.shared.image(for: url) ?? (loadedURL == url ? loadedImage : nil) {
                 Image(uiImage: image).resizable().scaledToFill()
             } else {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .success(let image): image.resizable().scaledToFill()
-                    default:
-                        ZStack {
-                            Studio.raised
-                            Image(systemName: "music.note").foregroundStyle(Studio.secondary)
-                        }
-                    }
+                ZStack {
+                    Studio.raised
+                    Image(systemName: "music.note").foregroundStyle(Studio.secondary)
                 }
             }
         }
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: Studio.Radius.md))
         .accessibilityHidden(true)
+        .task(id: LoadRequest(url: url, active: scenePhase == .active)) {
+            // Retry on reappearance/foregrounding. Failed requests are not cached.
+            guard let url, scenePhase != .background else { return }
+            let image = try? await GameAssets.shared.loadImage(url)
+            guard !Task.isCancelled else { return }
+            loadedURL = url
+            loadedImage = image
+        }
     }
 }
 

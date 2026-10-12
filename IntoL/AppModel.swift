@@ -654,6 +654,9 @@ struct SoloGame {
         reviews.insert(ReviewSong(song: song.portableReviewSong), at: 0)
         trimReviews()
         persist()
+        if let artworkURL = song.artworkURL {
+            Task { try? await GameAssets.shared.prepareImage(artworkURL) }
+        }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
 
