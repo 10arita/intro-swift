@@ -22,7 +22,6 @@
 		A0000000000000000000000E /* MusicServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000010 /* MusicServices.swift */; };
 		A0000000000000000000000F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000008 /* Assets.xcassets */; };
 		A00000000000000000000013 /* GameAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000013 /* GameAssets.swift */; };
-		A00000000000000000000069 /* ArtworkCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000069 /* ArtworkCache.swift */; };
 		A00000000000000000000014 /* server/corpus/famousSongs.json in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000014 /* server/corpus/famousSongs.json */; };
 		A00000000000000000000015 /* server/corpus/famousSongsJapaneseExpansion.json in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000015 /* server/corpus/famousSongsJapaneseExpansion.json */; };
 		A00000000000000000000016 /* server/corpus/famousSongsJpop2015Plus.json in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000016 /* server/corpus/famousSongsJpop2015Plus.json */; };
@@ -54,6 +53,7 @@
 		A00000000000000000000066 /* server/manual-chorus.json in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000066 /* server/manual-chorus.json */; };
 		A00000000000000000000067 /* ChorusReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000067 /* ChorusReport.swift */; };
 		A00000000000000000000068 /* ChorusReportViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000068 /* ChorusReportViews.swift */; };
+		A00000000000000000000069 /* ArtworkCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000069 /* ArtworkCache.swift */; };
 		C04387BDE8F114D35D808B3D /* RevealEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40D296A3BF561B575315D4DA /* RevealEffects.swift */; };
 /* End PBXBuildFile section */
 
@@ -75,7 +75,6 @@
 		B0000000000000000000000C /* Audio */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Audio; sourceTree = "<group>"; };
 		B00000000000000000000010 /* MusicServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicServices.swift; sourceTree = "<group>"; };
 		B00000000000000000000013 /* GameAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameAssets.swift; sourceTree = "<group>"; };
-		B00000000000000000000069 /* ArtworkCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkCache.swift; sourceTree = "<group>"; };
 		B00000000000000000000014 /* server/corpus/famousSongs.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = server/corpus/famousSongs.json; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000015 /* server/corpus/famousSongsJapaneseExpansion.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = server/corpus/famousSongsJapaneseExpansion.json; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000016 /* server/corpus/famousSongsJpop2015Plus.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = server/corpus/famousSongsJpop2015Plus.json; sourceTree = SOURCE_ROOT; };
@@ -108,6 +107,7 @@
 		B00000000000000000000066 /* server/manual-chorus.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "server/manual-chorus.json"; sourceTree = SOURCE_ROOT; };
 		B00000000000000000000067 /* ChorusReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChorusReport.swift; sourceTree = "<group>"; };
 		B00000000000000000000068 /* ChorusReportViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChorusReportViews.swift; sourceTree = "<group>"; };
+		B00000000000000000000069 /* ArtworkCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkCache.swift; sourceTree = "<group>"; };
 		B1728359B56266971280996B /* RoomPlayerStandings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomPlayerStandings.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -447,7 +447,7 @@
 				CLOUDKIT_CONTAINER_IDENTIFIER = "iCloud.$(PRODUCT_BUNDLE_IDENTIFIER)";
 				CODE_SIGN_ENTITLEMENTS = IntoL/IntoL.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 30;
+				CURRENT_PROJECT_VERSION = 31;
 				DEVELOPMENT_TEAM = 846DPLLG2V;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = IntoL/Info.plist;
@@ -456,7 +456,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 5.2.1;
+				MARKETING_VERSION = 5.2.2;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -479,7 +479,7 @@
 				CLOUDKIT_CONTAINER_IDENTIFIER = "iCloud.$(PRODUCT_BUNDLE_IDENTIFIER)";
 				CODE_SIGN_ENTITLEMENTS = IntoL/IntoL.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 30;
+				CURRENT_PROJECT_VERSION = 31;
 				DEVELOPMENT_TEAM = 846DPLLG2V;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = IntoL/Info.plist;
@@ -488,7 +488,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 5.2.1;
+				MARKETING_VERSION = 5.2.2;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
