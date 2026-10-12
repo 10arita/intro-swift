@@ -341,9 +341,9 @@ struct RoomRuleDetailsView: View {
         Section("得点とライフ") {
           ruleRow(.targetScore, settings.targetScore)
           ruleRow(.correctPoints, settings.correctPoints)
-          ruleRow(.firstBonus, settings.firstBonus)
+          ruleRow(.firstBonus, settings.firstBonus, valueLabel: settings.endless ? "無効" : nil)
           ruleRow(.wrongPenalty, settings.wrongPenalty)
-          ruleRow(.firstWrongPenalty, settings.firstWrongPenalty)
+          ruleRow(.firstWrongPenalty, settings.firstWrongPenalty, valueLabel: settings.endless ? "無効" : nil)
           ruleRow(.lives, settings.lives)
         }
         .listRowBackground(Studio.background)
@@ -404,13 +404,15 @@ struct RoomRuleSettingsView: View {
             onHelp: showHelp)
           RuleDialRow(
             rule: .firstBonus, value: $model.roomSettings.firstBonus, range: 0...50, step: 10,
-            onHelp: showHelp)
+            disabled: model.roomSettings.endless,
+            valueLabel: model.roomSettings.endless ? "無効" : nil, onHelp: showHelp)
           RuleDialRow(
             rule: .wrongPenalty, value: $model.roomSettings.wrongPenalty, range: 0...50, step: 10,
             onHelp: showHelp)
           RuleDialRow(
             rule: .firstWrongPenalty, value: $model.roomSettings.firstWrongPenalty, range: 0...50, step: 10,
-            onHelp: showHelp)
+            disabled: model.roomSettings.endless,
+            valueLabel: model.roomSettings.endless ? "無効" : nil, onHelp: showHelp)
           RuleDialRow(rule: .lives, value: $model.roomSettings.lives, range: 0...10,
             onHelp: showHelp)
         }

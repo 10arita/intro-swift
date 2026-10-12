@@ -278,7 +278,8 @@ function reveal(room) {
   room.correctPlayerIDs.forEach(id => {
     const player = room.players.find(item => item.id === id);
     if (player) {
-      player.score += room.settings.correctPoints + (id === room.correctPlayerID ? room.settings.firstBonus : 0);
+      player.score += room.settings.correctPoints +
+        (!room.settings.endless && id === room.correctPlayerID ? room.settings.firstBonus : 0);
       player.correctCount = (player.correctCount ?? 0) + 1;
     }
   });
@@ -362,7 +363,7 @@ function wrong(room, player, answer) {
   const s = room.settings;
   const firstPusherID = room.pushed.values().next().value;
   player.score = Math.max(0, player.score - s.wrongPenalty -
-    (player.id === firstPusherID ? s.firstWrongPenalty : 0));
+    (!s.endless && player.id === firstPusherID ? s.firstWrongPenalty : 0));
   player.wrongCount = (player.wrongCount ?? 0) + 1;
   if (s.lives > 0) {
     player.lives = Math.max(0, player.lives - 1);

@@ -1055,6 +1055,55 @@ test('normal mode lets active answers finish after the 30-second PUSH deadline',
   } finally { Date.now = realNow; }
 });
 
+for (const endless of [false, true]) {
+  test(`1st scoring is ${endless ? 'disabled in endless' : 'enabled in normal'} mode for correct, wrong, and timed-out answers`, () => {
+    const realNow = Date.now;
+    let now = realNow();
+    Date.now = () => now;
+    try {
+      const { action, state } = startedThreePlayerRoom(endless, {
+        questionCount: 3, correctPoints: 50, firstBonus: 20, wrongPenalty: 5, firstWrongPenalty: 15
+      });
+      const answerCorrectly = id => {
+        assert.equal(action('choose', id, { choice: '花' }).status, 200);
+        assert.equal(action('choose', id, { choice: '火' }).status, 200);
+      };
+      now += 6000;
+      assert.equal(action('push', 'relayA').status, 200);
+      answerCorrectly('relayA');
+      if (!endless) {
+        assert.equal(action('push', 'relayB').status, 200);
+        answerCorrectly('relayB');
+      }
+      let expectedScore = endless ? 50 : 70;
+      assert.equal(state('relayA').phase, 'reveal');
+      assert.equal(state('relayA').players.find(p => p.id === 'relayA').score, expectedScore);
+      assert.equal(state('relayA').settings.firstBonus, 20, 'Keep the configured bonus for normal mode');
+      assert.equal(state('relayA').settings.firstWrongPenalty, 15, 'Keep the configured penalty for normal mode');
+
+      for (const timedOut of [false, true]) {
+        assert.equal(action('next', 'relayA').body.phase, 'preparing');
+        for (const id of ['relayA', 'relayB', 'relayC']) action('ready', id);
+        now += 6000;
+        assert.equal(action('push', 'relayA').status, 200);
+        if (timedOut) now += 5100;
+        else assert.equal(action('choose', 'relayA', { choice: 'X' }).status, 200);
+        expectedScore -= endless ? 5 : 20;
+        const player = state('relayA').players.find(p => p.id === 'relayA');
+        assert.equal(player.score, expectedScore, timedOut ? 'Timeout penalty' : 'Wrong-answer penalty');
+        assert.equal(player.lives, timedOut ? 1 : 2, 'The regular life penalty still applies');
+        assert.equal(player.wrongCount, timedOut ? 2 : 1);
+        assert.equal(action('push', 'relayB').status, 200);
+        answerCorrectly('relayB');
+        const revealed = state('relayA');
+        assert.equal(revealed.phase, 'reveal');
+        assert.deepEqual(revealed.correctPlayerIDs, ['relayB']);
+        assert.equal(revealed.players.find(p => p.id === 'relayA').score, expectedScore);
+      }
+    } finally { Date.now = realNow; }
+  });
+}
+
 test('endless mode passes queued PUSHes in order before resuming the round clock', () => {
   const realNow = Date.now;
   let now = realNow();
@@ -1113,7 +1162,7 @@ test('endless mode passes a second queued PUSH after the first queued player is 
     const result = action('choose', 'relayC', { choice: '火' }).body;
     assert.equal(result.phase, 'reveal');
     assert.equal(result.correctPlayerID, 'relayC');
-    assert.equal(result.players.find(p => p.id === 'relayC').score, 20);
+    assert.equal(result.players.find(p => p.id === 'relayC').score, 10);
   } finally { Date.now = realNow; }
 });
 

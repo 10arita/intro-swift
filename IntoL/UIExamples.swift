@@ -140,6 +140,7 @@
         players.append(player)
       }
       var rules = model.roomSettings
+      rules.endless = scenario.contains("endless")
       rules.questionCount = scenario.contains("shortage") ? 6 : songs.count
       rules.handicaps = guest ? [ids[2]: 3] : nil
       if scenario.contains("unlimited") {
@@ -194,6 +195,8 @@
   #Preview("待機室・大きな文字") { UIExamples(scenario: "lobby-guest-large-text") }
   #Preview("参加者・ダーク") { UIExamples(scenario: "lobby-guest-dark") }
   #Preview("ルール・制限なし") { UIExamples(scenario: "rules-host-unlimited") }
+  #Preview("ルール・エンドレス") { UIExamples(scenario: "rules-host-endless") }
+  #Preview("ルール詳細・エンドレス") { UIExamples(scenario: "rules-guest-endless") }
   #Preview("ルール説明・大きな文字") { UIExamples(scenario: "rules-host-unlimited-large-text") }
   #Preview("ルール詳細・ダーク") { UIExamples(scenario: "rules-guest-unlimited-dark") }
   #Preview("対戦中") { UIExamples(scenario: "answer") }
