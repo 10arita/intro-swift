@@ -54,9 +54,9 @@
 		A00000000000000000000067 /* ChorusReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000067 /* ChorusReport.swift */; };
 		A00000000000000000000068 /* ChorusReportViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000068 /* ChorusReportViews.swift */; };
 		A00000000000000000000069 /* ArtworkCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000069 /* ArtworkCache.swift */; };
-		C04387BDE8F114D35D808B3D /* RevealEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40D296A3BF561B575315D4DA /* RevealEffects.swift */; };
 		A0000000000000000000006A /* FeedbackReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000006A /* FeedbackReport.swift */; };
 		A0000000000000000000006B /* FeedbackReportViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000006B /* FeedbackReportViews.swift */; };
+		C04387BDE8F114D35D808B3D /* RevealEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40D296A3BF561B575315D4DA /* RevealEffects.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -110,9 +110,9 @@
 		B00000000000000000000067 /* ChorusReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChorusReport.swift; sourceTree = "<group>"; };
 		B00000000000000000000068 /* ChorusReportViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChorusReportViews.swift; sourceTree = "<group>"; };
 		B00000000000000000000069 /* ArtworkCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkCache.swift; sourceTree = "<group>"; };
-		B1728359B56266971280996B /* RoomPlayerStandings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomPlayerStandings.swift; sourceTree = "<group>"; };
 		B0000000000000000000006A /* FeedbackReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedbackReport.swift; sourceTree = "<group>"; };
 		B0000000000000000000006B /* FeedbackReportViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedbackReportViews.swift; sourceTree = "<group>"; };
+		B1728359B56266971280996B /* RoomPlayerStandings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomPlayerStandings.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -231,7 +231,7 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastUpgradeCheck = 2650;
+				LastUpgradeCheck = 2700;
 				TargetAttributes = {
 					E00000000000000000000001 = {
 						CreatedOnToolsVersion = 26.0;
@@ -383,6 +383,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 846DPLLG2V;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -429,6 +430,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 846DPLLG2V;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -455,8 +457,7 @@
 				CLOUDKIT_CONTAINER_IDENTIFIER = "iCloud.$(PRODUCT_BUNDLE_IDENTIFIER)";
 				CODE_SIGN_ENTITLEMENTS = IntoL/IntoL.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 31;
-				DEVELOPMENT_TEAM = 846DPLLG2V;
+				CURRENT_PROJECT_VERSION = 32;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = IntoL/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -464,7 +465,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 5.2.2;
+				MARKETING_VERSION = 5.2.3;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -487,8 +488,7 @@
 				CLOUDKIT_CONTAINER_IDENTIFIER = "iCloud.$(PRODUCT_BUNDLE_IDENTIFIER)";
 				CODE_SIGN_ENTITLEMENTS = IntoL/IntoL.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 31;
-				DEVELOPMENT_TEAM = 846DPLLG2V;
+				CURRENT_PROJECT_VERSION = 32;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = IntoL/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -496,7 +496,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 5.2.2;
+				MARKETING_VERSION = 5.2.3;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
