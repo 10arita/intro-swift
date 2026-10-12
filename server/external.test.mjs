@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { matchItunes, topSongs, chorusPosition, fallbackChorus } from './external.mjs';
+import { matchItunes, topSongs, chorusPosition, chorusResult, fallbackChorus } from './external.mjs';
 
 test('iTunes matching requires the title and artist, and Songle starts before the chorus', async () => {
   const original = globalThis.fetch;
@@ -26,6 +26,8 @@ test('iTunes matching requires the title and artist, and Songle starts before th
     assert.equal(await matchItunes({ title: '別の曲', artist: 'Vaundy' }), null);
     assert.deepEqual(await topSongs(), ['群青']);
     assert.equal(await chorusPosition({ durationMS: 220000, songleURL: 'https://www.youtube.com/watch?v=abc' }), 63626);
+    assert.equal((await chorusResult({ durationMS: 220000,
+      songleURL: 'https://www.youtube.com/watch?v=abc' })).source, 'songle');
     assert.equal(fallbackChorus(180000), 56100);
     assert.equal(fallbackChorus(181234), 56495);
     assert.equal(fallbackChorus(30000), 25000);

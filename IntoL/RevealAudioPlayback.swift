@@ -2,6 +2,7 @@ import Foundation
 
 enum RevealPlaybackSource: String, Codable {
     case manualDatabase = "manual_database"
+    case songleDatabase = "songle_database"
     case songMetadata = "song_metadata"
     case songle
     case preview = "itunes_preview"

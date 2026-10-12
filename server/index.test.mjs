@@ -330,7 +330,7 @@ test('unsupported music providers cannot create rooms', () => {
   assert.equal(result.status, 400);
 });
 
-for (const chorusMS of [56494.88, 0]) test(`a retried Apple Music choice is applied once and retains chorus ${chorusMS}`, () => {
+for (const [chorusMS, chorusSource] of [[56494.88, 'songle_database'], [0, 'songle']]) test(`a retried Apple Music choice is applied once and retains chorus ${chorusMS}`, () => {
   const originalNow = Date.now;
   let now = originalNow();
   Date.now = () => now;
@@ -338,7 +338,7 @@ for (const chorusMS of [56494.88, 0]) test(`a retried Apple Music choice is appl
     const created = handle('POST', '/rooms', {
       playerId: 'retry-host', name: 'Host', mode: 'applemusic',
       songs: [{ id: 'applemusic:1234567890', title: '青い空', artist: 'Artist',
-        durationMS: 181234, chorusMS }],
+        durationMS: 181234, chorusMS, chorusSource }],
       settings: { questionCount: 1 }
     }, new URLSearchParams());
     const path = `/rooms/${created.body.id}`;
@@ -361,6 +361,7 @@ for (const chorusMS of [56494.88, 0]) test(`a retried Apple Music choice is appl
     const completed = send('choose', { choice: '空', actionId: 'final-letter' });
     assert.equal(completed.body.phase, 'reveal');
     assert.equal(completed.body.current.chorusMS, Math.round(chorusMS));
+    assert.equal(completed.body.current.chorusSource, chorusSource);
   } finally {
     Date.now = originalNow;
   }

@@ -571,8 +571,9 @@ struct SavedProfile: Decodable {
                 chorusSources[song.id] = nil
                 guard let position = result.positionMS, position >= 0,
                       song.durationMS <= 0 || position < song.durationMS,
-                      ["manual_database", "songle"].contains(result.source ?? "") else { return nil }
-                chorusSources[song.id] = result.source
+                      ["manual_database", "songle_database", "songle"].contains(result.source ?? "") else { return nil }
+                // Older servers label stored Songle positions as "songle" even on the DB-only endpoint.
+                chorusSources[song.id] = result.source == "songle" ? "songle_database" : result.source
                 return position
             }
         }
@@ -603,7 +604,7 @@ struct SavedProfile: Decodable {
                (response as? HTTPURLResponse)?.statusCode == 200,
                let decoded = try? JSONDecoder().decode(ChorusResponse.self, from: data) {
                 if decoded.positionMS != nil {
-                    chorusSources[song.id] = ["manual_database", "songle"].contains(decoded.source ?? "")
+                    chorusSources[song.id] = ["manual_database", "songle_database", "songle"].contains(decoded.source ?? "")
                         ? decoded.source : "songle"
                 }
                 return decoded.positionMS

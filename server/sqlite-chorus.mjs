@@ -46,7 +46,7 @@ export class SQLiteChorusStore {
     const position = Math.max(0, row.chorus_start_ms - 1500);
     return { databaseConfigured: true,
       positionMS: row.source === 'songle' && duration > 0 ? Math.min(position, Math.max(0, duration - 5000)) : position,
-      source: row.source === 'manual' ? 'manual_database' : 'songle' };
+      source: row.source === 'manual' ? 'manual_database' : 'songle_database' };
   }
   replace(catalog) {
     if (!this.path) throw new Error('CHORUS_DB_PATH or DATA_DIR is required for database synchronization');

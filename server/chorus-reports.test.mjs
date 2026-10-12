@@ -35,13 +35,16 @@ test('reports contain track and actual playback details and discard identity fie
 });
 
 test('all successful playback routes have distinct Discord labels', async () => {
-  for (const [source, label] of [['manual_database', 'サビDB'], ['song_metadata', '曲データ'],
-    ['songle', 'Songle'], ['itunes_preview', 'プレビュー音源の冒頭'], ['duration_estimate', '推定']]) {
+  for (const [source, label] of [['manual_database', 'サビDB（手動確認済み）'],
+    ['songle_database', 'サビDB（Songle取得済み）'], ['song_metadata', '曲データのサビ位置（旧データでは取得元不明）'],
+    ['songle', 'Songle'], ['itunes_preview', 'プレビュー音源の冒頭'], ['duration_estimate', '曲の長さから推定した位置']]) {
     const input = makeReport();
     input.playback.source = source;
     if (source === 'itunes_preview') input.playback = { source, audioSource: source, startPositionMS: 0 };
     const report = createChorusReportHandler({ webhookURL: () => webhook, fetchImpl: async (_, options) => {
-      assert.ok(options.body.includes(label)); return confirmation();
+      const fields = JSON.parse(options.body).embeds[0].fields;
+      assert.equal(fields.find(field => field.name === '正解曲が流れた処理').value, label);
+      return confirmation();
     } });
     assert.equal((await report(input)).status, 200);
   }

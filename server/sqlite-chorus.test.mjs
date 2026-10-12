@@ -62,7 +62,7 @@ test('manual precedence, preview exclusion, recording length and unreviewed cand
     assert.deepEqual(store.lookup({ ...song, title: 'Song (Live)' }), empty);
     assert.deepEqual(store.lookup({ ...song, artist: 'Another Singer' }), empty);
     writer.exec('DELETE FROM observations WHERE id=1');
-    assert.deepEqual(store.lookup(song), { databaseConfigured: true, positionMS: 68500, source: 'songle' });
+    assert.deepEqual(store.lookup(song), { databaseConfigured: true, positionMS: 68500, source: 'songle_database' });
     assert.deepEqual(store.lookup({ ...song, durationMS: 160000 }), empty);
     writer.exec("UPDATE observations SET status='needs_review'");
     assert.deepEqual(store.lookup(song), empty);
@@ -88,6 +88,8 @@ test('authenticated snapshot replacement retains prior data on invalid input and
     assert.throws(() => store.replace(catalog(record(), record())), /Duplicate/);
     store.replace(catalog(record(80000)));
     assert.equal(store.lookup(song).positionMS, 78500);
+    store.replace(catalog({ ...record(70000), source: 'songle', status: 'metadata_matched' }));
+    assert.deepEqual(store.lookup(song), { databaseConfigured: true, positionMS: 68500, source: 'songle_database' });
     store.replace(catalog());
     assert.deepEqual(store.lookup(song), empty);
   } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
@@ -133,6 +135,14 @@ test('a local DB edit reaches the private server replica and HTTP lookup while t
       body: JSON.stringify(catalog({ ...record(), chorusStartMS: -1 })) });
     assert.equal(bad.status, 400);
     assert.equal((await (await query()).json()).positionMS, 93500);
+    writer.exec("UPDATE observations SET source='songle',status='metadata_matched' WHERE id=1");
+    const third = await once(watcher.stdout, 'data');
+    assert.match(String(third[0]), /Synchronized 1/);
+    const storedSongle = { databaseConfigured: true, positionMS: 93500, source: 'songle_database' };
+    assert.deepEqual(await (await query()).json(), storedSongle);
+    const chorus = await fetch(origin + '/chorus', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(song) });
+    assert.deepEqual(await chorus.json(), storedSongle);
   } finally {
     watcher?.kill();
     if (processServer.exitCode === null && processServer.signalCode === null) {

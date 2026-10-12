@@ -162,7 +162,7 @@ function suppliedSongs(value, mode) {
       trackURL: song.trackURL || null, durationMS: Number(song.durationMS) || 180_000,
       genre: song.genre || 'その他', songleURL: song.songleURL || null,
       chorusMS: Number.isFinite(song.chorusMS) ? song.chorusMS : null,
-      chorusSource: ['manual_database', 'songle', 'song_metadata'].includes(song.chorusSource) ? song.chorusSource : null })) : [];
+      chorusSource: ['manual_database', 'songle_database', 'songle', 'song_metadata'].includes(song.chorusSource) ? song.chorusSource : null })) : [];
 }
 function artistTopTitles(value) {
   return Array.isArray(value) ? value.filter(t => typeof t === 'string' && normalize(t)).slice(0, 6).map(t => t.slice(0, 150)) : [];

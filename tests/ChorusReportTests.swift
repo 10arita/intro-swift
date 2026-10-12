@@ -36,6 +36,14 @@ private final class ChorusReportProtocol: URLProtocol {
         precondition(playback["audioSource"] as? String == "apple_music")
         let preview = ChorusReport(song: song, source: .preview, startPositionMS: 0, playMode: "room")
         precondition(preview.playback.audioSource == "itunes_preview")
+        for source in [RevealPlaybackSource.songleDatabase, .songle] {
+            let report = ChorusReport(song: song, source: source, startPositionMS: 63_500, playMode: "room")
+            let body = try JSONSerialization.jsonObject(with: JSONEncoder().encode(report)) as! [String: Any]
+            let playback = body["playback"] as! [String: Any]
+            precondition(playback["source"] as? String == source.rawValue)
+            precondition(playback["audioSource"] as? String == "apple_music")
+            precondition(playback["startPositionMS"] as? Int == 63_500)
+        }
 
         ChorusReportProtocol.reply = Data(#"{"delivered":true}"#.utf8)
         try await service.send(report, serverURL: "https://quiz.test")

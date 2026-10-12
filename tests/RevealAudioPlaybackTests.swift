@@ -200,6 +200,7 @@ private final class RevealMetadataProtocol: URLProtocol {
             RevealMetadataProtocol.replies = [["chorusSegments": [["isChorus": true, "repeats": [["start": start]]]]]]
             let position = await service.chorus(fullSong)
             precondition(position == (start == 1000 ? 0 : start == 65_000 ? 63_500 : nil))
+            if position != nil { precondition(service.chorusSources[fullSong.id] == "songle") }
             precondition(RevealMetadataProtocol.requests.count == 1)
         }
         service.baseURL = "https://room.test"
@@ -222,22 +223,26 @@ private final class RevealMetadataProtocol: URLProtocol {
     }
 
     @MainActor static func reportsOnlyTheSourceThatActuallyStarted() async throws {
-        for route in [RevealPlaybackSource.manualDatabase, .songMetadata, .songle, .preview, .estimated] {
+        for route in [RevealPlaybackSource.manualDatabase, .songleDatabase, .songMetadata, .songle, .preview, .estimated] {
+            let usesDatabase = route == .manualDatabase || route == .songleDatabase
             var started: [(RevealPlaybackSource, Int?)] = []
             try await RevealAudioPlayback.play(song("applemusic:123", chorusMS: route == .songMetadata ? 50_000 : nil),
-                databaseChorus: { route == .manualDatabase ? 48_681 : nil },
+                databaseChorus: { usesDatabase ? 48_681 : nil }, databaseSource: { route },
                 chorus: { route == .songle ? 63_500 : nil },
                 preview: { route == .preview ? previewURL : nil }, playFullAudio: { _ in },
                 playPreview: { _ in }, didStartPlayback: { started.append(($0, $1)) }, isCurrent: { true })
             precondition(started.count == 1 && started[0].0 == route)
-            precondition(started[0].1 == (route == .manualDatabase ? 48_681 : route == .songMetadata ? 50_000
+            precondition(started[0].1 == (usesDatabase ? 48_681 : route == .songMetadata ? 50_000
                 : route == .songle ? 63_500 : route == .preview ? 0 : nil))
         }
         var started: [RevealPlaybackSource] = []
-        try await RevealAudioPlayback.play(song("applemusic:123"), databaseChorus: { 48_681 }, chorus: { nil },
-            preview: { previewURL }, playFullAudio: { _ in throw URLError(.badServerResponse) },
-            playPreview: { _ in }, didStartPlayback: { source, _ in started.append(source) }, isCurrent: { true })
-        precondition(started == [.preview], "A failed DB attempt must be reported as the successful preview")
+        for source in [RevealPlaybackSource.manualDatabase, .songleDatabase] {
+            started = []
+            try await RevealAudioPlayback.play(song("applemusic:123"), databaseChorus: { 48_681 }, databaseSource: { source },
+                chorus: { nil }, preview: { previewURL }, playFullAudio: { _ in throw URLError(.badServerResponse) },
+                playPreview: { _ in }, didStartPlayback: { source, _ in started.append(source) }, isCurrent: { true })
+            precondition(started == [.preview], "A failed DB attempt must be reported as the successful preview")
+        }
         started = []
         do {
             try await RevealAudioPlayback.play(song("applemusic:123"), chorus: { nil }, preview: { nil },
@@ -246,9 +251,11 @@ private final class RevealMetadataProtocol: URLProtocol {
             preconditionFailure("Failed playback should throw")
         } catch { precondition(started.isEmpty, "No reportable source exists when playback fails") }
         var supplied = song("applemusic:123", chorusMS: 48_681)
-        supplied.chorusSource = "manual_database"
-        try await RevealAudioPlayback.play(supplied, chorus: { nil }, preview: { nil }, playFullAudio: { _ in },
-            playPreview: { _ in }, didStartPlayback: { source, _ in precondition(source == .manualDatabase) }, isCurrent: { true })
+        for source in [RevealPlaybackSource.manualDatabase, .songleDatabase] {
+            supplied.chorusSource = source.rawValue
+            try await RevealAudioPlayback.play(supplied, chorus: { nil }, preview: { nil }, playFullAudio: { _ in },
+                playPreview: { _ in }, didStartPlayback: { actual, _ in precondition(actual == source) }, isCurrent: { true })
+        }
         let service = RoomService(databaseChorusLookup: { _ in 48_681 })
         _ = await service.chorus(supplied)
         precondition(service.chorusSources[supplied.id] == "manual_database", "Prefetched DB timestamps retain their source")
@@ -263,12 +270,14 @@ private final class RevealMetadataProtocol: URLProtocol {
         })
         service.baseURL = "https://room.test"
         let current = song("applemusic:123", chorusMS: 10_000)
-        for (position, source) in [(48_500, "manual_database"), (78_500, "manual_database"), (0, "songle")] {
+        for (position, source, expectedSource) in [(48_500, "manual_database", "manual_database"),
+            (78_500, "manual_database", "manual_database"), (0, "songle_database", "songle_database"),
+            (68_500, "songle", "songle_database")] {
             RevealMetadataProtocol.requests = []
             RevealMetadataProtocol.replies = [["databaseConfigured": true, "positionMS": position, "source": source]]
             let result = await service.databaseChorus(current)
             precondition(result == position && cloudCalls == 0)
-            precondition(service.chorusSources[current.id] == source)
+            precondition(service.chorusSources[current.id] == expectedSource)
             precondition(service.databaseIsAuthoritative(for: current))
             precondition(RevealMetadataProtocol.requests.count == 1)
             precondition(RevealMetadataProtocol.requests[0].url!.path == "/chorus/database")
@@ -282,16 +291,39 @@ private final class RevealMetadataProtocol: URLProtocol {
             chorus: { 70_000 }, preview: { nil }, playFullAudio: { sought = $0 }, playPreview: { _ in }, isCurrent: { true })
         precondition(sought == 70_000, "A deleted DB row must not resurrect old room metadata")
         var source: RevealPlaybackSource?
-        try await RevealAudioPlayback.play(current, databaseChorus: { 70_000 }, databaseSource: { .songle },
+        try await RevealAudioPlayback.play(current, databaseChorus: { 70_000 }, databaseSource: { .songleDatabase },
             chorus: { nil }, preview: { nil }, playFullAudio: { _ in }, playPreview: { _ in },
             didStartPlayback: { started, _ in source = started }, isCurrent: { true })
-        precondition(source == .songle, "Songle positions in SQLite retain their actual provenance")
+        precondition(source == .songleDatabase, "Songle positions in SQLite must be reported as DB playback")
         RevealMetadataProtocol.replies = [["databaseConfigured": false, "positionMS": NSNull()]]
         let fallback = await service.databaseChorus(current)
         precondition(fallback == 10_000 && cloudCalls == 1 && !service.databaseIsAuthoritative(for: current))
         RevealMetadataProtocol.requests = []
         let preview = await service.databaseChorus(song("itunes:123"))
         precondition(preview == nil && RevealMetadataProtocol.requests.isEmpty)
+    }
+
+    @MainActor static func databaseMissDoesNotMislabelLiveSongle() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RevealMetadataProtocol.self]
+        let service = RoomService(session: URLSession(configuration: configuration))
+        service.baseURL = "https://room.test"
+        let current = song("applemusic:123")
+        for source in [RevealPlaybackSource.songleDatabase, .songle] {
+            RevealMetadataProtocol.requests = []
+            RevealMetadataProtocol.replies = [
+                ["databaseConfigured": true, "positionMS": NSNull(), "source": NSNull()],
+                ["databaseConfigured": true, "positionMS": 63_500, "source": source.rawValue]
+            ]
+            var started: RevealPlaybackSource?
+            try await RevealAudioPlayback.play(current, chorus: { await service.chorus(current) },
+                preview: { nil }, playFullAudio: { position in precondition(position == 63_500) },
+                playPreview: { _ in preconditionFailure("Full audio must play") },
+                chorusSource: { RevealPlaybackSource(rawValue: service.chorusSources[current.id]!)! },
+                didStartPlayback: { actual, _ in started = actual }, isCurrent: { true })
+            precondition(started == source, "DB configuration alone must not classify a live Songle lookup as DB")
+            precondition(RevealMetadataProtocol.requests.map { $0.url!.path } == ["/chorus/database", "/chorus"])
+        }
     }
 
     @MainActor static func main() async throws {
@@ -304,6 +336,7 @@ private final class RevealMetadataProtocol: URLProtocol {
         try await metadataHandlesZeroAndInvalidPositions()
         try await reportsOnlyTheSourceThatActuallyStarted()
         try await liveDatabaseOverridesCloudAndOldPositions()
+        try await databaseMissDoesNotMislabelLiveSongle()
         print("Reveal audio tests passed (all sources, priority, failures, preview excerpts, cancellation, short audio)")
     }
 }

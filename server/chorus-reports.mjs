@@ -3,6 +3,7 @@ import { join } from 'node:path';
 
 const sources = {
   manual_database: 'サビDB（手動確認済み）',
+  songle_database: 'サビDB（Songle取得済み）',
   song_metadata: '曲データのサビ位置（旧データでは取得元不明）',
   songle: 'Songle',
   itunes_preview: 'プレビュー音源の冒頭',
