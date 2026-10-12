@@ -29,6 +29,8 @@ enum RevealPlaybackSource: String, Codable {
 
     static func play(_ song: Song,
                      databaseChorus: () async -> Int? = { nil },
+                     databaseIsAuthoritative: () -> Bool = { false },
+                     databaseSource: () -> RevealPlaybackSource = { .manualDatabase },
                      chorus: () async -> Int?,
                      preview: () async -> URL?,
                      playFullAudio: (Int?) async throws -> Void,
@@ -46,10 +48,10 @@ enum RevealPlaybackSource: String, Codable {
         if fullAudio {
             let manual = await databaseChorus()
             try checkCurrent()
-            let known = validChorus(song.chorusMS, durationMS: song.durationMS)
+            let known = databaseIsAuthoritative() ? nil : validChorus(song.chorusMS, durationMS: song.durationMS)
             let database = validChorus(manual, durationMS: song.durationMS)
             var position = database ?? known
-            var source: RevealPlaybackSource = database != nil ? .manualDatabase
+            var source: RevealPlaybackSource = database != nil ? databaseSource()
                 : RevealPlaybackSource(rawValue: song.chorusSource ?? "") ?? .songMetadata
             if position == nil {
                 position = await chorus()

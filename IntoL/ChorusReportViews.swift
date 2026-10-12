@@ -79,7 +79,17 @@ private struct ChorusReportConfirmation: View {
         .accessibilityIdentifier("chorus-report-confirmation")
         .accessibilityAction(.escape) { model.dismissChorusReport() }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: phase)
-        .task(id: phase) { titleFocused = true }
+        .task(id: phase) {
+            titleFocused = true
+            guard phase == .sent else { return }
+            let drawingDuration = reduceMotion ? 0 : ChorusReportTiming.circle + ChorusReportTiming.check
+            do {
+                try await Task.sleep(for: .seconds(drawingDuration + ChorusReportTiming.successHold))
+            } catch { return }
+            guard !Task.isCancelled, model.chorusReportDraft?.id == report.id,
+                  model.chorusReportSentID == report.id else { return }
+            model.dismissChorusReport()
+        }
     }
 
     @ViewBuilder private var currentContent: some View {
@@ -112,10 +122,6 @@ private struct ChorusReportConfirmation: View {
                     .foregroundStyle(Studio.primary)
                     .accessibilityAddTraits(.isHeader)
                     .accessibilityFocused($titleFocused)
-                Button("閉じる") { model.dismissChorusReport() }
-                    .buttonStyle(StudioButtonStyle(.secondary))
-                    .keyboardShortcut(.cancelAction)
-                    .accessibilityIdentifier("chorus-report-close")
             }
             .multilineTextAlignment(.center)
             .fixedSize(horizontal: false, vertical: true)
@@ -181,6 +187,12 @@ private struct ChorusReportConfirmation: View {
     }
 }
 
+private enum ChorusReportTiming {
+    static let circle = 0.55
+    static let check = 0.22
+    static let successHold = 1.5
+}
+
 private struct ChorusReportSuccessMark: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var circleProgress: CGFloat = 0
@@ -205,9 +217,9 @@ private struct ChorusReportSuccessMark: View {
             }
             circleProgress = 0
             checkProgress = 0
-            withAnimation(.easeInOut(duration: 0.55)) { circleProgress = 1 }
-            do { try await Task.sleep(for: .milliseconds(550)) } catch { return }
-            withAnimation(.easeOut(duration: 0.22)) { checkProgress = 1 }
+            withAnimation(.easeInOut(duration: ChorusReportTiming.circle)) { circleProgress = 1 }
+            do { try await Task.sleep(for: .seconds(ChorusReportTiming.circle)) } catch { return }
+            withAnimation(.easeOut(duration: ChorusReportTiming.check)) { checkProgress = 1 }
         }
     }
 }

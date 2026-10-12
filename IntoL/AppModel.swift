@@ -860,7 +860,15 @@ struct SoloGame {
             do {
                 try await RevealAudioPlayback.play(song, databaseChorus: {
                     await self.rooms.databaseChorus(song)
+                }, databaseIsAuthoritative: {
+                    self.rooms.databaseIsAuthoritative(for: song)
+                }, databaseSource: {
+                    RevealPlaybackSource(rawValue: self.rooms.chorusSources[song.id] ?? "") ?? .manualDatabase
                 }, chorus: {
+                    if self.rooms.databaseIsAuthoritative(for: song) {
+                        // Do not resurrect a deleted DB entry from a prepared task or per-song cache.
+                        return await self.rooms.chorus(song)
+                    }
                     if let cached = RevealAudioPlayback.validChorus(self.chorusPositions[song.id], durationMS: song.durationMS) {
                         return cached
                     }

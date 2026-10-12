@@ -9,7 +9,7 @@
     "test:socket": "node --test socket.integration.mjs"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.13"
   },
   "dependencies": {
     "ws": "8.22.0"

@@ -227,7 +227,11 @@ struct RoomState: Decodable, Identifiable {
 private struct RoomCatalog: Decodable { let songs: [Song] }
 private struct ItunesMatch: Decodable { let song: Song? }
 private struct CorpusResponse: Decodable { let titles: [String] }
-private struct ChorusResponse: Decodable { let positionMS: Int? }
+private struct ChorusResponse: Decodable {
+    let positionMS: Int?
+    let source: String?
+    let databaseConfigured: Bool?
+}
 private struct SongleSearchEntry: Decodable {
     struct Artist: Decodable { let name: String }
     let title: String
@@ -275,6 +279,7 @@ struct SavedProfile: Decodable {
     private let session: URLSession
     private let databaseChorusLookup: ((Song) async -> Int?)?
     private(set) var chorusSources: [String: String] = [:]
+    private var authoritativeChorusIDs: Set<String> = []
     private var latestRoomState: RoomState?
     private(set) var serverClockOffsetMS = 0.0
     private var bestClockRTTMS = Double.infinity
@@ -550,16 +555,41 @@ struct SavedProfile: Decodable {
         return try JSONDecoder().decode(CorpusResponse.self, from: data).titles
     }
     func databaseChorus(_ song: Song) async -> Int? {
-        guard !song.id.hasPrefix("itunes:"), !Task.isCancelled, let databaseChorusLookup,
+        guard !song.id.hasPrefix("itunes:"), !Task.isCancelled else { return nil }
+        authoritativeChorusIDs.remove(song.id)
+        if let url = try? endpoint("chorus/database") {
+            var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
+            request.httpMethod = "POST"
+            request.timeoutInterval = 3
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try? JSONEncoder().encode(song)
+            if let (data, response) = try? await session.data(for: request), !Task.isCancelled,
+               (response as? HTTPURLResponse)?.statusCode == 200,
+               let result = try? JSONDecoder().decode(ChorusResponse.self, from: data),
+               result.databaseConfigured == true {
+                authoritativeChorusIDs.insert(song.id)
+                chorusSources[song.id] = nil
+                guard let position = result.positionMS, position >= 0,
+                      song.durationMS <= 0 || position < song.durationMS,
+                      ["manual_database", "songle"].contains(result.source ?? "") else { return nil }
+                chorusSources[song.id] = result.source
+                return position
+            }
+        }
+        guard !Task.isCancelled, let databaseChorusLookup,
               let position = await databaseChorusLookup(song), !Task.isCancelled,
               position >= 0, song.durationMS <= 0 || position < song.durationMS else { return nil }
+        chorusSources[song.id] = "manual_database"
         return position
+    }
+
+    func databaseIsAuthoritative(for song: Song) -> Bool {
+        authoritativeChorusIDs.contains(song.id)
     }
 
     func chorus(_ song: Song) async -> Int? {
         guard !song.id.hasPrefix("itunes:") else { return nil }
         if let position = await databaseChorus(song) {
-            chorusSources[song.id] = "manual_database"
             return position
         }
         guard !Task.isCancelled else { return nil }
@@ -572,7 +602,10 @@ struct SavedProfile: Decodable {
             if let (data, response) = try? await session.data(for: request),
                (response as? HTTPURLResponse)?.statusCode == 200,
                let decoded = try? JSONDecoder().decode(ChorusResponse.self, from: data) {
-                if decoded.positionMS != nil { chorusSources[song.id] = "songle" }
+                if decoded.positionMS != nil {
+                    chorusSources[song.id] = ["manual_database", "songle"].contains(decoded.source ?? "")
+                        ? decoded.source : "songle"
+                }
                 return decoded.positionMS
             }
         }

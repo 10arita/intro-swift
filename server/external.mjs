@@ -1,4 +1,5 @@
 import { manualChorusPosition } from './manual-chorus.mjs';
+import { sqliteChorusStore } from './sqlite-chorus.mjs';
 
 // Only metadata and provider URLs are proxied. Audio remains on the provider's CDN.
 const cache = new Map();
@@ -58,8 +59,17 @@ export function fallbackChorus(durationMS) {
   return Math.max(0, Math.round(Math.min(estimated, playableDuration - 5000)));
 }
 export async function chorusPosition(song) {
-  const manual = manualChorusPosition(song);
-  if (manual !== null) return manual;
+  return (await chorusResult(song)).positionMS;
+}
+export async function chorusResult(song) {
+  const stored = sqliteChorusStore.lookup(song);
+  if (stored.positionMS !== null) return stored;
+  const manual = stored.databaseConfigured ? null : manualChorusPosition(song);
+  if (manual !== null) return { positionMS: manual, source: 'manual_database', databaseConfigured: false };
+  const positionMS = await songlePosition(song);
+  return { positionMS, source: positionMS === null ? null : 'songle', databaseConfigured: stored.databaseConfigured };
+}
+async function songlePosition(song) {
   if (String(song?.id || '').startsWith('itunes:')) return null;
   if (!song?.songleURL && song?.title) {
     try {

@@ -1,10 +1,11 @@
 import { createServer } from 'node:http';
-import { randomUUID, randomInt } from 'node:crypto';
+import { randomUUID, randomInt, timingSafeEqual, createHash } from 'node:crypto';
 import { createReadStream, readFileSync, statSync, existsSync, mkdirSync, writeFileSync, renameSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import WebSocket, { WebSocketServer } from 'ws';
-import { searchItunes, matchItunes, topSongs, chorusPosition } from './external.mjs';
+import { searchItunes, matchItunes, topSongs, chorusResult } from './external.mjs';
 import { manualChorusPosition } from './manual-chorus.mjs';
+import { sqliteChorusStore } from './sqlite-chorus.mjs';
 import { createChorusReportHandler } from './chorus-reports.mjs';
 
 const rooms = new Map();
@@ -909,10 +910,19 @@ function enrichStreamingChorus(id) {
   const room = rooms.get(id);
   const song = room && currentSong(room);
   if (room && room.mode !== 'sabitro' && song) {
-    const manual = manualChorusPosition(song);
-    if (manual !== null) { song.chorusMS = manual; song.chorusSource = 'manual_database'; persist(); }
-    else if (!Number.isFinite(song.chorusMS)) {
-      chorusPosition(song).then(position => { song.chorusMS = position; song.chorusSource = position === null ? null : 'songle'; persist(); }).catch(() => {});
+    let stored;
+    try { stored = sqliteChorusStore.lookup(song); }
+    catch { return; } // A missing/corrupt DB must not fail after the room response was already sent.
+    const manual = stored.databaseConfigured ? null : manualChorusPosition(song);
+    if (stored.positionMS !== null || manual !== null) {
+      song.chorusMS = stored.positionMS ?? manual;
+      song.chorusSource = stored.source ?? 'manual_database'; persist();
+    } else if (!Number.isFinite(song.chorusMS) || stored.databaseConfigured) {
+      chorusResult(song).then(result => {
+        // A later round may already be active when the external lookup finishes.
+        if (rooms.get(id) !== room || currentSong(room) !== song) return;
+        song.chorusMS = result.positionMS; song.chorusSource = result.source; persist();
+      }).catch(() => {});
     }
   }
 }
@@ -920,6 +930,16 @@ function enrichStreamingChorus(id) {
 export const server = createServer(async (request, response) => {
   const url = new URL(request.url, 'http://localhost');
   if (!['GET', 'POST', 'PUT'].includes(request.method)) { send(response, 405, { error: 'Method not allowed' }); return; }
+  const chorusSync = url.pathname === '/admin/chorus-sync';
+  if (chorusSync) {
+    const token = process.env.CHORUS_SYNC_TOKEN;
+    const supplied = request.headers.authorization?.replace(/^Bearer /, '') || '';
+    const digest = value => createHash('sha256').update(value).digest();
+    if (request.method !== 'PUT' || !token || token.length < 32 ||
+        !timingSafeEqual(digest(token), digest(supplied))) {
+      request.resume(); send(response, 403, { error: 'Forbidden' }); return;
+    }
+  }
   const eventRoom = request.method === 'GET' && /^\/rooms\/([A-Z]{6})\/events$/.exec(url.pathname);
   if (eventRoom) {
     const id = eventRoom[1];
@@ -978,11 +998,17 @@ export const server = createServer(async (request, response) => {
     let bytes = 0;
     for await (const chunk of request) {
       bytes += chunk.length;
-      if (bytes > (url.pathname === '/chorus-reports' ? 16_384 : MAX_BODY)) { send(response, 413, { error: 'Too large' }); return; }
+      if (bytes > (chorusSync ? 10_000_000 : url.pathname === '/chorus-reports' ? 16_384 : MAX_BODY)) { send(response, 413, { error: 'Too large' }); return; }
       chunks.push(chunk);
     }
     const input = Buffer.concat(chunks).toString('utf8');
     const body = input ? JSON.parse(input) : {};
+    if (chorusSync) {
+      send(response, 200, sqliteChorusStore.replace(body)); return;
+    }
+    if (request.method === 'POST' && url.pathname === '/chorus/database') {
+      send(response, 200, sqliteChorusStore.lookup(body)); return;
+    }
     if (request.method === 'POST' && url.pathname === '/chorus-reports') {
       const result = await reportChorus(body);
       send(response, result.status, result.body); return;
@@ -997,7 +1023,7 @@ export const server = createServer(async (request, response) => {
       send(response, 200, { titles: await topSongs() }); return;
     }
     if (request.method === 'POST' && url.pathname === '/chorus') {
-      send(response, 200, { positionMS: await chorusPosition(body) }); return;
+      send(response, 200, await chorusResult(body)); return;
     }
     const origin = process.env.PUBLIC_BASE_URL || `${request.headers['x-forwarded-proto'] || 'http'}://${request.headers.host}`;
     const roomId = /^\/rooms\/([A-Z]{6})(?:\/|$)/.exec(url.pathname)?.[1];

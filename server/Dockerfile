@@ -2,7 +2,7 @@ FROM node:22-alpine
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts
-COPY index.mjs external.mjs chorus-reports.mjs manual-chorus.mjs manual-chorus.json catalog.json ./
+COPY index.mjs external.mjs chorus-reports.mjs manual-chorus.mjs manual-chorus.json sqlite-chorus.mjs catalog.json ./
 COPY corpus ./corpus
 COPY public ./public
 RUN mkdir -p /app/data && chown -R node:node /app/data

@@ -81,7 +81,7 @@ MusicKit for Swift を使います。Apple Music API の秘密鍵や手動の De
 3. Apple Music を利用できる Apple Account で iPhone にサインインし、Apple Music の有効なサブスクリプションを用意します。IntoL の「アカウント」で外部連携の「Apple Music」行を押してライブラリへのアクセスを許可します。許可を拒否した場合は iPhone の設定から IntoL のメディアライブラリアクセスを変更します。
 4. 「プレイ」→「ひとりで」→「イントロ」→「Apple Music」からプレイリストを選びます。対戦する場合は全員が Apple Music に接続し、ホストは「みんなで」→「イントロ」→「Apple Musicで作る」を選び、ルームの待機画面でプレイリストを選びます。対戦ではライブラリ曲を Apple Music カタログに対応付け、曲名のバージョン表記・アーティスト・曲長が一致しない候補は除外します。参加者の地域で再生できない曲があると、そのラウンドの準備が完了しません。
 
-Apple Music のプレイリストはイントロクイズで利用できます。サビトロでは iTunes 試聴音源の検索か、Apple Music プレイリスト内の曲と試聴音源の照合を使います。Apple Music の正解発表では、CloudKit Public Databaseの手動サビDBを最優先で参照します。600曲の確認済みデータを同梱し、CloudKitの最新データを15分間隔で取得・キャッシュします。登録済み曲はSongleへの問い合わせを省略し、既存のSongleの値やキャッシュよりDBを優先します。未登録の場合は従来のSongle→試聴音源→推定位置の順です。共有音源・デモも同じ優先順です。共有音源はサーバーで曲名とアーティスト、曲長が一致する iTunes の試聴音源を照合します。ソロプレイでは対戦サーバーの設定がなくてもDBとSongleを参照します。[サビDBの登録・更新手順](docs/manual-chorus-database.md)を参照してください。
+Apple Music のプレイリストはイントロクイズで利用できます。サビトロでは iTunes 試聴音源の検索か、Apple Music プレイリスト内の曲と試聴音源の照合を使います。Apple Music の正解発表では、導入済みのサーバーSQLiteを最優先で参照し、SQLiteの更新を次の再生へ反映します。通信失敗時・SQLite未導入時はCloudKit Public Databaseの手動サビDBを使います。600曲の確認済みデータを同梱し、CloudKitの最新データを15分間隔で取得・キャッシュします。登録済み曲はSongleへの問い合わせを省略し、既存のSongleの値やキャッシュよりDBを優先します。未登録の場合は従来のSongle→試聴音源→推定位置の順です。共有音源・デモも同じ優先順です。共有音源はサーバーで曲名とアーティスト、曲長が一致する iTunes の試聴音源を照合します。ソロプレイでは対戦サーバーの設定がなくてもDBとSongleを参照します。[サビDBの登録・更新手順](docs/manual-chorus-database.md)を参照してください。
 
 ## Xcode で起動・確認する
 
@@ -137,6 +137,8 @@ Apple Music の実再生、iTunes と Songle のライブ動作、複数 iPhone 
 追加した曲名は [Billboard JAPAN の年間 Hot 100](https://www.billboard-japan.com/charts/detail?a=hot100_year&year=2025) と [週次 Hot 100](https://www.billboard-japan.com/charts/detail?a=hot100) を基に [scripts/build_jpop_corpus.py](scripts/build_jpop_corpus.py) で生成しました。題名だけを収録し、順位・アーティスト情報・音源は含めません。
 
 ## 自作音源と Songle URL
+
+非商用のローカル調査用として、既存600曲とSongleのサビ位置をGit管理外の非公開SQLite DBに保存できます。初回のサーバー・アプリ更新後は、SQLiteの変更を自動同期して正解発表に反映できます。DBファイルは公開せず、アプリへは曲ごとの開始位置を返します。[取得・移行・手動編集・導入手順](docs/private-chorus-database.md)を参照してください。
 
 自作または利用権のある WAV を `server/public/audio/` に置き、[server/catalog.json](server/catalog.json) に `id`、`title`、`artist`、`audioFile`、`durationMS`、`genre` を追加して再デプロイします。任意で `artworkURL`、`trackURL`、Songle に登録済みの元動画 `songleURL` を設定できます。ファイル名は英数字・`_`・`-` と `.wav` を使用してください。サーバーは登録済み WAV だけを配信します。初期6曲と PUSH 音は [scripts/generate_demo_audio.py](scripts/generate_demo_audio.py) で再生成できます。
 

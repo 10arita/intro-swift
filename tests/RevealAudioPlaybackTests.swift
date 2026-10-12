@@ -79,8 +79,11 @@ private final class RevealMetadataProtocol: URLProtocol {
             }, playPreview: { _ in }, isCurrent: { true })
             precondition(events == ["database", "full"], "Cached Songle metadata must also yield to the database")
         }
-        let service = RoomService(databaseChorusLookup: { _ in 48_681 })
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RevealMetadataProtocol.self]
+        let service = RoomService(session: URLSession(configuration: configuration), databaseChorusLookup: { _ in 48_681 })
         service.baseURL = "https://room.test"
+        RevealMetadataProtocol.replies = [["databaseConfigured": false, "positionMS": NSNull()]]
         let position = await service.chorus(song("applemusic:123"))
         precondition(position == 48_681, "Database lookup must precede the room server and direct Songle")
         try await RevealAudioPlayback.play(song("itunes:123"), databaseChorus: {
@@ -201,12 +204,12 @@ private final class RevealMetadataProtocol: URLProtocol {
         }
         service.baseURL = "https://room.test"
         RevealMetadataProtocol.requests = []
-        RevealMetadataProtocol.replies = [["positionMS": NSNull()]]
+        RevealMetadataProtocol.replies = [["databaseConfigured": false, "positionMS": NSNull()], ["positionMS": NSNull()]]
         let missing = await service.chorus(fullSong)
-        precondition(missing == nil && RevealMetadataProtocol.requests.count == 1,
+        precondition(missing == nil && RevealMetadataProtocol.requests.count == 2,
                      "A missing server chorus must allow the client to move on to a preview")
         RevealMetadataProtocol.requests = []
-        RevealMetadataProtocol.replies = [["positionMS": 0]]
+        RevealMetadataProtocol.replies = [["databaseConfigured": false, "positionMS": NSNull()], ["positionMS": 0]]
         let zero = await service.chorus(fullSong)
         precondition(zero == 0, "A chorus at the beginning must retain highest priority")
 
@@ -251,6 +254,46 @@ private final class RevealMetadataProtocol: URLProtocol {
         precondition(service.chorusSources[supplied.id] == "manual_database", "Prefetched DB timestamps retain their source")
     }
 
+    @MainActor static func liveDatabaseOverridesCloudAndOldPositions() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RevealMetadataProtocol.self]
+        var cloudCalls = 0
+        let service = RoomService(session: URLSession(configuration: configuration), databaseChorusLookup: { _ in
+            cloudCalls += 1; return 10_000
+        })
+        service.baseURL = "https://room.test"
+        let current = song("applemusic:123", chorusMS: 10_000)
+        for (position, source) in [(48_500, "manual_database"), (78_500, "manual_database"), (0, "songle")] {
+            RevealMetadataProtocol.requests = []
+            RevealMetadataProtocol.replies = [["databaseConfigured": true, "positionMS": position, "source": source]]
+            let result = await service.databaseChorus(current)
+            precondition(result == position && cloudCalls == 0)
+            precondition(service.chorusSources[current.id] == source)
+            precondition(service.databaseIsAuthoritative(for: current))
+            precondition(RevealMetadataProtocol.requests.count == 1)
+            precondition(RevealMetadataProtocol.requests[0].url!.path == "/chorus/database")
+            precondition(RevealMetadataProtocol.requests[0].cachePolicy == .reloadIgnoringLocalCacheData)
+        }
+        RevealMetadataProtocol.replies = [["databaseConfigured": true, "positionMS": NSNull(), "source": NSNull()]]
+        let removed = await service.databaseChorus(current)
+        precondition(removed == nil && cloudCalls == 0, "A deleted DB row must not fall back to an old CloudKit row")
+        var sought: Int?
+        try await RevealAudioPlayback.play(current, databaseChorus: { nil }, databaseIsAuthoritative: { true },
+            chorus: { 70_000 }, preview: { nil }, playFullAudio: { sought = $0 }, playPreview: { _ in }, isCurrent: { true })
+        precondition(sought == 70_000, "A deleted DB row must not resurrect old room metadata")
+        var source: RevealPlaybackSource?
+        try await RevealAudioPlayback.play(current, databaseChorus: { 70_000 }, databaseSource: { .songle },
+            chorus: { nil }, preview: { nil }, playFullAudio: { _ in }, playPreview: { _ in },
+            didStartPlayback: { started, _ in source = started }, isCurrent: { true })
+        precondition(source == .songle, "Songle positions in SQLite retain their actual provenance")
+        RevealMetadataProtocol.replies = [["databaseConfigured": false, "positionMS": NSNull()]]
+        let fallback = await service.databaseChorus(current)
+        precondition(fallback == 10_000 && cloudCalls == 1 && !service.databaseIsAuthoritative(for: current))
+        RevealMetadataProtocol.requests = []
+        let preview = await service.databaseChorus(song("itunes:123"))
+        precondition(preview == nil && RevealMetadataProtocol.requests.isEmpty)
+    }
+
     @MainActor static func main() async throws {
         try await priorityForEveryFullAudioSource()
         try await databaseAlwaysPrecedesSongleAndCachedMetadata()
@@ -260,6 +303,7 @@ private final class RevealMetadataProtocol: URLProtocol {
         try await positionsStayWithinTheAudio()
         try await metadataHandlesZeroAndInvalidPositions()
         try await reportsOnlyTheSourceThatActuallyStarted()
+        try await liveDatabaseOverridesCloudAndOldPositions()
         print("Reveal audio tests passed (all sources, priority, failures, preview excerpts, cancellation, short audio)")
     }
 }
