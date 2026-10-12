@@ -38,8 +38,9 @@ export class SQLiteChorusStore {
       AND ((source='manual' AND status='manually_confirmed') OR (source='songle' AND status='metadata_matched'))
       ORDER BY CASE source WHEN 'manual' THEN 0 ELSE 1 END, checked_at DESC`).all(title, artist);
     const duration = Number(song.durationMS);
-    const row = rows.filter(row => validPosition(row) && (!(duration > 0) || row.chorus_start_ms < duration) &&
-      (row.source === 'manual' || !(duration > 0) || Math.abs(row.duration_ms - duration) <= 3000))
+    // Album releases and source videos can have different lengths for the same song.
+    // Match by title/artist and require the stored boundary to fit the playback audio.
+    const row = rows.filter(row => validPosition(row) && (!(duration > 0) || row.chorus_start_ms < duration))
       .sort((a, b) => a.source === b.source && a.source === 'songle' && duration > 0
         ? Math.abs(a.duration_ms - duration) - Math.abs(b.duration_ms - duration) : 0)[0];
     if (!row) return empty;

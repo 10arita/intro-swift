@@ -51,7 +51,7 @@ test('committed SQLite edits, WAL writes and file replacement are visible withou
   }
 });
 
-test('manual precedence, preview exclusion, recording length and unreviewed candidates', () => {
+test('manual precedence, preview exclusion, playback bounds and unreviewed candidates', () => {
   const directory = mkdtempSync(join(tmpdir(), 'intol-chorus-policy-'));
   const path = join(directory, 'source.sqlite3');
   const writer = source(path), store = new SQLiteChorusStore(path);
@@ -63,12 +63,37 @@ test('manual precedence, preview exclusion, recording length and unreviewed cand
     assert.deepEqual(store.lookup({ ...song, artist: 'Another Singer' }), empty);
     writer.exec('DELETE FROM observations WHERE id=1');
     assert.deepEqual(store.lookup(song), { databaseConfigured: true, positionMS: 68500, source: 'songle_database' });
-    assert.deepEqual(store.lookup({ ...song, durationMS: 160000 }), empty);
+    assert.deepEqual(store.lookup({ ...song, durationMS: 160000 }),
+      { databaseConfigured: true, positionMS: 68500, source: 'songle_database' });
+    assert.deepEqual(store.lookup({ ...song, durationMS: 70000 }), empty);
     writer.exec("UPDATE observations SET status='needs_review'");
     assert.deepEqual(store.lookup(song), empty);
     writer.exec("UPDATE observations SET status='metadata_matched',chorus_start_ms=0");
     assert.equal(store.lookup(song).positionMS, 0);
   } finally { store.close(); writer.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('君がくれた夏 uses the same stored chorus across singles and albums with different durations', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'intol-chorus-albums-'));
+  const store = new SQLiteChorusStore(join(directory, 'replica.sqlite3'));
+  try {
+    store.replace(catalog({ ...record(75987), title: '君がくれた夏', artist: '家入レオ',
+      source: 'songle', sourceKey: '1919809', durationMS: 279840, status: 'metadata_matched' }));
+    for (const [id, album, durationMS] of [
+      ['1026711118', '君がくれた夏 - Single', 258360],
+      ['1124863475', 'WE', 258680],
+      ['1198925442', '5th Anniversary Best', 259600],
+      ['i.ZOMr4Q3uvDz5Q9K', 'Library release', 259600]
+    ]) {
+      const release = { id: `applemusic:${id}`, title: '君がくれた夏', artist: '家入レオ', album, durationMS };
+      assert.deepEqual(store.lookup(release),
+        { databaseConfigured: true, positionMS: 74487, source: 'songle_database' }, album);
+      for (const title of ['君がくれた夏 (LIVE)', '君がくれた夏 (Piano Version)', '君がくれた夏 (10th Anniversary Version)'])
+        assert.deepEqual(store.lookup({ ...release, title }), empty);
+      assert.deepEqual(store.lookup({ ...release, artist: '別のアーティスト' }), empty);
+      assert.deepEqual(store.lookup({ ...release, durationMS: 75987 }), empty);
+    }
+  } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
 test('authenticated snapshot replacement retains prior data on invalid input and applies deletions', () => {
@@ -143,6 +168,12 @@ test('a local DB edit reaches the private server replica and HTTP lookup while t
     const chorus = await fetch(origin + '/chorus', { method: 'POST',
       headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(song) });
     assert.deepEqual(await chorus.json(), storedSongle);
+    const otherAlbum = { ...song, id: 'applemusic:another-release', album: 'Compilation', durationMS: 160000 };
+    for (const route of ['/chorus/database', '/chorus']) {
+      const response = await fetch(origin + route, { method: 'POST',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(otherAlbum) });
+      assert.deepEqual(await response.json(), storedSongle, `${route} must use DB before live Songle across albums`);
+    }
   } finally {
     watcher?.kill();
     if (processServer.exitCode === null && processServer.signalCode === null) {
