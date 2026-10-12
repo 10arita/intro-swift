@@ -20,7 +20,7 @@ private final class ChorusReportProtocol: URLProtocol {
 }
 
 @main private struct ChorusReportTests {
-    static func main() async throws {
+    @MainActor static func main() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ChorusReportProtocol.self]
         let service = ChorusReportService(session: URLSession(configuration: configuration))
@@ -67,6 +67,97 @@ private final class ChorusReportProtocol: URLProtocol {
         ChorusReportProtocol.failure = URLError(.notConnectedToInternet)
         do { try await service.send(report, serverURL: "https://quiz.test"); preconditionFailure("Offline requests must fail") }
         catch let error as URLError { precondition(error.code == .notConnectedToInternet) }
-        print("Chorus report tests passed (anonymous payload, playback provenance, receipt, retry ID, errors)")
+        try await testFeedbackService(session: service.session)
+        await testFeedbackModel()
+        print("Chorus and feedback report tests passed (anonymous payload, receipts, validation, retry IDs, errors, state)")
+    }
+
+    @MainActor private static func testFeedbackService(session: URLSession) async throws {
+        ChorusReportProtocol.failure = nil
+        ChorusReportProtocol.status = 200
+        ChorusReportProtocol.reply = Data(#"{"delivered":true}"#.utf8)
+        let service = FeedbackReportService(session: session)
+        let report = FeedbackReport(message: "  ご意見です。\n改善をお願いします。  ")
+        let body = try JSONSerialization.jsonObject(with: JSONEncoder().encode(report)) as! [String: Any]
+        precondition(Set(body.keys) == ["id", "message", "appVersion", "appBuild"])
+        precondition(report.message == "ご意見です。\n改善をお願いします。")
+        for text in ["", " \n\t", String(repeating: "あ", count: 2_001), String(repeating: "🎵", count: 1_001)] {
+            precondition(!FeedbackReport.isValid(text))
+        }
+        precondition(FeedbackReport.isValid(String(repeating: "あ", count: 2_000)))
+        precondition(FeedbackReport.isValid(String(repeating: "🎵", count: 1_000)))
+        try await service.send(report, serverURL: "https://quiz.test")
+        let request = ChorusReportProtocol.requests.last!
+        precondition(request.url?.path == "/feedback" && request.httpMethod == "POST")
+        precondition(request.value(forHTTPHeaderField: "Authorization") == nil)
+        precondition(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
+        try await service.send(report, serverURL: "https://quiz.test")
+        precondition(request.httpBody == ChorusReportProtocol.requests.last!.httpBody)
+        for (status, reply) in [(200, #"{"delivered":false}"#), (200, #"{}"#), (503, #"{"error":"受付は停止中です"}"#)] {
+            ChorusReportProtocol.status = status
+            ChorusReportProtocol.reply = Data(reply.utf8)
+            do { try await service.send(report, serverURL: "https://quiz.test"); preconditionFailure("Receipt required") }
+            catch { if status == 503 { precondition(error.localizedDescription == "受付は停止中です") } }
+        }
+        let requestCount = ChorusReportProtocol.requests.count
+        for url in ["", "http://quiz.test"] {
+            do { try await service.send(report, serverURL: url); preconditionFailure("Unsafe or missing configuration") }
+            catch { precondition(ChorusReportProtocol.requests.count == requestCount) }
+        }
+        do { try await service.send(FeedbackReport(message: " "), serverURL: "https://quiz.test"); preconditionFailure("Empty message") }
+        catch { precondition(ChorusReportProtocol.requests.count == requestCount) }
+        ChorusReportProtocol.failure = URLError(.notConnectedToInternet)
+        do { try await service.send(report, serverURL: "https://quiz.test"); preconditionFailure("Offline") }
+        catch let error as URLError { precondition(error.code == .notConnectedToInternet) }
+    }
+
+    @MainActor private static func testFeedbackModel() async {
+        var attempts: [FeedbackReport] = []
+        var shouldFail = true
+        let model = FeedbackReportModel { report, url in
+            precondition(url == "https://quiz.test")
+            attempts.append(report)
+            if shouldFail { throw URLError(.notConnectedToInternet) }
+        }
+        model.present()
+        model.message = " \n "
+        await model.submit(serverURL: "https://quiz.test")
+        precondition(attempts.isEmpty && !model.canSubmit)
+        model.message = "問い合わせ"
+        await model.submit(serverURL: "https://quiz.test")
+        precondition(model.error != nil && model.message == "問い合わせ" && model.canSubmit)
+        await model.submit(serverURL: "https://quiz.test")
+        precondition(attempts[0].id == attempts[1].id, "Retries keep the same receipt ID")
+        model.message = "内容を修正した問い合わせ"
+        precondition(model.error == nil)
+        shouldFail = false
+        await model.submit(serverURL: "https://quiz.test")
+        precondition(attempts[2].id != attempts[1].id, "Edited content needs a fresh receipt")
+        precondition(model.isSent && !model.canSubmit)
+        await model.submit(serverURL: "https://quiz.test")
+        precondition(attempts.count == 3)
+        model.dismiss()
+        precondition(model.presentationID == nil && model.message.isEmpty && !model.isSent)
+
+        var release: CheckedContinuation<Void, Never>?
+        var sends = 0
+        let pending = FeedbackReportModel { _, _ in
+            sends += 1
+            await withCheckedContinuation { release = $0 }
+        }
+        pending.present()
+        pending.message = "送信中の問い合わせ"
+        let sending = Task { await pending.submit(serverURL: "https://quiz.test") }
+        while release == nil { await Task.yield() }
+        precondition(pending.isSending)
+        let presentationID = pending.presentationID
+        pending.dismiss()
+        pending.present()
+        precondition(pending.presentationID == presentationID, "Sending modal cannot be dismissed or replaced")
+        await pending.submit(serverURL: "https://quiz.test")
+        precondition(sends == 1, "Repeated taps cannot start a second delivery")
+        release?.resume()
+        await sending.value
+        precondition(pending.isSent && !pending.isSending)
     }
 }

@@ -15,7 +15,12 @@
       Group {
         if Self.isPlayFlow(scenario)
           || scenario.hasPrefix("friends") || scenario.hasPrefix("account") {
-          RootView(previewStep: scenario)
+          RootView(previewStep: scenario, feedbackReportSender: { _, _ in
+            try await Task.sleep(for: .seconds(2))
+            if !scenario.contains("feedback-success") {
+              throw AppError.message("通信に失敗しました。再試行してください。")
+            }
+          })
         } else if scenario == "review" {
           ReviewView()
         } else if scenario.hasPrefix("solo-reveal") || scenario == "solo-answer" || scenario == "solo-result" {
@@ -205,6 +210,9 @@
   #Preview("報告・送信と完了") { UIExamples(scenario: "reveal-report-success") }
   #Preview("結果") { UIExamples(scenario: "result-dark") }
   #Preview("モード選択") { UIExamples(scenario: "mode") }
+  #Preview("ホーム・お問い合わせ") { UIExamples(scenario: "home-feedback-success") }
+  #Preview("お問い合わせ・失敗") { UIExamples(scenario: "home-feedback-error") }
+  #Preview("お問い合わせ・大きな文字") { UIExamples(scenario: "home-feedback-success-large-text") }
   #Preview("ルーム選択") { UIExamples(scenario: "room-selection") }
   #Preview("コード入力") { UIExamples(scenario: "code") }
   #Preview("Apple Music 接続") { UIExamples(scenario: "playlist-connect") }

@@ -7,6 +7,7 @@ private enum MainTab: Hashable { case play, review, friends, account }
 
 struct RootView: View {
     var previewStep: String? = nil
+    @StateObject private var feedback: FeedbackReportModel
     @EnvironmentObject private var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var shortcut = PracticeShortcutRoute.shared
@@ -15,6 +16,14 @@ struct RootView: View {
     @State private var playHomeToken = 0
     @State private var startsTogether = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(previewStep: String? = nil,
+         feedbackReportSender: @escaping (FeedbackReport, String) async throws -> Void = { report, url in
+             try await FeedbackReportService().send(report, serverURL: url)
+         }) {
+        self.previewStep = previewStep
+        _feedback = StateObject(wrappedValue: FeedbackReportModel(sender: feedbackReportSender))
+    }
 
     var body: some View {
         ZStack {
@@ -37,6 +46,7 @@ struct RootView: View {
         .animation(reduceMotion ? .easeOut(duration: 0.15) : .easeInOut(duration: 0.3), value: showingSession)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: selectedTab)
         .sensoryFeedback(.selection, trigger: selectedTab)
+        .modifier(FeedbackReportPresentation(feedback: feedback))
         .alert("IntoL", isPresented: Binding(get: { model.alert != nil }, set: { if !$0 { model.alert = nil } })) {
             Button("OK", role: .cancel) { model.alert = nil }
         } message: {
@@ -90,7 +100,8 @@ struct RootView: View {
         // Standard tab bars adopt Liquid Glass on iOS 26 and retain the system
         // appearance on earlier versions, including accessibility adaptations.
         TabView(selection: tabSelection) {
-            PlayView(homeToken: playHomeToken, startsTogether: startsTogether, previewStep: previewStep)
+            PlayView(homeToken: playHomeToken, startsTogether: startsTogether, previewStep: previewStep,
+                     onContact: feedback.present)
                 .tabItem { Label("プレイ", systemImage: "waveform") }
                 .tag(MainTab.play)
 

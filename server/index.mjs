@@ -7,12 +7,16 @@ import { searchItunes, matchItunes, topSongs, chorusResult } from './external.mj
 import { manualChorusPosition } from './manual-chorus.mjs';
 import { sqliteChorusStore } from './sqlite-chorus.mjs';
 import { createChorusReportHandler } from './chorus-reports.mjs';
+import { createFeedbackHandler } from './feedback.mjs';
+import { createReportRateLimit } from './anonymous-reports.mjs';
 
 const rooms = new Map();
 const profiles = new Map();
 const DATA_DIR = process.env.DATA_DIR ? resolve(process.env.DATA_DIR) : null;
 const DATA_FILE = DATA_DIR ? join(DATA_DIR, 'state.json') : null;
-const reportChorus = createChorusReportHandler({ dataDir: DATA_DIR });
+const reportRateLimit = createReportRateLimit();
+const reportChorus = createChorusReportHandler({ dataDir: DATA_DIR, rateLimit: reportRateLimit });
+const reportFeedback = createFeedbackHandler({ dataDir: DATA_DIR, rateLimit: reportRateLimit });
 if (DATA_FILE && existsSync(DATA_FILE)) {
   try {
     const saved = JSON.parse(readFileSync(DATA_FILE, 'utf8'));
@@ -1015,7 +1019,7 @@ export const server = createServer(async (request, response) => {
     let bytes = 0;
     for await (const chunk of request) {
       bytes += chunk.length;
-      if (bytes > (chorusSync ? 10_000_000 : url.pathname === '/chorus-reports' ? 16_384 : MAX_BODY)) { send(response, 413, { error: 'Too large' }); return; }
+      if (bytes > (chorusSync ? 10_000_000 : ['/chorus-reports', '/feedback'].includes(url.pathname) ? 16_384 : MAX_BODY)) { send(response, 413, { error: 'Too large' }); return; }
       chunks.push(chunk);
     }
     const input = Buffer.concat(chunks).toString('utf8');
@@ -1028,6 +1032,10 @@ export const server = createServer(async (request, response) => {
     }
     if (request.method === 'POST' && url.pathname === '/chorus-reports') {
       const result = await reportChorus(body);
+      send(response, result.status, result.body); return;
+    }
+    if (request.method === 'POST' && url.pathname === '/feedback') {
+      const result = await reportFeedback(body);
       send(response, result.status, result.body); return;
     }
     if (request.method === 'GET' && url.pathname === '/itunes/search') {

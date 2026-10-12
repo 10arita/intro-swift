@@ -19,6 +19,7 @@ struct PlayView: View {
     var startsTogether = false
     // Used by the offline UIExamples fixtures.
     var previewStep: String? = nil
+    var onContact: () -> Void = {}
     @EnvironmentObject private var model: AppModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var step: PlayStep = .home
@@ -95,11 +96,22 @@ struct PlayView: View {
         GeometryReader { geometry in
             ScrollView {
                 VStack(spacing: 28) {
-                    Text(appVersion)
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(Studio.secondary)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .accessibilityLabel("アプリのバージョン \(appVersion)")
+                    HStack {
+                        Button(action: onContact) {
+                            Image(systemName: "envelope")
+                                .font(.title3)
+                                .frame(minWidth: 44, minHeight: 44)
+                        }
+                        .buttonStyle(StudioButtonStyle(.tertiary))
+                        .accessibilityLabel("意見・お問い合わせ")
+                        .accessibilityHint("匿名で開発者に送るフォームを開きます")
+                        .accessibilityIdentifier("feedback-button")
+                        Spacer()
+                        Text(appVersion)
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(Studio.secondary)
+                            .accessibilityLabel("アプリのバージョン \(appVersion)")
+                    }
                     Spacer(minLength: 8)
                     VStack(spacing: 16) {
                         Text("IntoL")

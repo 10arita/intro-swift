@@ -27,47 +27,71 @@ struct ChorusReportButton: View {
 
 struct ChorusReportPresentation: ViewModifier {
     @EnvironmentObject private var model: AppModel
+
+    func body(content: Content) -> some View {
+        content.modifier(AnonymousReportPresentation(presentationID: model.chorusReportDraft?.id,
+                                                    dismiss: model.dismissChorusReport) {
+            if let report = model.chorusReportDraft {
+                ChorusReportConfirmation(report: report)
+            }
+        })
+    }
+}
+
+/// Shared modal, progress, and success presentation for both anonymous forms.
+struct AnonymousReportPresentation<Dialog: View>: ViewModifier {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let presentationID: UUID?
+    let dismiss: () -> Void
+    let dialog: Dialog
+
+    init(presentationID: UUID?, dismiss: @escaping () -> Void, @ViewBuilder dialog: () -> Dialog) {
+        self.presentationID = presentationID
+        self.dismiss = dismiss
+        self.dialog = dialog()
+    }
 
     func body(content: Content) -> some View {
         content
-            .allowsHitTesting(model.chorusReportDraft == nil)
+            .allowsHitTesting(presentationID == nil)
             .accessibilityElement(children: .contain)
-            .accessibilityHidden(model.chorusReportDraft != nil)
+            .accessibilityHidden(presentationID != nil)
             .overlay {
                 ZStack {
-                    if let report = model.chorusReportDraft {
+                    if presentationID != nil {
                         Color.black.opacity(0.32)
                             .ignoresSafeArea()
-                            .onTapGesture { model.dismissChorusReport() }
+                            .onTapGesture(perform: dismiss)
                             .accessibilityHidden(true)
                             .transition(.opacity)
-                        ChorusReportConfirmation(report: report)
+                        dialog
                             .transition(reduceMotion ? .opacity : .scale(scale: 0.85).combined(with: .opacity))
                     }
                 }
             }
             .animation(reduceMotion ? .easeOut(duration: 0.15) : Studio.spring,
-                       value: model.chorusReportDraft?.id)
+                       value: presentationID)
     }
 }
 
-private struct ChorusReportConfirmation: View {
-    @EnvironmentObject private var model: AppModel
+enum AnonymousReportPhase { case confirmation, sending, sent }
+
+struct AnonymousReportDialog<Confirmation: View>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AccessibilityFocusState private var titleFocused: Bool
-    let report: ChorusReport
-    private enum Phase { case confirmation, sending, sent }
-    private var phase: Phase {
-        if model.chorusReportSentID == report.id { return .sent }
-        return model.chorusReportSendingID == report.id ? .sending : .confirmation
-    }
+    let phase: AnonymousReportPhase
+    let identifierPrefix: String
+    let sendingText: String
+    let successText: String
+    let dismiss: () -> Void
+    let confirmation: (AccessibilityFocusState<Bool>.Binding) -> Confirmation
 
     var body: some View {
         ViewThatFits(in: .vertical) {
             currentContent
             ScrollView { currentContent }
                 .scrollBounceBehavior(.basedOnSize)
+                .scrollDismissesKeyboard(.interactively)
         }
         .frame(maxWidth: 360)
         .background(Studio.surface, in: RoundedRectangle(cornerRadius: Studio.Radius.lg))
@@ -76,8 +100,8 @@ private struct ChorusReportConfirmation: View {
         .padding(24)
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(.isModal)
-        .accessibilityIdentifier("chorus-report-confirmation")
-        .accessibilityAction(.escape) { model.dismissChorusReport() }
+        .accessibilityIdentifier("\(identifierPrefix)-confirmation")
+        .accessibilityAction(.escape) { dismiss() }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: phase)
         .task(id: phase) {
             titleFocused = true
@@ -86,16 +110,15 @@ private struct ChorusReportConfirmation: View {
             do {
                 try await Task.sleep(for: .seconds(drawingDuration + ChorusReportTiming.successHold))
             } catch { return }
-            guard !Task.isCancelled, model.chorusReportDraft?.id == report.id,
-                  model.chorusReportSentID == report.id else { return }
-            model.dismissChorusReport()
+            guard !Task.isCancelled else { return }
+            dismiss()
         }
     }
 
     @ViewBuilder private var currentContent: some View {
         switch phase {
         case .confirmation:
-            confirmationContent
+            confirmation($titleFocused)
         case .sending:
             VStack(spacing: 20) {
                 ProgressView()
@@ -103,7 +126,7 @@ private struct ChorusReportConfirmation: View {
                     .tint(Studio.accent)
                     .frame(width: 88, height: 88)
                     .accessibilityHidden(true)
-                Text("報告を送信しています…")
+                Text(sendingText)
                     .font(.system(.title3, design: .rounded, weight: .bold))
                     .foregroundStyle(Studio.primary)
                     .accessibilityFocused($titleFocused)
@@ -111,13 +134,13 @@ private struct ChorusReportConfirmation: View {
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity, minHeight: 210)
             .padding(24)
-            .accessibilityIdentifier("chorus-report-sending")
+            .accessibilityIdentifier("\(identifierPrefix)-sending")
         case .sent:
             VStack(spacing: 20) {
                 ChorusReportSuccessMark()
                     .frame(width: 88, height: 88)
                     .accessibilityHidden(true)
-                Text("ご報告ありがとうございます")
+                Text(successText)
                     .font(.system(.title3, design: .rounded, weight: .bold))
                     .foregroundStyle(Studio.primary)
                     .accessibilityAddTraits(.isHeader)
@@ -127,11 +150,31 @@ private struct ChorusReportConfirmation: View {
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity)
             .padding(24)
-            .accessibilityIdentifier("chorus-report-success")
+            .accessibilityIdentifier("\(identifierPrefix)-success")
+        }
+    }
+}
+
+private struct ChorusReportConfirmation: View {
+    @EnvironmentObject private var model: AppModel
+    let report: ChorusReport
+    private var phase: AnonymousReportPhase {
+        if model.chorusReportSentID == report.id { return .sent }
+        return model.chorusReportSendingID == report.id ? .sending : .confirmation
+    }
+
+    var body: some View {
+        AnonymousReportDialog(phase: phase, identifierPrefix: "chorus-report",
+                              sendingText: "報告を送信しています…", successText: "ご報告ありがとうございます",
+                              dismiss: {
+                                  guard model.chorusReportDraft?.id == report.id else { return }
+                                  model.dismissChorusReport()
+                              }) { titleFocus in
+            confirmationContent(titleFocus: titleFocus)
         }
     }
 
-    private var confirmationContent: some View {
+    private func confirmationContent(titleFocus: AccessibilityFocusState<Bool>.Binding) -> some View {
         VStack(spacing: 20) {
             Image(systemName: "flag.circle")
                 .font(.system(size: 36, weight: .light))
@@ -141,7 +184,7 @@ private struct ChorusReportConfirmation: View {
                 .font(.system(.title3, design: .rounded, weight: .bold))
                 .foregroundStyle(Studio.primary)
                 .accessibilityAddTraits(.isHeader)
-                .accessibilityFocused($titleFocused)
+                .accessibilityFocused(titleFocus)
             VStack(spacing: 4) {
                 Text(report.song.title).font(.headline).foregroundStyle(Studio.primary)
                 Text(report.song.artist).font(.subheadline).foregroundStyle(Studio.secondary)

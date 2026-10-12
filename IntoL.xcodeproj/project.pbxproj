@@ -55,6 +55,8 @@
 		A00000000000000000000068 /* ChorusReportViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000068 /* ChorusReportViews.swift */; };
 		A00000000000000000000069 /* ArtworkCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000069 /* ArtworkCache.swift */; };
 		C04387BDE8F114D35D808B3D /* RevealEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40D296A3BF561B575315D4DA /* RevealEffects.swift */; };
+		A0000000000000000000006A /* FeedbackReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000006A /* FeedbackReport.swift */; };
+		A0000000000000000000006B /* FeedbackReportViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000006B /* FeedbackReportViews.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -109,6 +111,8 @@
 		B00000000000000000000068 /* ChorusReportViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChorusReportViews.swift; sourceTree = "<group>"; };
 		B00000000000000000000069 /* ArtworkCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkCache.swift; sourceTree = "<group>"; };
 		B1728359B56266971280996B /* RoomPlayerStandings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomPlayerStandings.swift; sourceTree = "<group>"; };
+		B0000000000000000000006A /* FeedbackReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedbackReport.swift; sourceTree = "<group>"; };
+		B0000000000000000000006B /* FeedbackReportViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedbackReportViews.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -158,6 +162,8 @@
 				B0000000000000000000001D /* RevealAudioPlayback.swift */,
 				B00000000000000000000067 /* ChorusReport.swift */,
 				B00000000000000000000068 /* ChorusReportViews.swift */,
+				B0000000000000000000006B /* FeedbackReportViews.swift */,
+				B0000000000000000000006A /* FeedbackReport.swift */,
 				B0000000000000000000001B /* IntoL.entitlements */,
 				B00000000000000000000005 /* AppModel.swift */,
 				B00000000000000000000006 /* RoomService.swift */,
@@ -325,6 +331,8 @@
 				A0000000000000000000001C /* RevealAudioPlayback.swift in Sources */,
 				A00000000000000000000067 /* ChorusReport.swift in Sources */,
 				A00000000000000000000068 /* ChorusReportViews.swift in Sources */,
+				A0000000000000000000006B /* FeedbackReportViews.swift in Sources */,
+				A0000000000000000000006A /* FeedbackReport.swift in Sources */,
 				A00000000000000000000005 /* AppModel.swift in Sources */,
 				A00000000000000000000006 /* RoomService.swift in Sources */,
 				A00000000000000000000020 /* MusicVolumeViews.swift in Sources */,

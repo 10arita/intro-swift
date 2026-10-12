@@ -42,21 +42,30 @@ struct ChorusReportService {
     var session: URLSession = .shared
 
     func send(_ report: ChorusReport, serverURL: String) async throws {
+        try await AnonymousReportService(session: session).send(report, endpoint: "chorus-reports", serverURL: serverURL)
+    }
+}
+
+/// Both anonymous forms require an explicit Discord delivery receipt.
+struct AnonymousReportService {
+    var session: URLSession = .shared
+    private struct Receipt: Decodable { let delivered: Bool }
+    private struct Failure: Decodable { let error: String }
+
+    func send<Report: Encodable>(_ report: Report, endpoint: String, serverURL: String) async throws {
         guard let base = URL(string: serverURL.trimmingCharacters(in: .whitespacesAndNewlines)),
               base.scheme == "https" || (base.scheme == "http" && ["localhost", "127.0.0.1"].contains(base.host ?? "")) else {
             throw AppError.message("報告サーバーに接続できません。しばらくしてから再試行してください。")
         }
-        var request = URLRequest(url: base.appending(path: "chorus-reports"))
+        var request = URLRequest(url: base.appending(path: endpoint))
         request.httpMethod = "POST"
         request.timeoutInterval = 15
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(report)
         // This endpoint deliberately uses neither room nor profile authentication.
         let (data, response) = try await session.data(for: request)
-        struct Receipt: Decodable { let delivered: Bool }
         guard (response as? HTTPURLResponse)?.statusCode == 200,
               let receipt = try? JSONDecoder().decode(Receipt.self, from: data), receipt.delivered else {
-            struct Failure: Decodable { let error: String }
             let message = (try? JSONDecoder().decode(Failure.self, from: data))?.error
             throw AppError.message(message ?? "報告を送信できませんでした。再試行してください。")
         }
