@@ -118,12 +118,8 @@ struct RoomGameView: View {
             ScrollView {
               VStack(spacing: 0) {
                 if room.phase != "lobby" {
-                  HStack {
-                    Text("プレイヤー").font(.caption.weight(.semibold)).foregroundStyle(Studio.secondary)
-                    Spacer()
-                    Text(room.phase == "finished" ? "最終順位" : "得点順")
-                      .font(.caption.weight(.semibold)).foregroundStyle(Studio.secondary)
-                  }
+                  Text("プレイヤー").font(.caption.weight(.semibold)).foregroundStyle(Studio.secondary)
+                  .frame(maxWidth: .infinity, alignment: .leading)
                   .padding(.horizontal, 20)
                   RoomPlayerStandings(
                     room: room, localID: model.rooms.playerId,

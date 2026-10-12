@@ -79,6 +79,7 @@ enum AnonymousReportPhase { case confirmation, sending, sent }
 struct AnonymousReportDialog<Confirmation: View>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AccessibilityFocusState private var titleFocused: Bool
+    @State private var contentHeight: CGFloat?
     let phase: AnonymousReportPhase
     let identifierPrefix: String
     let sendingText: String
@@ -87,13 +88,14 @@ struct AnonymousReportDialog<Confirmation: View>: View {
     let confirmation: (AccessibilityFocusState<Bool>.Binding) -> Confirmation
 
     var body: some View {
-        ViewThatFits(in: .vertical) {
+        // Keep the same editor mounted when keyboard avoidance changes the available height.
+        ScrollView {
             currentContent
-            ScrollView { currentContent }
-                .scrollBounceBehavior(.basedOnSize)
-                .scrollDismissesKeyboard(.interactively)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
         }
-        .frame(maxWidth: 360)
+        .scrollBounceBehavior(.basedOnSize)
+        .scrollDismissesKeyboard(.interactively)
+        .frame(maxWidth: 360, maxHeight: contentHeight)
         .background(Studio.surface, in: RoundedRectangle(cornerRadius: Studio.Radius.lg))
         .clipShape(RoundedRectangle(cornerRadius: Studio.Radius.lg))
         .shadow(color: .black.opacity(0.12), radius: 24, y: 8)

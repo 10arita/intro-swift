@@ -1,16 +1,5 @@
 import SwiftUI
 
-extension RoomState {
-  var rankedPlayers: [RoomPlayer] {
-    players.sorted {
-      if $0.disqualified != $1.disqualified { return !$0.disqualified }
-      if $0.score != $1.score { return $0.score > $1.score }
-      if $0.lives != $1.lives { return $0.lives > $1.lives }
-      return $0.id < $1.id
-    }
-  }
-}
-
 struct RoomPlayerStandings: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -22,15 +11,19 @@ struct RoomPlayerStandings: View {
   let profile: (RoomPlayer) -> Void
   let friends: () -> Void
 
+  private var displayedPlayers: [RoomPlayer] {
+    room.statusPlayers(pendingPushPlayerID: pushPending ? localID : nil)
+  }
+
   var body: some View {
     LazyVGrid(
       columns: Array(
         repeating: GridItem(.flexible(), spacing: 6),
         count: dynamicTypeSize.isAccessibilitySize ? 2 : max(1, room.players.count)), spacing: 8
     ) {
-      ForEach(Array(room.rankedPlayers.enumerated()), id: \.element.id) { index, player in
+      ForEach(displayedPlayers) { player in
         RoomPlayerTile(
-          player: player, rank: index + 1,
+          player: player, rank: (room.rankedPlayers.firstIndex { $0.id == player.id } ?? 0) + 1,
           avatarData: player.id == localID ? avatarData : nil,
           livesUnlimited: room.settings.lives == 0,
           answering: room.isAnswering(player.id),
@@ -45,7 +38,7 @@ struct RoomPlayerStandings: View {
     }
     .frame(maxWidth: 560)
     .frame(maxWidth: .infinity)
-    .animation(reduceMotion ? nil : Studio.spring, value: room.rankedPlayers.map(\.id))
+    .animation(reduceMotion ? nil : Studio.spring, value: displayedPlayers.map(\.id))
   }
 }
 

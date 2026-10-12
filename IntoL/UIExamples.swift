@@ -117,10 +117,10 @@
       let guest = scenario.contains("guest")
       let empty = scenario.contains("empty")
       let phase =
-        scenario.contains("answer")
-        ? "answering"
-        : scenario.contains("result")
-          ? "finished" : scenario.contains("reveal") ? "reveal" : "lobby"
+        scenario.contains("listening")
+        ? "listening" : scenario.contains("answer")
+          ? "answering" : scenario.contains("result")
+            ? "finished" : scenario.contains("reveal") ? "reveal" : "lobby"
       let localID = model.rooms.playerId
       let hostID = guest ? "fixture-host" : localID
       let ids = [localID, "fixture-b", "fixture-c", "fixture-d"]
@@ -135,10 +135,10 @@
         player["correctCount"] = 2
         player["wrongCount"] = 1
         player["roundResults"] = ["correct", "correct", "wrong"]
-        if phase != "lobby" && !(phase == "answering" && (index == 0 || index == 3)) {
+        if !["lobby", "listening"].contains(phase) && !(phase == "answering" && (index == 0 || index == 3)) {
           player["currentResult"] = index < 2 ? "correct" : "wrong"
         }
-        if phase != "lobby" && !(phase == "answering" && index == 3) {
+        if !["lobby", "listening"].contains(phase) && !(phase == "answering" && index == 3) {
           player["pushTimeMS"] = [1234, 1567, 2345, 3456][index]
         }
         player["isHost"] = index == (guest ? 1 : 0)
@@ -168,21 +168,23 @@
         "phase": phase, "round": phase == "lobby" ? -1 : 2, "totalRounds": phase == "lobby" ? 0 : 3,
         "gameNumber": 0,
         "settings": try! JSONSerialization.jsonObject(with: JSONEncoder().encode(rules)),
-        "players": players, "serverNow": Date.now.timeIntervalSince1970 * 1000, "pushClosed": true,
+        "players": players, "serverNow": Date.now.timeIntervalSince1970 * 1000, "pushClosed": phase != "listening",
         "answerProgress": "青", "options": ["い", "の", "き", "と"],
         "activeAnswers": phase == "answering" ? [["playerId": localID, "progress": "青"]] : [],
-        "pushedIds": phase == "lobby" ? [] : Array(ids.prefix(phase == "answering" ? 3 : 4)),
-        "skippedIds": phase == "lobby" ? [] : [ids[3]],
+        "pushedIds": ["lobby", "listening"].contains(phase) ? [] : Array(ids.prefix(phase == "answering" ? 3 : 4)),
+        "skippedIds": ["lobby", "listening"].contains(phase) ? [] : [ids[3]],
         "readyIds": [], "correctPlayerIDs": phase == "reveal" ? [localID, ids[1]] : [],
         "supportsLobbyConfiguration": false,
         "playlist": empty ? NSNull() : ["name": "夜に聴く曲", "songCount": songs.count],
       ]
+      if scenario.contains("push-order") { state["pushOrderIds"] = [ids[2], ids[1], localID] }
       if phase == "finished" || phase == "reveal" {
         state["current"] = try! JSONSerialization.jsonObject(with: JSONEncoder().encode(songs[2]))
         state["roundSongs"] = try! JSONSerialization.jsonObject(with: JSONEncoder().encode(songs))
       }
       model.room = try! JSONDecoder().decode(
         RoomState.self, from: JSONSerialization.data(withJSONObject: state))
+      model.roomPushPending = scenario.contains("push-pending")
       if phase == "reveal" {
         model.recordRevealPlayback(songs[2], source: .preview, startPositionMS: 0)
       }
@@ -205,6 +207,9 @@
   #Preview("ルール説明・大きな文字") { UIExamples(scenario: "rules-host-unlimited-large-text") }
   #Preview("ルール詳細・ダーク") { UIExamples(scenario: "rules-guest-unlimited-dark") }
   #Preview("対戦中") { UIExamples(scenario: "answer") }
+  #Preview("PUSH前・得点順") { UIExamples(scenario: "listening") }
+  #Preview("PUSH判定中") { UIExamples(scenario: "listening-push-pending") }
+  #Preview("PUSH順") { UIExamples(scenario: "answer-push-order") }
   #Preview("対戦中・ダーク") { UIExamples(scenario: "answer-dark") }
   #Preview("大きな文字") { UIExamples(scenario: "answer-large-text") }
   #Preview("報告・送信と完了") { UIExamples(scenario: "reveal-report-success") }

@@ -212,6 +212,36 @@ struct RoomState: Decodable, Identifiable {
     }
 
     func player(_ id: String) -> RoomPlayer? { players.first { $0.id == id } }
+
+    var rankedPlayers: [RoomPlayer] {
+        players.sorted {
+            if $0.disqualified != $1.disqualified { return !$0.disqualified }
+            if $0.score != $1.score { return $0.score > $1.score }
+            if $0.lives != $1.lives { return $0.lives > $1.lives }
+            return $0.id < $1.id
+        }
+    }
+
+    /// Switch to the server's PUSH order for this round; keep unpushed players in score order.
+    func statusPlayers(pendingPushPlayerID: String? = nil) -> [RoomPlayer] {
+        let ranked = rankedPlayers
+        guard phase != "finished" else { return ranked }
+        var pushOrder = pushOrderIds ?? pushedIds
+        if let pendingPushPlayerID, !pushOrder.contains(pendingPushPlayerID) {
+            pushOrder.append(pendingPushPlayerID)
+        }
+        return ranked.enumerated().sorted { left, right in
+            let leftPush = pushOrder.firstIndex(of: left.element.id)
+            let rightPush = pushOrder.firstIndex(of: right.element.id)
+            switch (leftPush, rightPush) {
+            case let (left?, right?): return left < right
+            case (_?, nil): return true
+            case (nil, _?): return false
+            case (nil, nil): return left.offset < right.offset
+            }
+        }.map(\.element)
+    }
+
     func isAnswering(_ id: String) -> Bool { activeAnswers.contains { $0.playerId == id } }
     func handicapSecondsLeft(for id: String, nowMS: Double) -> Double {
         guard let startAt else { return 0 }

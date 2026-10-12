@@ -116,37 +116,61 @@ private struct ResultRoundRow {
 }
 
 private struct ResultRoundList: View {
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @State private var isExpanded = false
   let rows: [ResultRoundRow]
   var body: some View {
     StudioCard {
-      VStack(alignment: .leading, spacing: 16) {
-        Text("曲ごとの結果").font(.headline).foregroundStyle(Studio.primary)
-        ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
-          HStack(spacing: 12) {
-            Text("\(index + 1)").font(.caption.monospacedDigit()).foregroundStyle(Studio.secondary)
-            Artwork(url: row.song.artworkURL, size: 40)
-            VStack(alignment: .leading, spacing: 3) {
-              Text(row.song.title).font(.subheadline.weight(.semibold)).foregroundStyle(
-                Studio.primary)
-              Text(row.song.artist).font(.caption).foregroundStyle(Studio.secondary)
-            }
-            Spacer(minLength: 4)
-            Image(
-              systemName: row.outcome == "correct"
-                ? "checkmark.circle.fill"
-                : row.outcome == "wrong" ? "xmark.circle.fill" : "minus.circle"
-            )
-            .font(.title3).foregroundStyle(
-              row.outcome == "correct"
-                ? Studio.success : row.outcome == "wrong" ? Studio.warning : Studio.secondary
-            )
-            .accessibilityLabel(
-              row.outcome == "correct" ? "正解" : row.outcome == "wrong" ? "不正解" : "未解答")
+      VStack(alignment: .leading, spacing: isExpanded ? 12 : 0) {
+        Button { isExpanded.toggle() } label: {
+          HStack {
+            Text("曲ごとの結果").font(.headline)
+            Spacer()
+            Image(systemName: "chevron.down")
+              .font(.subheadline.weight(.semibold))
+              .rotationEffect(.degrees(isExpanded ? 180 : 0))
+              .accessibilityHidden(true)
           }
-          .accessibilityElement(children: .combine)
-          if index + 1 < rows.count { Divider() }
+          .foregroundStyle(Studio.primary)
+          .frame(maxWidth: .infinity, minHeight: 44)
+          .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("result-rounds")
+        .accessibilityLabel("曲ごとの結果")
+        .accessibilityValue(isExpanded ? "開いています" : "閉じています")
+        .accessibilityHint(isExpanded ? "曲一覧を閉じます" : "曲一覧を開きます")
+        if isExpanded {
+          VStack(alignment: .leading, spacing: 16) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+              HStack(spacing: 12) {
+                Text("\(index + 1)").font(.caption.monospacedDigit()).foregroundStyle(Studio.secondary)
+                Artwork(url: row.song.artworkURL, size: 40)
+                VStack(alignment: .leading, spacing: 3) {
+                  Text(row.song.title).font(.subheadline.weight(.semibold)).foregroundStyle(
+                    Studio.primary)
+                  Text(row.song.artist).font(.caption).foregroundStyle(Studio.secondary)
+                }
+                Spacer(minLength: 4)
+                Image(
+                  systemName: row.outcome == "correct"
+                    ? "checkmark.circle.fill"
+                    : row.outcome == "wrong" ? "xmark.circle.fill" : "minus.circle"
+                )
+                .font(.title3).foregroundStyle(
+                  row.outcome == "correct"
+                    ? Studio.success : row.outcome == "wrong" ? Studio.warning : Studio.secondary
+                )
+                .accessibilityLabel(
+                  row.outcome == "correct" ? "正解" : row.outcome == "wrong" ? "不正解" : "未解答")
+              }
+              .accessibilityElement(children: .combine)
+              if index + 1 < rows.count { Divider() }
+            }
+          }
         }
       }
+      .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: isExpanded)
     }
   }
 }
