@@ -6,16 +6,17 @@ import Foundation
     }
 
     static func testCatalog(_ bank: RankCatalog) throws {
-        expect(bank.questions.count == 203 && Set(bank.questions.map(\.recordingID)).count == 200,
-               "The shared bank has 200 recordings and three additional warmup variants")
-        expect(bank.questions.filter(\.isClassic).count == 10, "Only ten classics are included")
-        expect(bank.version == RankCatalog.bundledVersion && bank.provisional, "The initial bank is explicitly provisional")
+        expect(bank.questions.count >= 200 && Set(bank.questions.map(\.recordingID)).count == bank.questions.count,
+               "The reviewed bank contains distinct pinned recordings")
+        expect(bank.questions.filter(\.isClassic).count > 10, "Reviewed additions restore selected pre-2010 songs")
+        expect(bank.version == RankCatalog.bundledVersion && bank.provisional, "Popularity-based difficulties remain provisional")
         for level in 1...10 {
             expect(bank.questions.filter { $0.level == level }.count >= 20, "Each level needs a usable pool")
             let tasks = bank.questions.filter { $0.level == level }
-            let artists = Dictionary(grouping: tasks, by: { RankQuestion.normalizeMetadata($0.artist) })
-            expect(artists.values.allSatisfy { $0.count <= 2 }, "Every tier retains twenty candidates under the artist cap")
-            expect(tasks.filter(\.isClassic).count <= 2, "Classics cannot consume a difficulty tier")
+            let modern = tasks.filter { !$0.isClassic }
+            let artists = Dictionary(grouping: modern, by: { $0.artistKey })
+            expect(artists.values.reduce(0) { $0 + min(2, $1.count) } >= 20,
+                   "Every tier retains enough modern candidates under the artist cap")
         }
         let q = bank.questions[0]
         expect(q.matches(title: q.title, artist: q.artist, album: q.album), "Exact recording matches")
@@ -23,6 +24,31 @@ import Foundation
         expect(!q.matches(title: q.title + " (Live)", artist: q.artist, album: q.album), "Version suffixes remain significant")
         expect(!q.matches(title: q.title, artist: "Cover Artist", album: q.album), "A cover is not the original")
         expect(!q.matches(title: q.title, artist: q.artist, album: nil), "Unknown recording metadata is rejected")
+        var localized = q
+        localized.answerTitle = "出典の曲名"
+        localized.artistGroupID = "source-artist"
+        expect(localized.quizTitle == "出典の曲名", "Provider subtitles do not change the title used for answers")
+        expect(localized.matches(title: q.title, artist: q.artist, album: q.album), "Recording matching still uses provider metadata")
+        var legacy = try JSONSerialization.jsonObject(with: JSONEncoder().encode(localized)) as! [String: Any]
+        legacy.removeValue(forKey: "answerTitle")
+        legacy.removeValue(forKey: "artistGroupID")
+        let decoded = try JSONDecoder().decode(RankQuestion.self, from: JSONSerialization.data(withJSONObject: legacy))
+        expect(decoded.quizTitle == q.title && decoded.artistKey == RankQuestion.normalizeMetadata(q.artist),
+               "Old history entries retain their original answer and artist grouping")
+
+        let aliases = Array(bank.questions.filter { $0.level == 1 }.prefix(3)).enumerated().map { index, q in
+            RankQuestion(id: q.id, recordingID: q.recordingID, title: q.title, artist: "Provider credit \(index)",
+                         album: q.album, catalogIDHint: nil, level: 1, difficulty: q.difficulty,
+                         pushLimit: q.pushLimit, isClassic: false, artistGroupID: "one-performer")
+        }
+        let aliasBank = RankCatalog(schemaVersion: 1, version: bank.version, provisional: true, questions: aliases)
+        var grouped = RankSession(catalog: aliasBank, previousRecordingIDs: [], previouslySeen: [])
+        for _ in 0..<2 {
+            let task = try grouped.nextQuestion()
+            grouped.record(question: task, song: nil, outcome: .wrong, pushTime: 1)
+        }
+        do { _ = try grouped.nextQuestion(); preconditionFailure("Provider credit aliases must not bypass the artist cap") }
+        catch RankError.insufficientQuestions { }
         var invalid = try JSONSerialization.jsonObject(with: JSONEncoder().encode(bank)) as! [String: Any]
         invalid["questions"] = Array(bank.questions.prefix(10)).map { try! JSONSerialization.jsonObject(with: JSONEncoder().encode($0)) }
         do {
@@ -44,7 +70,7 @@ import Foundation
         let result = session.result()!
         expect(Set(result.rounds.map { $0.question.recordingID }).count == result.rounds.count, "Recordings cannot repeat")
         expect(result.rounds.filter { $0.question.isClassic }.count <= 2, "Classics are capped")
-        let artists = Dictionary(grouping: result.rounds, by: { RankQuestion.normalizeMetadata($0.question.artist) })
+        let artists = Dictionary(grouping: result.rounds, by: { $0.question.artistKey })
         expect(artists.values.allSatisfy { $0.count <= 2 }, "An artist cannot dominate the test")
         expect(result.lowerLevel <= result.level && result.level <= result.upperLevel, "The estimate lies in its interval")
         return result

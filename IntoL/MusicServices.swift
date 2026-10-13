@@ -293,7 +293,7 @@ private struct AppleMusicLibrarySongResponse: Decodable {
         }
         let id = "applemusic:" + String(describing: item.id)
         songsByID[id] = item
-        return Song(id: id, title: item.title, artist: item.artistName,
+        return Song(id: id, title: question.quizTitle, artist: item.artistName,
                     artworkURL: item.artwork?.url(width: 600, height: 600),
                     previewURL: nil, trackURL: item.url,
                     durationMS: Int(duration * 1000), genre: item.genreNames.first ?? "J-Pop")

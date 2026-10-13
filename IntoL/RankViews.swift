@@ -104,7 +104,7 @@ struct RankResultSummary: View {
                 VStack(alignment: .leading, spacing: 16) {
                     ForEach(result.rounds) { round in
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(round.question.title).font(.headline).foregroundStyle(Studio.primary)
+                            Text(round.question.quizTitle).font(.headline).foregroundStyle(Studio.primary)
                             Text(round.question.artist).font(.subheadline).foregroundStyle(Studio.secondary)
                             Text(round.outcome.label + " ・ PUSH期限\(Int(round.question.pushLimit))秒" +
                                  (round.pushTime.map { String(format: " ・ %.3f秒", $0) } ?? ""))

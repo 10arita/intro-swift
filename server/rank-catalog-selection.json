@@ -1,0 +1,170 @@
+{
+  "catalogVersion": "jp-intro-utanet-2026-10-reviewed-v1",
+  "selected": 736,
+  "recordings": 716,
+  "checkedAdditions": 192,
+  "activeAdditions": 180,
+  "byLevel": {
+    "1": 97,
+    "2": 88,
+    "3": 78,
+    "4": 69,
+    "5": 70,
+    "6": 67,
+    "7": 64,
+    "8": 60,
+    "9": 63,
+    "10": 60
+  },
+  "pending": [
+    {
+      "rank": 146,
+      "title": "Love Story",
+      "artist": "安室奈美恵",
+      "sourceSongID": "122113",
+      "url": "https://www.uta-net.com/song/122113/"
+    },
+    {
+      "rank": 237,
+      "title": "世界に一つだけの花",
+      "artist": "SMAP",
+      "sourceSongID": "15894",
+      "url": "https://www.uta-net.com/song/15894/"
+    },
+    {
+      "rank": 283,
+      "title": "青春アミーゴ",
+      "artist": "修二と彰",
+      "sourceSongID": "35459",
+      "url": "https://www.uta-net.com/song/35459/"
+    },
+    {
+      "rank": 344,
+      "title": "Hero",
+      "artist": "安室奈美恵",
+      "sourceSongID": "211512",
+      "url": "https://www.uta-net.com/song/211512/"
+    },
+    {
+      "rank": 365,
+      "title": "Let It Go ～ありのままで～ (エンドソング)",
+      "artist": "May J.",
+      "sourceSongID": "160390",
+      "url": "https://www.uta-net.com/song/160390/"
+    },
+    {
+      "rank": 418,
+      "title": "夜空ノムコウ",
+      "artist": "SMAP",
+      "sourceSongID": "10065",
+      "url": "https://www.uta-net.com/song/10065/"
+    },
+    {
+      "rank": 432,
+      "title": "イエス",
+      "artist": "Acid Black Cherry",
+      "sourceSongID": "124416",
+      "url": "https://www.uta-net.com/song/124416/"
+    },
+    {
+      "rank": 491,
+      "title": "勇気100％",
+      "artist": "光GENJI",
+      "sourceSongID": "7263",
+      "url": "https://www.uta-net.com/song/7263/"
+    },
+    {
+      "rank": 519,
+      "title": "宙船(そらふね)",
+      "artist": "TOKIO",
+      "sourceSongID": "44398",
+      "url": "https://www.uta-net.com/song/44398/"
+    },
+    {
+      "rank": 589,
+      "title": "CAN YOU CELEBRATE?",
+      "artist": "安室奈美恵",
+      "sourceSongID": "9574",
+      "url": "https://www.uta-net.com/song/9574/"
+    },
+    {
+      "rank": 675,
+      "title": "ぬくもり",
+      "artist": "平浩二",
+      "sourceSongID": "185532",
+      "url": "https://www.uta-net.com/song/185532/"
+    },
+    {
+      "rank": 703,
+      "title": "Ultra Music Power",
+      "artist": "Hey! Say! JUMP",
+      "sourceSongID": "58476",
+      "url": "https://www.uta-net.com/song/58476/"
+    },
+    {
+      "rank": 761,
+      "title": "らいおんハート",
+      "artist": "SMAP",
+      "sourceSongID": "12499",
+      "url": "https://www.uta-net.com/song/12499/"
+    },
+    {
+      "rank": 800,
+      "title": "ワールドイズマイン",
+      "artist": "supercell feat. 初音ミク",
+      "sourceSongID": "78215",
+      "url": "https://www.uta-net.com/song/78215/"
+    },
+    {
+      "rank": 805,
+      "title": "ピストル",
+      "artist": "Acid Black Cherry",
+      "sourceSongID": "119270",
+      "url": "https://www.uta-net.com/song/119270/"
+    },
+    {
+      "rank": 831,
+      "title": "め組のひと",
+      "artist": "RATS＆STAR",
+      "sourceSongID": "4472",
+      "url": "https://www.uta-net.com/song/4472/"
+    },
+    {
+      "rank": 834,
+      "title": "青いベンチ",
+      "artist": "テゴマス",
+      "sourceSongID": "108825",
+      "url": "https://www.uta-net.com/song/108825/"
+    },
+    {
+      "rank": 851,
+      "title": "Sexy Zone",
+      "artist": "Sexy Zone",
+      "sourceSongID": "122044",
+      "url": "https://www.uta-net.com/song/122044/"
+    },
+    {
+      "rank": 863,
+      "title": "絶望ビリー",
+      "artist": "マキシマム ザ ホルモン",
+      "sourceSongID": "52715",
+      "url": "https://www.uta-net.com/song/52715/"
+    },
+    {
+      "rank": 956,
+      "title": "Baby Don't Cry",
+      "artist": "安室奈美恵",
+      "sourceSongID": "51319",
+      "url": "https://www.uta-net.com/song/51319/"
+    }
+  ],
+  "duplicates": [],
+  "nurseryRemoved": [
+    {
+      "rank": 552,
+      "title": "きらきら星",
+      "artist": "カノン",
+      "sourceSongID": "175907"
+    }
+  ]
+}

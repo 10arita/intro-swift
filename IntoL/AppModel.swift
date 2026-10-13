@@ -440,7 +440,7 @@ struct SoloGame {
             let previous = Set(rankRecords.history.first?.rounds.map { $0.question.recordingID } ?? [])
             let session = RankSession(catalog: catalog, previousRecordingIDs: previous,
                                       previouslySeen: rankRecords.seenRecordingIDs)
-            quizCorpus = catalog.questions.map(\.title)
+            quizCorpus = catalog.questions.map(\.quizTitle)
             lastResult = nil
             lastRankResult = nil
             game = SoloGame(songs: [rankPendingSong], playlist: "イントロ段位測定", rankSession: session)
@@ -486,8 +486,8 @@ struct SoloGame {
                 self.game = state
                 do {
                     var song = try await self.appleMusic.rankSong(for: question)
-                    song.artistTopTitles = session.catalog.questions.filter { $0.artist == question.artist }
-                        .prefix(6).map(\.title)
+                    song.artistTopTitles = session.catalog.questions.filter { $0.artistKey == question.artistKey }
+                        .prefix(6).map(\.quizTitle)
                     try Task.checkCancellation()
                     guard self.soloRoundToken == token, var ready = self.game else { return }
                     ready.songs[ready.index] = song

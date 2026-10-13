@@ -1,56 +1,168 @@
 #!/usr/bin/env python3
-"""Rebuild the provisional, recording-specific bank from the existing manual catalog.
-
-The groups are editorial starting estimates, NOT measured item difficulties.
-Review the actual intro before replacing these priors with calibrated values.
-"""
+"""Build the reviewed Uta-Net bank from pinned recording metadata."""
+import argparse
 import hashlib
 import json
+import re
 import unicodedata
+from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-GROUPS = [
-    [0,52,56,83,93,94,153,162,209,215,242,270,306,327,339,389,493,560,576,76,18,161,151],
-    [95,182,84,31,218,287,300,312,371,13,19,29,46,117,151,161,68,206,213,349],
-    [18,20,28,50,54,252,204,81,123,96,101,111,120,140,149,328,382,201,240,244],
-    [2,3,238,239,60,62,74,82,402,85,110,112,171,172,174,176,260,267,211,216],
-    [228,248,16,343,39,229,233,337,65,67,79,118,152,164,179,180,237,332,210,214],
-    [217,449,14,49,230,231,58,234,235,194,262,263,314,315,330,331,355,15,250,251],
-    [347,348,202,48,51,335,308,336,203,269,271,273,274,276,279,282,507,289,290,291],
-    [292,297,298,436,302,303,264,265,322,310,311,196,329,241,243,353,354,318,319,320],
-    [309,323,324,326,442,313,245,246,198,358,370,307,63,266,338,340,66,257,351,352],
-    [316,317,247,356,357,333,334,141,377,378,379,200,384,395,400,401,405,407,408,409],
-]
-CLASSICS = {76,123,182,402,343,449,507,436,442,141}
-LIMITS = [12,8,8,5,8,5,3,5,3,3]
+VERSION = "jp-intro-utanet-2026-10-reviewed-v1"
+LIMITS = [12, 8, 8, 5, 8, 5, 3, 5, 3, 3]
+ARTIST_ALIASES = {
+    "GReeeeN": ["GRe4N BOYZ"], "DOMOTO": ["KinKi Kids"],
+    "Sexy Zone": ["timelesz"], "SUPER EIGHT": ["関ジャニ∞"],
+    "三代目 J SOUL BROTHERS": ["三代目 J SOUL BROTHERS from EXILE TRIBE"],
+    "GENERATIONS": ["GENERATIONS from EXILE TRIBE"], "Nissy(西島隆弘)": ["Nissy"],
+    "ソナーポケット": ["Sonar Pocket"], "徳永英明": ["德永英明"],
+    "松任谷由実": ["荒井由実"],
+}
+
+# Explicit equivalences verified in Apple's JP metadata. Never drop version or
+# featured-vocalist words globally: they distinguish recordings of the same song.
+SOURCE_ALIASES = {
+    "213756": [("なんでもないや (movie ver.)", "RADWIMPS")],
+    "237845": [("灰色と青 ( + 菅田将暉 )", "米津玄師 & 菅田 将暉")],
+    "352487": [("さよーならまたいつか!- Sayonara", "米津玄師")],
+    "253191": [("アイノカタチ (feat. HIDE)", "MISIA")],
+    "230891": [("ピースサイン - Peace Sign", "米津玄師")],
+    "328567": [("可愛くてごめん (feat. ちゅーたん(CV:早見沙織))", "HoneyWorks")],
+    "191752": [("夜空。 (feat. Hazzie)", "miwa")],
+    "199851": [("みんながみんな英雄 (フルバージョン)", "AI")],
+    "206311": [("アインシュタインよりディアナ・アグロン", "なこみく & めるみお")],
+    "250525": [("ヒプノシスマイク -Division Battle Anthem-", "ヒプノシスマイク -D.R.B- (Division All Stars)")],
+    "283673": [("ヒプノシスマイク -Division Battle Anthem-+", "ヒプノシスマイク -D.R.B- (Division All Stars)")],
+    "275263": [("ヒプノシスマイク -Division Rap Battle- +", "ヒプノシスマイク -D.R.B- (Division All Stars)")],
+    "122918": [("HaruHaru (Japanese ver.)", "BIGBANG")],
+    "224915": [("ロメオ", "LIP×LIP, 勇次郎 (CV:内山昂輝) & 愛蔵 (CV:島﨑信長)")],
+    "162871": [("We Are Never Ever Getting Back Together (Japanese Ver.)", "MACO")],
+    "238736": [("砂の惑星 ( + 初音ミク )", "米津玄師 & 初音ミク")],
+    "273058": [("竈門炭治郎のうた (feat. 中川奈美)", "椎名 豪")],
+    "270356": [("ホール・ニュー・ワールド (日本語版)", "中村倫也 & 木下晴香")],
+    "53981": [("鱗", "秦基博")],
+    "137375": [("それはやっぱり君でした", "二宮和也")],
+    "115627": [("どこにでもある唄。", "二宮和也")],
+    "198591": [("海の声", "桐谷健太")],
+    "375655": [("革命道中 - On The Way", "アイナ・ジ・エンド")],
+    "12950": [("丸ノ内サディスティック", "椎名林檎")],
+    "310518": [("初心LOVE (うぶらぶ)", "なにわ男子")],
+    "361347": [("オトノケ - Otonoke", "Creepy Nuts")],
+    "51215": [("蕾 (つぼみ)", "コブクロ")],
+    "31": [("愛燦燦 (あいさんさん)", "美空ひばり")],
+    "191240": [("長く短い祭", "椎名林檎 & 浮雲"), ("長く短い祭", "椎名林檎と浮雲")],
+    "19170": [("ココロオドル -original version-", "nobodyknows+")],
+    "162126": [("ドーナツホール (COVER)", "米津玄師")],
+    "345495": [("花になって - Be a flower", "緑黄色社会")],
+    "359065": [("がらくた - JUNK", "米津玄師")],
+    "263923": [("リメンバー・ミー (日本語歌)", "石橋陽彩")],
+    "2568": [("少年時代 (Remastered 2018)", "井上陽水")],
+    "350837": [("パジャマパーティーズのうた", "パジャマパーティーズ みどり(CV. 諸星すみれ)、ぴんく(CV. 長縄まりあ)、しろ(CV. 篠原侑)、むらさき(CV. 内山茉莉)")],
+}
+
 
 def normalized(text):
     return "".join(unicodedata.normalize("NFKC", text).lower().split())
 
-def build():
-    source = json.loads((ROOT / "server/manual-chorus.json").read_text())
-    # Positional editorial groups must be reviewed if the source workbook changes.
-    assert source["sourceSHA256"] == "5cdd0d808f2b682803981e2a5fd6a20313fa8248898e995add61d3e37c2c0ec6", "Review editorial groups against the changed workbook"
-    records = source["records"]
-    questions = []
-    for level, indices in enumerate(GROUPS, 1):
-        assert len(indices) >= 20
-        for index in indices:
-            record = records[index]
-            key = "\x1f".join(normalized(record[k]) for k in ["title", "artist", "album"])
-            limit = LIMITS[level - 1]
-            question_id = "rank-" + hashlib.sha256(f"{key}:{limit}".encode()).hexdigest()[:20]
-            questions.append(dict(id=question_id, recordingID=key, title=record["title"],
-                                  artist=record["artist"], album=record["album"],
-                                  catalogIDHint=record.get("catalogID") or None,
-                                  level=level, difficulty=round(-2.7 + (level-1)*0.6, 2),
-                                  pushLimit=limit, isClassic=index in CLASSICS))
-    assert len({q["recordingID"] for q in questions}) == 200
-    return dict(schemaVersion=1, version="jp-intro-2026-10-provisional-v1",
-                provisional=True, questions=questions)
+
+def match_key(text):
+    return "".join(c for c in unicodedata.normalize("NFKC", text).casefold()
+                   if c == "+" or unicodedata.category(c)[0] not in "PZS")
+
+
+def artist_keys(artist):
+    return {match_key(s) for s in [artist, *ARTIST_ALIASES.get(artist, [])]}
+
+
+def matching_keys(source):
+    keys = {(match_key(source["title"]), a) for a in artist_keys(source["artist"])}
+    keys.update((match_key(title), match_key(artist))
+                for title, artist in SOURCE_ALIASES.get(source.get("sourceSongID"), []))
+    return keys
+
+
+def is_alternate_recording(title, album):
+    return re.search(r"(?i)(?:\blive\b|ライブ|\bconcert\b|\btour\b|コンサート|\bunplugged\b|\bremix\b|リミックス|\bacoustic\b|アコースティック|\binstrumental\b|\boff\s?vocal\b|カラオケ|オルゴール|弾き語り)",
+                     title + " " + album) is not None
+
+
+def recording_matches(source, recording):
+    return ((match_key(recording["title"]), match_key(recording["artist"])) in matching_keys(source) and
+            not is_alternate_recording(recording["title"], recording["album"]))
+
+
+def build(candidate, recordings):
+    if "review" not in candidate:
+        raise ValueError("Apply the saved checkbox review first")
+    selected = [s for s in candidate["songs"] if s.get("selected")]
+    mapping = {r["sourceSongID"]: r for r in recordings["recordings"]}
+    questions, pending, duplicate = [], [], []
+    recording_ids = set()
+    for source in selected:
+        if source.get("excludedAsNursery"):
+            raise ValueError("Nursery songs must not enter the rank bank")
+        recording = mapping.get(source["sourceSongID"])
+        if recording is None:
+            pending.append(source)
+            continue
+        if not recording_matches(source, recording):
+            raise ValueError(f"Recording does not match the selected song: {source['rank']}位")
+        key = "\x1f".join(normalized(recording[k]) for k in ("title", "artist", "album"))
+        if key in recording_ids:
+            duplicate.append(source)
+            continue
+        recording_ids.add(key)
+        level = source["level"]
+        limit = LIMITS[level - 1]
+        assert recording["durationMS"] > limit * 1000 and recording["album"]
+        questions.append({
+            "id": "rank-" + hashlib.sha256(f"{key}:{limit}".encode()).hexdigest()[:20],
+            "recordingID": key,
+            "title": recording["title"], "artist": recording["artist"], "album": recording["album"],
+            "answerTitle": source["title"], "artistGroupID": normalized(source["artist"]),
+            "catalogIDHint": recording.get("catalogIDHint"),
+            "level": level, "difficulty": source["difficultyPrior"], "pushLimit": limit,
+            "isClassic": source["releaseDate"] < "2010-01-01",
+            "sourceSongID": source["sourceSongID"], "sourceRank": source["rank"],
+            "sourceTitle": source["title"], "sourceArtist": source["artist"],
+            "sourceURL": source["url"], "sourceReleaseDate": source["releaseDate"],
+            "selectionReason": source["selectionReason"],
+        })
+    counts = Counter(q["level"] for q in questions)
+    assert len(questions) >= 200 and all(counts[level] >= 20 for level in range(1, 11))
+    assert counts[1] >= 23
+    catalog = {"schemaVersion": 1, "version": VERSION, "provisional": True,
+               "sourceURL": candidate["sourceURL"], "sourceExtractedAt": candidate["extractedAt"],
+               "reviewSHA256": candidate["review"]["sha256"],
+               "difficultyBasis": candidate["difficultyBasis"], "questions": questions}
+    report = {"catalogVersion": VERSION, "selected": len(selected), "recordings": len(questions),
+              "checkedAdditions": candidate["review"]["checkedCount"],
+              "activeAdditions": sum(q["isClassic"] for q in questions),
+              "byLevel": dict(sorted(counts.items())),
+              "pending": [{k: s[k] for k in ("rank", "title", "artist", "sourceSongID", "url")} for s in pending],
+              "duplicates": [{k: s[k] for k in ("rank", "title", "artist", "sourceSongID")} for s in duplicate],
+              "nurseryRemoved": candidate["review"]["nurseryRemoved"]}
+    return catalog, report
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--candidates", type=Path, default=ROOT / "server/rank-catalog-candidates.json")
+    parser.add_argument("--recordings", type=Path, default=ROOT / "server/rank-recordings.json")
+    args = parser.parse_args()
+    candidate = json.loads(args.candidates.read_text())
+    catalog, report = build(candidate, json.loads(args.recordings.read_text()))
+    (ROOT / "server/rank-catalog.json").write_text(json.dumps(catalog, ensure_ascii=False, indent=2) + "\n")
+    (ROOT / "server/rank-catalog-selection.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
+    candidate["status"] = "active-with-pending-recordings" if report["pending"] else "active"
+    candidate["activeCatalogVersion"] = VERSION
+    candidate["counts"]["active"] = len(catalog["questions"])
+    candidate["counts"]["recordingPending"] = len(report["pending"])
+    args.candidates.write_text(json.dumps(candidate, ensure_ascii=False, indent=2) + "\n")
+    print(json.dumps({k: v for k, v in report.items() if k not in ("pending", "duplicates")}, ensure_ascii=False))
+    print(f"Pending recording matches: {len(report['pending'])}; duplicate recordings: {len(report['duplicates'])}")
+
 
 if __name__ == "__main__":
-    destination = ROOT / "server/rank-catalog.json"
-    destination.write_text(json.dumps(build(), ensure_ascii=False, indent=2) + "\n")
-    print("Wrote 203 provisional tasks / 200 recordings (23 warmups, 20 in each other level, 10 classics).")
+    main()

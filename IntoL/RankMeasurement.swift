@@ -12,6 +12,11 @@ struct RankQuestion: Codable, Identifiable, Hashable {
     let difficulty: Double
     let pushLimit: Double
     let isClassic: Bool
+    var answerTitle: String? = nil
+    var artistGroupID: String? = nil
+
+    var quizTitle: String { answerTitle ?? title }
+    var artistKey: String { Self.normalizeMetadata(artistGroupID ?? artist) }
 
     static func recordingKey(title: String, artist: String, album: String) -> String {
         [title, artist, album].map(normalizeMetadata).joined(separator: "\u{001F}")
@@ -30,7 +35,7 @@ struct RankQuestion: Codable, Identifiable, Hashable {
 }
 
 struct RankCatalog: Codable {
-    static let bundledVersion = "jp-intro-2026-10-provisional-v1"
+    static let bundledVersion = "jp-intro-utanet-2026-10-reviewed-v1"
     let schemaVersion: Int
     let version: String
     let provisional: Bool
@@ -54,6 +59,7 @@ struct RankCatalog: Codable {
                   [3.0, 5.0, 8.0, 12.0].contains($0.pushLimit) &&
                   !$0.id.isEmpty && !$0.recordingID.isEmpty && !$0.artist.isEmpty &&
                   !$0.album.isEmpty && !TitleRules.characters($0.title).isEmpty &&
+                  !TitleRules.characters($0.quizTitle).isEmpty && !$0.artistKey.isEmpty &&
                   $0.recordingID == RankQuestion.recordingKey(title: $0.title, artist: $0.artist, album: $0.album)
               }), (1...10).allSatisfy({ level in
                   catalog.questions.filter { $0.level == level }.count >= 20
@@ -282,10 +288,10 @@ struct RankSession {
         guard !shouldFinish else { throw RankError.insufficientQuestions }
         let used = Set(selected.map(\.recordingID)).union(previousRecordingIDs)
         let classicCount = selected.filter(\.isClassic).count
-        let artists = Dictionary(grouping: selected, by: { RankQuestion.normalizeMetadata($0.artist) })
+        let artists = Dictionary(grouping: selected, by: { $0.artistKey })
         let candidates = catalog.questions.filter {
             !used.contains($0.recordingID) &&
-                (artists[RankQuestion.normalizeMetadata($0.artist)]?.count ?? 0) < 2 &&
+                (artists[$0.artistKey]?.count ?? 0) < 2 &&
                 (!$0.isClassic || classicCount < 2) &&
                 (validCount >= 3 || $0.level == 1)
         }.shuffled()
