@@ -197,12 +197,49 @@ import Foundation
         expect(restored.stats.games == 0 && restored.stats.attempts == 0, "Rank measurements do not alter normal-play counters")
     }
 
+    static func testHighestRank() throws {
+        let names = ["F", "E", "D", "C", "C+", "B", "B+", "A", "A+", "S", "S+"]
+        expect(IntroRank.names == names, "Rank measurement has the agreed eleven ranks in ascending order")
+        func result(_ level: Int, catalog: String = "old-catalog", date: Date = .now) -> RankResult {
+            RankResult(date: date, catalogVersion: catalog, estimatorVersion: "old-estimator", provisional: true,
+                       level: level, lowerLevel: level, upperLevel: level, ability: 0, rounds: [])
+        }
+        var records = RankRecords()
+        expect(records.highestRankLevel == nil, "An unmeasured profile has no badge")
+        for level in names.indices {
+            records.record(result(level))
+            expect(records.highestRankLevel == level, "Every measured rank, including F, can earn a badge")
+            expect(result(level).rankLabel == names[level] + "相当", "Stored numeric levels use the new display names")
+        }
+        let best = result(10, date: Date(timeIntervalSince1970: 1))
+        records = RankRecords()
+        records.record(best)
+        for index in 0..<25 {
+            records.record(result(3, catalog: "new-catalog", date: Date(timeIntervalSince1970: Double(index + 2))))
+        }
+        expect(records.history.count == 20 && !records.history.contains { $0.id == best.id }, "Recent history can trim the best result")
+        expect(records.highestRankLevel == 10, "The earned badge spans catalogs and survives history trimming")
+        var remote = RankRecords()
+        remote.record(result(8, catalog: "another-catalog"))
+        var localProfile = CloudProfile(), remoteProfile = CloudProfile()
+        localProfile.rankRecords = records; remoteProfile.rankRecords = remote
+        let restored = try JSONDecoder().decode(CloudProfile.self, from: localProfile.merging(remoteProfile).encoded())
+        expect(restored.rankRecords?.highestRankLevel == 10, "Cloud merging and decoding retain the highest badge")
+        let encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(records)) as! [String: Any]
+        expect(encoded["highestRankLevel"] == nil, "The badge is derived without changing the saved record schema")
+        var corrupted = remote
+        corrupted.record(result(99))
+        expect(corrupted.highestRankLevel == 8, "Invalid stored levels must not become earned badges")
+        expect(result(10).nextGoal.contains("S+相当"), "The final goal uses the new highest rank name")
+    }
+
     static func main() throws {
         let bank = try RankCatalog.decode(Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1])))
         try testCatalog(bank)
         try testInference(bank)
         testAudioClock()
         try testPersistence(bank)
+        try testHighestRank()
         print("Rank measurement tests passed (catalog, adaptation, limits, exclusions, invalid audio, legacy/cloud records)")
     }
 }

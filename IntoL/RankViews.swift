@@ -9,7 +9,7 @@ struct RankMeasurementSetupView: View {
         VStack(alignment: .leading, spacing: 24) {
             StudioCard {
                 VStack(alignment: .leading, spacing: 12) {
-                    instruction("いくつかの問題であなたの段位を測定します")
+                    instruction("いくつかの問題であなたのランクを測定します")
                     instruction("設定された時間内に答えよう")
                 }
                 .foregroundStyle(Studio.secondary)
@@ -26,7 +26,7 @@ struct RankMeasurementSetupView: View {
             if let catalogError {
                 Text(catalogError).foregroundStyle(Studio.warning)
             }
-            PrimaryButton(title: model.busy ? "測定を準備中…" : "段位を測定する", symbol: "headphones",
+            PrimaryButton(title: model.busy ? "測定を準備中…" : "ランクを測定する", symbol: "headphones",
                           disabled: model.busy || catalog == nil || !model.canStartSolo) {
                 Task { await model.startRankMeasurement() }
             }
@@ -62,7 +62,7 @@ struct RankResultSummary: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             VStack(spacing: 10) {
-                Label("推定段位", systemImage: "medal.fill")
+                Label("推定ランク", systemImage: "medal.fill")
                     .font(.headline).foregroundStyle(Studio.secondary)
                 Text(result.rankLabel)
                     .font(.system(.largeTitle, design: .rounded, weight: .black))
@@ -96,7 +96,7 @@ struct RankResultSummary: View {
                 Text("ベータ版・仮難易度による推定です。曲の難易度は試遊を通して調整します。")
                     .font(.footnote).foregroundStyle(Studio.secondary)
             }
-            ShareLink(item: "IntoLのイントロ段位測定：\(result.rankLabel)（測定幅：\(result.rangeLabel)）\n\(result.correct)/\(result.validRounds.count)問正解\(result.provisional ? "・ベータ版" : "")\n曲集：\(result.catalogVersion)") {
+            ShareLink(item: "IntoLのイントロランク測定：\(result.rankLabel)（測定幅：\(result.rangeLabel)）\n\(result.correct)/\(result.validRounds.count)問正解\(result.provisional ? "・ベータ版" : "")\n曲集：\(result.catalogVersion)") {
                 Label("結果を共有", systemImage: "square.and.arrow.up").frame(minHeight: 44)
             }
             .buttonStyle(StudioButtonStyle(.secondary))
@@ -148,7 +148,7 @@ struct RankRecordSummary: View {
     var body: some View {
         StudioCard {
             VStack(alignment: .leading, spacing: 16) {
-                Label("段位測定の記録", systemImage: "medal.fill")
+                Label("ランク測定の記録", systemImage: "medal.fill")
                     .font(.headline).foregroundStyle(Studio.primary)
                 if let latest = records.history.first {
                     Text("前回：\(latest.rankLabel) ／ 測定幅：\(latest.rangeLabel)")

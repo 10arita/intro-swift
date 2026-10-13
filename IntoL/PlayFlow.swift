@@ -198,7 +198,7 @@ struct PlayView: View {
                     choose(.sabitro, party: party)
                 }
                 if party == .solo {
-                    PlayFlowCard(title: "段位測定", subtitle: "共通の曲集で、今のイントロ力を測ろう",
+                    PlayFlowCard(title: "ランク測定", subtitle: "共通の曲集で、今のイントロ力を測ろう",
                                  symbol: "medal.fill", badge: "15〜20問・ベータ版", prominent: true,
                                  disabled: model.busy) { navigate(to: .rank) }
                 }
@@ -230,7 +230,7 @@ struct PlayView: View {
         switch step {
         case .together: return "ルーム選択"
         case .mode: return "モード選択"
-        case .rank: return "イントロ段位測定"
+        case .rank: return "イントロランク測定"
         case .playlist: return "プレイリストを選ぼう"
         case .join: return "ルームコードを入力"
         case .home: return ""

@@ -72,7 +72,7 @@ enum RankError: LocalizedError {
     case invalidCatalog, insufficientQuestions, recordingUnavailable
     var errorDescription: String? {
         switch self {
-        case .invalidCatalog: return "段位測定の曲集を読み込めませんでした。アプリを更新してください。"
+        case .invalidCatalog: return "ランク測定の曲集を読み込めませんでした。アプリを更新してください。"
         case .insufficientQuestions: return "重複と出題の偏りを避けられる曲が不足しています。測定は未完了です。時間をおいて再度お試しください。"
         case .recordingUnavailable: return "指定された録音をApple Musicで確認できませんでした。"
         }
@@ -80,7 +80,8 @@ enum RankError: LocalizedError {
 }
 
 enum IntroRank {
-    static let names = ["入門", "5級", "4級", "3級", "2級", "1級", "初段", "二段", "三段", "四段", "五段"]
+    // Stored levels and estimation boundaries stay compatible with existing measurements.
+    static let names = ["F", "E", "D", "C", "C+", "B", "B+", "A", "A+", "S", "S+"]
     static func name(_ level: Int) -> String { names[min(10, max(0, level))] }
     static func difficulty(for level: Int) -> Double { -2.7 + Double(level - 1) * 0.6 }
     static func level(for ability: Double) -> Int {
@@ -185,7 +186,7 @@ struct RankResult: Codable, Identifiable {
     }
     var nextGoal: String {
         level < 10 ? "\(IntroRank.name(level + 1))相当の課題を、規定時間内に安定して正解しよう。" :
-            "五段相当の課題を、異なる曲でも安定して正解しよう。"
+            "\(IntroRank.name(10))相当の課題を、異なる曲でも安定して正解しよう。"
     }
 }
 
@@ -194,6 +195,12 @@ struct RankRecords: Codable {
     var history: [RankResult] = []
     var bestByVersion: [String: RankResult] = [:]
     var seenRecordingIDs: Set<String> = []
+
+    /// An earned profile badge spans catalogs, including best results outside recent history.
+    var highestRankLevel: Int? {
+        (Array(bestByVersion.values) + history).map(\.level)
+            .filter { IntroRank.names.indices.contains($0) }.max()
+    }
 
     private enum CodingKeys: String, CodingKey { case history, bestByVersion, seenRecordingIDs }
 

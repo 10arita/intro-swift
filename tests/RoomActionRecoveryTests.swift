@@ -94,6 +94,7 @@ private final class TestRoomProtocol: URLProtocol {
         try await answerRetryKeepsActionID()
         try await profileRegistrationRecovery()
         try await obsoleteProfileResponse()
+        try await publicRankPublication()
         try await expiredSessionErrors()
         print("Room action recovery tests passed")
     }
@@ -266,6 +267,51 @@ private final class TestRoomProtocol: URLProtocol {
         TestRoomProtocol.replies = [.init(error: URLError(.networkConnectionLost))]
         do { _ = try await service.state("ABCDEF"); preconditionFailure("Network failure must fail") }
         catch { precondition(!RoomService.isExpiredSession(error)) }
+    }
+
+    @MainActor static func publicRankPublication() async throws {
+        let service = makeService()
+        let credentialKey = "profileToken:\(service.baseURL):\(service.profileID)"
+        Secrets.set("rank-token", for: credentialKey)
+        TestRoomProtocol.replies = [.init(state: [:])]
+        try await service.publishProfile(name: "Rank player", avatar: nil, stats: PlayerStats())
+        precondition(TestRoomProtocol.bodies.last?["highestRankLevel"] == nil, "Unmeasured or legacy publications omit the rank")
+        for level in 0...10 {
+            TestRoomProtocol.replies = [.init(state: [:])]
+            try await service.publishProfile(name: "Rank player", avatar: nil, stats: PlayerStats(), highestRankLevel: level)
+            precondition(TestRoomProtocol.bodies.last?["highestRankLevel"] as? Int == level)
+            precondition(TestRoomProtocol.requests.last?.value(forHTTPHeaderField: "Authorization") == "Bearer rank-token")
+            precondition(TestRoomProtocol.bodies.last?["rankRecords"] == nil, "Only the badge summary is published")
+        }
+        let beforeInvalid = TestRoomProtocol.requests.count
+        for invalid in [-1, 11] {
+            do {
+                try await service.publishProfile(name: "Rank player", avatar: nil, stats: PlayerStats(), highestRankLevel: invalid)
+                preconditionFailure("Invalid rank publication must fail")
+            } catch { precondition(!(error is CancellationError)) }
+        }
+        precondition(TestRoomProtocol.requests.count == beforeInvalid, "Invalid ranks never leave the client")
+        let old = try JSONDecoder().decode(PlayerProfile.self, from: Data(#"{"name":"Old player"}"#.utf8))
+        precondition(old.highestRankLevel == nil, "An older server's response remains readable")
+        TestRoomProtocol.replies = [.init(state: ["name": "Rank player", "highestRankLevel": 0])]
+        let measuredF = try await service.playerProfile(friendID: "friend-rank")
+        precondition(measuredF.highestRankLevel == 0, "Measured F must remain different from unmeasured")
+        TestRoomProtocol.replies = [.init(error: URLError(.networkConnectionLost)), .init(state: [:])]
+        do {
+            try await service.publishProfile(name: "Rank player", avatar: nil, stats: PlayerStats(), highestRankLevel: 8)
+            preconditionFailure("A publication failure must be visible to its caller")
+        } catch { precondition(RoomService.isConnectionError(error)) }
+        try await service.publishProfile(name: "Rank player", avatar: nil, stats: PlayerStats(), highestRankLevel: 8)
+        precondition(Secrets.get(credentialKey) == "rank-token", "Publication retries retain the profile identity")
+        TestRoomProtocol.replies = [.init(state: [:], held: true)]
+        let pending = Task { @MainActor in
+            try await service.publishProfile(name: "Rank player", avatar: nil, stats: PlayerStats(), highestRankLevel: 8)
+        }
+        while TestRoomProtocol.releaseReply == nil { await Task.yield() }
+        service.restoreProfileIdentity("replacement-rank-profile", credentials: [:])
+        TestRoomProtocol.releaseReply!()
+        do { try await pending.value; preconditionFailure("An obsolete publication cannot complete for the new profile") }
+        catch is CancellationError { }
     }
 
     @MainActor static func obsoleteProfileResponse() async throws {

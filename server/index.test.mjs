@@ -167,7 +167,7 @@ test('room friends require approval and invitations join without entering a code
   assert.equal(handle('POST', '/friends/accept', { profileId: bob.id,
     requestId: bobList.body.requests[0].id }, query, `Bearer ${bob.token}`).status, 200);
   const avatar = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1]).toString('base64');
-  assert.equal(handle('PUT', '/profile', { id: bob.id, avatar,
+  assert.equal(handle('PUT', '/profile', { id: bob.id, avatar, highestRankLevel: 7,
     stats: { games: 2, attempts: 8, correct: 5, totalPushSeconds: 18.5, privateNote: 'do not share' } },
   query, `Bearer ${bob.token}`).status, 200);
   const aliceFriends = () => handle('GET', '/friends', {},
@@ -180,6 +180,7 @@ test('room friends require approval and invitations join without entering a code
     new URLSearchParams({ profileId: alice.id, friendId: bob.id }), `Bearer ${alice.token}`);
   assert.equal(friendProfile.status, 200);
   assert.equal(friendProfile.body.name, 'Bob');
+  assert.equal(friendProfile.body.highestRankLevel, 7);
   assert.equal(friendProfile.body.avatar, avatar);
   assert.equal(friendProfile.body.secret, undefined);
   assert.equal(friendProfile.body.stats.correct, 5);
@@ -193,6 +194,7 @@ test('room friends require approval and invitations join without entering a code
     `Bearer ${room.sessionToken}`);
   assert.equal(roomProfile.status, 200);
   assert.equal(roomProfile.body.name, 'Bob');
+  assert.equal(roomProfile.body.highestRankLevel, 7);
   assert.equal(roomProfile.body.roomScore, 0);
   assert.equal(handle('GET', '/player-profile', {},
     new URLSearchParams({ roomId: room.id, playerId: alice.id, targetPlayerId: bob.id }),
@@ -1387,6 +1389,42 @@ test('CloudKit public summary does not overwrite legacy personal data and is vis
   assert.equal(visible.badge, 'はじめの一歩');
   assert.equal(visible.reviews, undefined);
   assert.equal(visible.stats.totalPushSeconds, undefined);
+});
+
+test('earned profile rank accepts every level and never downgrades for an older device', () => {
+  const query = new URLSearchParams();
+  const profile = handle('POST', '/profile', { id: 'earned-rank-profile' }, query).body;
+  const auth = `Bearer ${profile.token}`;
+  const stored = () => handle('GET', '/profile', {}, new URLSearchParams({ id: profile.id }), auth).body;
+  assert.equal(stored().highestRankLevel, undefined);
+  assert.equal(handle('PUT', '/profile', { id: profile.id, highestRankLevel: 8 }, query).status, 403);
+  for (let level = 0; level <= 10; level++) {
+    assert.equal(handle('PUT', '/profile', { id: profile.id, highestRankLevel: level }, query, auth).status, 200);
+    assert.equal(stored().highestRankLevel, level);
+  }
+  handle('PUT', '/profile', { id: profile.id, highestRankLevel: 2 }, query, auth);
+  handle('PUT', '/profile', { id: profile.id, name: 'Legacy device' }, query, auth);
+  assert.equal(stored().highestRankLevel, 10);
+  for (const invalid of [-1, 11, 1.5, '8', true, null, {}, []]) {
+    const response = handle('PUT', '/profile', { id: profile.id, highestRankLevel: invalid, name: 'Must not change' }, query, auth);
+    assert.equal(response.status, 400);
+    assert.equal(stored().highestRankLevel, 10);
+    assert.equal(stored().name, 'Legacy device', 'Invalid publication is rejected before any profile mutation');
+  }
+});
+
+test('public profile distinguishes no measurement from measured F and shares only the summary', () => {
+  const query = new URLSearchParams();
+  const profile = handle('POST', '/profile', { id: 'measured-f-profile' }, query).body;
+  const room = handle('POST', '/rooms', { playerId: 'measured-f-player', profileId: profile.id,
+    profileToken: profile.token, name: 'F player', settings: { questionCount: 1 } }, query).body;
+  const read = () => handle('GET', '/player-profile', {}, new URLSearchParams({ roomId: room.id,
+    playerId: 'measured-f-player', targetPlayerId: 'measured-f-player' }), `Bearer ${room.sessionToken}`).body;
+  assert.equal(read().highestRankLevel, null);
+  handle('PUT', '/profile', { id: profile.id, highestRankLevel: 0,
+    rankRecords: { privateHistory: 'must not be copied' } }, query, `Bearer ${profile.token}`);
+  assert.equal(read().highestRankLevel, 0);
+  assert.equal(read().rankRecords, undefined);
 });
 
 test('public PUSH averages stay unavailable for missing, invalid, or empty records', () => {

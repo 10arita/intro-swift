@@ -159,57 +159,63 @@ struct AccountView: View {
             .buttonStyle(StudioButtonStyle(.tertiary))
             .accessibilityLabel("アイコンを設定")
 
-            Group {
-                if editingName {
-                    HStack(spacing: 8) {
-                        TextField("プレイヤー名", text: $draftName)
-                            .font(.title3.bold())
-                            .focused($nameFocused)
-                            .submitLabel(.done)
-                            .onSubmit { finishEditingName() }
-                            .accessibilityLabel("プレイヤー名")
-                            .onAppear { nameFocused = true }
-                        Button(action: finishEditingName) {
-                            Image(systemName: "checkmark").frame(width: 44, height: 44)
-                        }
-                        .foregroundStyle(Studio.accent)
-                        .accessibilityLabel("プレイヤー名を保存")
-                    }
-                } else {
-                    Button {
-                        draftName = model.nickname
-                        editingName = true
-                    } label: {
-                        HStack(spacing: 8) {
-                            Text(model.nickname).font(.title3.bold())
-                                .foregroundStyle(Studio.primary)
-                                .fixedSize(horizontal: false, vertical: true)
-                            Image(systemName: "pencil")
-                                .font(.system(size: 18, weight: .medium))
-                                .foregroundStyle(Studio.secondary)
-                                .accessibilityHidden(true)
-                            Spacer(minLength: 0)
-                        }
-                        .frame(minHeight: 44)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(StudioButtonStyle(.tertiary))
-                    .accessibilityLabel("\(model.nickname)、プレイヤー名を編集")
-                }
+            RankedProfileLabel(level: model.rankRecords.highestRankLevel, alwaysStack: editingName) {
+                profileName
             }
-            .foregroundStyle(Studio.primary)
-            .padding(.horizontal, 12)
-            .background(editingName ? Studio.surface : .clear, in: RoundedRectangle(cornerRadius: Studio.Radius.sm))
-            .overlay {
-                RoundedRectangle(cornerRadius: Studio.Radius.sm)
-                    .stroke(Studio.accent.opacity(0.6), lineWidth: 2)
-                    .padding(nameFocused ? -5 : 0)
-                    .opacity(nameFocused ? 1 : 0)
-                    .allowsHitTesting(false)
-            }
-            .animation(reduceMotion ? nil : Studio.spring, value: nameFocused)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, 12)
+    }
+
+    private var profileName: some View {
+        Group {
+            if editingName {
+                HStack(spacing: 8) {
+                    TextField("プレイヤー名", text: $draftName)
+                        .font(.title3.bold())
+                        .focused($nameFocused)
+                        .submitLabel(.done)
+                        .onSubmit { finishEditingName() }
+                        .accessibilityLabel("プレイヤー名")
+                        .onAppear { nameFocused = true }
+                    Button(action: finishEditingName) {
+                        Image(systemName: "checkmark").frame(width: 44, height: 44)
+                    }
+                    .foregroundStyle(Studio.accent)
+                    .accessibilityLabel("プレイヤー名を保存")
+                }
+            } else {
+                Button {
+                    draftName = model.nickname
+                    editingName = true
+                } label: {
+                    HStack(spacing: 8) {
+                        Text(model.nickname).font(.title3.bold())
+                            .foregroundStyle(Studio.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Image(systemName: "pencil")
+                            .font(.system(size: 18, weight: .medium))
+                            .foregroundStyle(Studio.secondary)
+                            .accessibilityHidden(true)
+                    }
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(StudioButtonStyle(.tertiary))
+                .accessibilityLabel("\(model.nickname)、プレイヤー名を編集")
+            }
+        }
+        .foregroundStyle(Studio.primary)
+        .padding(.horizontal, 12)
+        .background(editingName ? Studio.surface : .clear, in: RoundedRectangle(cornerRadius: Studio.Radius.sm))
+        .overlay {
+            RoundedRectangle(cornerRadius: Studio.Radius.sm)
+                .stroke(Studio.accent.opacity(0.6), lineWidth: 2)
+                .padding(nameFocused ? -5 : 0)
+                .opacity(nameFocused ? 1 : 0)
+                .allowsHitTesting(false)
+        }
+        .animation(reduceMotion ? nil : Studio.spring, value: nameFocused)
     }
 
     private func finishEditingName() {

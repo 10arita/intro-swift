@@ -58,6 +58,7 @@
 		A0000000000000000000006B /* FeedbackReportViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000006B /* FeedbackReportViews.swift */; };
 		A00000000000000000000070 /* RankMeasurement.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000070 /* RankMeasurement.swift */; };
 		A00000000000000000000071 /* RankViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000071 /* RankViews.swift */; };
+		A00000000000000000000073 /* RankBadgeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000073 /* RankBadgeView.swift */; };
 		A00000000000000000000072 /* server/rank-catalog.json in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000072 /* server/rank-catalog.json */; };
 		C04387BDE8F114D35D808B3D /* RevealEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40D296A3BF561B575315D4DA /* RevealEffects.swift */; };
 /* End PBXBuildFile section */
@@ -117,6 +118,7 @@
 		B0000000000000000000006B /* FeedbackReportViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedbackReportViews.swift; sourceTree = "<group>"; };
 		B00000000000000000000070 /* RankMeasurement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RankMeasurement.swift; sourceTree = "<group>"; };
 		B00000000000000000000071 /* RankViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RankViews.swift; sourceTree = "<group>"; };
+		B00000000000000000000073 /* RankBadgeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RankBadgeView.swift; sourceTree = "<group>"; };
 		B00000000000000000000072 /* server/rank-catalog.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "server/rank-catalog.json"; sourceTree = SOURCE_ROOT; };
 		B1728359B56266971280996B /* RoomPlayerStandings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomPlayerStandings.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -173,6 +175,7 @@
 				B0000000000000000000001B /* IntoL.entitlements */,
 				B00000000000000000000005 /* AppModel.swift */,
 				B00000000000000000000071 /* RankViews.swift */,
+				B00000000000000000000073 /* RankBadgeView.swift */,
 				B00000000000000000000070 /* RankMeasurement.swift */,
 				B00000000000000000000006 /* RoomService.swift */,
 				B00000000000000000000020 /* MusicVolumeViews.swift */,
@@ -345,6 +348,7 @@
 				A0000000000000000000006A /* FeedbackReport.swift in Sources */,
 				A00000000000000000000005 /* AppModel.swift in Sources */,
 				A00000000000000000000071 /* RankViews.swift in Sources */,
+				A00000000000000000000073 /* RankBadgeView.swift in Sources */,
 				A00000000000000000000070 /* RankMeasurement.swift in Sources */,
 				A00000000000000000000006 /* RoomService.swift in Sources */,
 				A00000000000000000000020 /* MusicVolumeViews.swift in Sources */,

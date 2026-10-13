@@ -89,6 +89,7 @@ struct PlayerProfile: Decodable {
     let avatar: String?
     let badge: String?
     let stats: Stats?
+    let highestRankLevel: Int?
     let roomScore: Int?
     let roomCorrect: Int?
     let roomWrong: Int?
@@ -856,7 +857,7 @@ struct SavedProfile: Decodable {
     private func playerProfile(url: URL, credential: String) async throws -> PlayerProfile {
         var request = URLRequest(url: url)
         request.setValue("Bearer \(credential)", forHTTPHeaderField: "Authorization")
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else {
             throw AppError.message("プレイヤーのプロフィールを取得できません")
         }
@@ -944,21 +945,33 @@ struct SavedProfile: Decodable {
         return try await profile()
     }
 
-    func publishProfile(name: String, avatar: String?, stats: PlayerStats) async throws {
-        if Secrets.get(profileKey) == nil { _ = try await profile() }
-        var request = URLRequest(url: try endpoint("profile"))
+    func publishProfile(name: String, avatar: String?, stats: PlayerStats, highestRankLevel: Int? = nil) async throws {
+        if let highestRankLevel, !(0...10).contains(highestRankLevel) {
+            throw AppError.message("最高ランクが無効です")
+        }
+        let requestedID = profileID
+        let requestedOrigin = baseURL
+        let url = try endpoint("profile")
+        let credential = try await profileCredentials()
+        guard profileID == requestedID, baseURL == requestedOrigin else { throw CancellationError() }
+        var request = URLRequest(url: url)
         request.httpMethod = "PUT"
         request.timeoutInterval = 10
-        request.setValue("Bearer \(Secrets.get(profileKey) ?? "")", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(credential)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         // Personal history/reviews and detailed statistics are managed by CloudKit.
-        request.httpBody = try JSONSerialization.data(withJSONObject: [
-            "id": profileID, "name": name, "avatar": avatar ?? "",
+        var summary: [String: Any] = [
+            "id": requestedID, "name": name, "avatar": avatar ?? "",
             "publicStats": ["games": stats.games, "attempts": stats.attempts, "correct": stats.correct,
                             "averagePush": stats.averagePush,
                             "badges": stats.badges.sorted(), "selectedBadge": stats.selectedBadge ?? ""]
-        ])
-        let (_, response) = try await URLSession.shared.data(for: request)
+        ]
+        // Omission preserves the earned badge when an older client publishes its summary.
+        if let highestRankLevel { summary["highestRankLevel"] = highestRankLevel }
+        request.httpBody = try JSONSerialization.data(withJSONObject: summary)
+        let (_, response) = try await session.data(for: request)
+        try Task.checkCancellation()
+        guard profileID == requestedID, baseURL == requestedOrigin else { throw CancellationError() }
         guard (response as? HTTPURLResponse)?.statusCode == 200 else {
             throw AppError.message("プロフィールを保存できません")
         }

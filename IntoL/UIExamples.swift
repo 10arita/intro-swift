@@ -23,6 +23,16 @@
           })
         } else if scenario == "review" {
           ReviewView()
+        } else if scenario.hasPrefix("rank-badges") {
+          RankBadgeGalleryView()
+        } else if scenario.hasPrefix("player-profile-rank") {
+          NavigationStack {
+            ScrollView {
+              PlayerProfileHeader(profile: fixturePublicProfile).padding(20)
+            }
+            .background(Studio.background)
+            .navigationTitle("プロフィール")
+          }
         } else if scenario.hasPrefix("rank-result") || scenario.hasPrefix("rank-listening") || scenario.hasPrefix("rank-error") || scenario.hasPrefix("solo-reveal") || scenario == "solo-answer" || scenario == "solo-result" {
           SoloGameView()
         } else if scenario.hasPrefix("rules-host") {
@@ -44,6 +54,20 @@
       }
     }
 
+    private static func fixtureRankLevel(_ scenario: String) -> Int? {
+      let parts = scenario.split(separator: "-")
+      guard let index = parts.firstIndex(of: "rank"), parts.indices.contains(index + 1),
+            let level = Int(parts[index + 1]), IntroRank.names.indices.contains(level) else { return nil }
+      return level
+    }
+
+    private var fixturePublicProfile: PlayerProfile {
+      var values: [String: Any] = ["name": scenario.contains("long-name") ? "音楽を聴くことが大好きなはる" : "はる",
+                                  "badge": "早押し名人"]
+      if let level = Self.fixtureRankLevel(scenario) { values["highestRankLevel"] = level }
+      return try! JSONDecoder().decode(PlayerProfile.self, from: JSONSerialization.data(withJSONObject: values))
+    }
+
     @MainActor private static func makeModel(scenario: String) -> AppModel {
       let model = AppModel(serverURL: "http://127.0.0.1:1", chorusReportSender: { report, url in
         if scenario.contains("report-success") {
@@ -52,7 +76,16 @@
           try await ChorusReportService().send(report, serverURL: url)
         }
       })
-      if scenario.hasPrefix("account") { model.profileSyncStatus = CloudProfileError.notConfigured.localizedDescription }
+      if scenario.hasPrefix("account") {
+        model.profileSyncStatus = CloudProfileError.notConfigured.localizedDescription
+        model.nickname = scenario.contains("long-name") ? "イントロクイズが大好きなプレイヤー" : "プレイヤー"
+        model.rankRecords = RankRecords()
+        if let level = fixtureRankLevel(scenario) {
+          model.rankRecords.record(RankResult(catalogVersion: "previous-catalog", estimatorVersion: RankEstimator.version,
+              provisional: true, level: level, lowerLevel: level, upperLevel: level, ability: 0, rounds: []))
+        }
+      }
+      if scenario.hasPrefix("rank-badges") || scenario.hasPrefix("player-profile-rank") { return model }
       if scenario.hasPrefix("rank-result") || scenario.hasPrefix("rank-listening") || scenario.hasPrefix("rank-error") {
         let catalog = try! RankCatalog.load()
         var session = RankSession(catalog: catalog, previousRecordingIDs: [], previouslySeen: [])
@@ -69,10 +102,10 @@
           model.lastRankResult = result
           model.rankRecords.record(result)
         }
-        var game = SoloGame(songs: [song], playlist: "イントロ段位測定", rankSession: session, rankQuestion: question)
+        var game = SoloGame(songs: [song], playlist: "イントロランク測定", rankSession: session, rankQuestion: question)
         game.stage = scenario.hasPrefix("rank-result") ? .finished : scenario.hasPrefix("rank-error") ? .preparing : .listening
         game.secondsLeft = question.pushLimit - 1.2
-        if scenario.hasPrefix("rank-error") { game.warning = "音源の再生が中断されました。別の曲で続けられます。段位には影響しません。" }
+        if scenario.hasPrefix("rank-error") { game.warning = "音源の再生が中断されました。別の曲で続けられます。ランクには影響しません。" }
         model.game = game
         return model
       }

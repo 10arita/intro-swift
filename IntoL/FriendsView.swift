@@ -9,6 +9,31 @@ struct PlayerProfileTarget: Identifiable {
     let roomID: String?
 }
 
+struct PlayerProfileHeader: View {
+    let profile: PlayerProfile
+
+    var body: some View {
+        StudioCard {
+            HStack(spacing: 14) {
+                PlayerAvatarView(data: nil, size: 72, encoded: profile.avatar)
+                VStack(alignment: .leading, spacing: 5) {
+                    RankedProfileLabel(level: profile.highestRankLevel) {
+                        Text(profile.name)
+                            .font(.title2.bold())
+                            .foregroundStyle(Studio.primary)
+                    }
+                    if let badge = profile.badge, !badge.isEmpty {
+                        Label(badge, systemImage: "medal.fill")
+                            .font(.subheadline)
+                            .foregroundStyle(Studio.accent)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
 struct PlayerProfileSheet: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
@@ -21,22 +46,7 @@ struct PlayerProfileSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     if let profile {
-                        StudioCard {
-                            HStack(spacing: 14) {
-                                PlayerAvatarView(data: nil, size: 72, encoded: profile.avatar)
-                                VStack(alignment: .leading, spacing: 5) {
-                                    Text(profile.name)
-                                        .font(.title2.bold())
-                                        .foregroundStyle(Studio.primary)
-                                    if let badge = profile.badge, !badge.isEmpty {
-                                        Label(badge, systemImage: "medal.fill")
-                                            .font(.subheadline)
-                                            .foregroundStyle(Studio.accent)
-                                    }
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
+                        PlayerProfileHeader(profile: profile)
                         if let score = profile.roomScore {
                             StudioCard {
                                 VStack(alignment: .leading, spacing: 12) {

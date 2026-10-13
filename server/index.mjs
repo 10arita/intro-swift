@@ -241,6 +241,8 @@ function publicProfile(profile, player = null) {
     name: player?.name || profile?.name || 'プレイヤー',
     avatar: player?.avatar || profile?.avatar || null,
     badge: player?.badge || stats?.selectedBadge || profile?.badge || null,
+    highestRankLevel: Number.isSafeInteger(profile?.highestRankLevel) &&
+      profile.highestRankLevel >= 0 && profile.highestRankLevel <= 10 ? profile.highestRankLevel : null,
     stats: stats && typeof stats === 'object' ? {
       games: Number.isFinite(stats.games) ? stats.games : 0,
       attempts: Number.isFinite(stats.attempts) ? stats.attempts : 0,
@@ -501,6 +503,15 @@ export function handle(method, path, body, query, authorization, origin = 'https
     const profile = profiles.get(id);
     if (!profile || authorization?.replace(/^Bearer /, '') !== profile.secret) return fail(403, 'プロフィールを確認できません');
     if (method === 'PUT') {
+      if (Object.hasOwn(body, 'highestRankLevel') &&
+          (!Number.isSafeInteger(body.highestRankLevel) || body.highestRankLevel < 0 || body.highestRankLevel > 10)) {
+        return fail(400, '最高ランクが無効です');
+      }
+      if (Object.hasOwn(body, 'highestRankLevel')) {
+        const previous = Number.isSafeInteger(profile.highestRankLevel) &&
+          profile.highestRankLevel >= 0 && profile.highestRankLevel <= 10 ? profile.highestRankLevel : 0;
+        profile.highestRankLevel = Math.max(previous, body.highestRankLevel);
+      }
       if (typeof body.name === 'string') profile.name = body.name.trim().slice(0, 24) || 'プレイヤー';
       if (typeof body.avatar === 'string') profile.avatar = playerAvatar(body.avatar);
       if (body.publicStats && typeof body.publicStats === 'object') {

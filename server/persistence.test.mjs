@@ -19,6 +19,7 @@ test('profile and active room are restored from DATA_DIR', () => {
     const first = run(`
       import { handle, saveStateNow } from './index.mjs';
       const profile = handle('POST', '/profile', { id: 'persistent-player' }, new URLSearchParams()).body;
+      handle('PUT', '/profile', { id: profile.id, highestRankLevel: 9 }, new URLSearchParams(), 'Bearer ' + profile.token);
       const room = handle('POST', '/rooms', { playerId: 'persistent-player', name: 'Tester', settings: { questionCount: 1 } }, new URLSearchParams()).body;
       saveStateNow();
       console.log(JSON.stringify({ profileToken: profile.token, roomToken: room.sessionToken, roomID: room.id }));
@@ -27,9 +28,9 @@ test('profile and active room are restored from DATA_DIR', () => {
       import { handle } from './index.mjs';
       const profile = handle('GET', '/profile', {}, new URLSearchParams({ id: 'persistent-player' }), 'Bearer ${first.profileToken}');
       const room = handle('GET', '/rooms/${first.roomID}', {}, new URLSearchParams({ playerId: 'persistent-player' }), 'Bearer ${first.roomToken}');
-      console.log(JSON.stringify({ profile: profile.status, room: room.status, roomID: room.body.id }));
+      console.log(JSON.stringify({ profile: profile.status, highestRankLevel: profile.body.highestRankLevel, room: room.status, roomID: room.body.id }));
     `, directory);
-    assert.deepEqual(second, { profile: 200, room: 200, roomID: first.roomID });
+    assert.deepEqual(second, { profile: 200, highestRankLevel: 9, room: 200, roomID: first.roomID });
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 

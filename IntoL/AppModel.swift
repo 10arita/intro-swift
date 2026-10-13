@@ -433,7 +433,7 @@ struct SoloGame {
         do {
             appleMusicPlayable = appleMusic.isAuthorized ? try await appleMusic.canPlay() : try await appleMusic.authorize()
             appleMusicConnected = appleMusic.isAuthorized
-            guard appleMusicPlayable else { throw AppError.message("段位測定にはApple Musicのサブスクリプションが必要です。") }
+            guard appleMusicPlayable else { throw AppError.message("ランク測定にはApple Musicのサブスクリプションが必要です。") }
             let catalog = try RankCatalog.load()
             try Task.checkCancellation()
             guard canStartSolo else { return }
@@ -443,7 +443,7 @@ struct SoloGame {
             quizCorpus = catalog.questions.map(\.quizTitle)
             lastResult = nil
             lastRankResult = nil
-            game = SoloGame(songs: [rankPendingSong], playlist: "イントロ段位測定", rankSession: session)
+            game = SoloGame(songs: [rankPendingSong], playlist: "イントロランク測定", rankSession: session)
             startSoloTicker()
             prepareNextRankQuestion(advancing: false)
         } catch is CancellationError { return }
@@ -505,7 +505,7 @@ struct SoloGame {
                 }
             }
             guard self.soloRoundToken == token, var state = self.game else { return }
-            state.warning = "音源を準備できませんでした。通信とApple Musicの再生条件を確認し、別の曲で続けてください。段位には影響しません。"
+            state.warning = "音源を準備できませんでした。通信とApple Musicの再生条件を確認し、別の曲で続けてください。ランクには影響しません。"
             self.game = state
         }
     }
@@ -528,7 +528,7 @@ struct SoloGame {
         state.rankSession = session
         state.rankQuestion = nil
         state.stage = .preparing
-        state.warning = reason + " 別の曲で続けられます。段位には影響しません。"
+        state.warning = reason + " 別の曲で続けられます。ランクには影響しません。"
         self.game = state
         persist()
     }
@@ -978,8 +978,17 @@ struct SoloGame {
         }
         // Only the public-facing summary is copied to the room server for friend/profile screens.
         if revision == profileAccountRevision, canSyncProfile, !serverURL.isEmpty {
-            do { try await rooms.publishProfile(name: nickname, avatar: roomAvatar, stats: stats) }
-            catch { /* CloudKit success and offline play do not depend on the room server. */ }
+            await publishPublicProfile()
+        }
+    }
+
+    private func publishPublicProfile() async {
+        guard !serverURL.isEmpty else { return }
+        do {
+            try await rooms.publishProfile(name: nickname, avatar: roomAvatar, stats: stats,
+                                           highestRankLevel: rankRecords.highestRankLevel)
+        } catch {
+            // Keep local play available; the next profile sync retries publication.
         }
     }
 
@@ -1190,6 +1199,7 @@ struct SoloGame {
         busy = true; defer { busy = false }
         rooms.baseURL = serverURL
         do {
+            await publishPublicProfile()
             let state = try await rooms.create(name: nickname, settings: RoomSettings(), mode: mode,
                                                badge: stats.selectedBadge, avatar: roomAvatar,
                                                deferQuestions: true)
@@ -1387,6 +1397,7 @@ struct SoloGame {
         busy = true; defer { busy = false }
         rooms.baseURL = serverURL
         do {
+            await publishPublicProfile()
             let state = try await rooms.join(normalized, name: nickname,
                                              badge: stats.selectedBadge, avatar: roomAvatar)
             if state.mode == "applemusic" {
@@ -1459,6 +1470,7 @@ struct SoloGame {
                     }
                 }
             }
+            await publishPublicProfile()
             let state = try await rooms.joinInvite(inviteID, name: nickname,
                                                     badge: stats.selectedBadge, avatar: roomAvatar)
             if state.mode == "applemusic" {
