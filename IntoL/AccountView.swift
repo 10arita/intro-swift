@@ -70,6 +70,7 @@ struct AccountView: View {
                         }
                     }
                     }
+                    RankRecordSummary(records: model.rankRecords, catalogVersion: RankCatalog.bundledVersion)
                     StudioCard {
                         VStack(alignment: .leading, spacing: 15) {
                             SectionCaption(title: "最近のプレイ")

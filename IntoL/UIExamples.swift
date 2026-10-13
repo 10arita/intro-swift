@@ -23,7 +23,7 @@
           })
         } else if scenario == "review" {
           ReviewView()
-        } else if scenario.hasPrefix("solo-reveal") || scenario == "solo-answer" || scenario == "solo-result" {
+        } else if scenario.hasPrefix("rank-result") || scenario.hasPrefix("rank-listening") || scenario.hasPrefix("rank-error") || scenario.hasPrefix("solo-reveal") || scenario == "solo-answer" || scenario == "solo-result" {
           SoloGameView()
         } else if scenario.hasPrefix("rules-host") {
           RoomRuleSettingsView()
@@ -39,7 +39,7 @@
     }
 
     private static func isPlayFlow(_ scenario: String) -> Bool {
-      ["home", "mode", "room-selection", "code", "playlist"].contains {
+      ["home", "mode", "room-selection", "code", "playlist", "rank-setup"].contains {
         scenario == $0 || scenario.hasPrefix($0 + "-")
       }
     }
@@ -53,6 +53,29 @@
         }
       })
       if scenario.hasPrefix("account") { model.profileSyncStatus = CloudProfileError.notConfigured.localizedDescription }
+      if scenario.hasPrefix("rank-result") || scenario.hasPrefix("rank-listening") || scenario.hasPrefix("rank-error") {
+        let catalog = try! RankCatalog.load()
+        var session = RankSession(catalog: catalog, previousRecordingIDs: [], previouslySeen: [])
+        var question = try! session.nextQuestion()
+        var song = Song(id: "demo:rank-preview", title: question.title, artist: question.artist, durationMS: 180_000, genre: "J-Pop")
+        if scenario.hasPrefix("rank-result") {
+          session.record(question: question, song: song, outcome: .correct, pushTime: 1.25)
+          while !session.shouldFinish {
+            question = try! session.nextQuestion()
+            song = Song(id: "demo:rank-\(session.validCount)", title: question.title, artist: question.artist, durationMS: 180_000, genre: "J-Pop")
+            session.record(question: question, song: song, outcome: session.validCount % 5 == 0 ? .wrong : .correct, pushTime: 1.5)
+          }
+          let result = session.result()!
+          model.lastRankResult = result
+          model.rankRecords.record(result)
+        }
+        var game = SoloGame(songs: [song], playlist: "イントロ段位測定", rankSession: session, rankQuestion: question)
+        game.stage = scenario.hasPrefix("rank-result") ? .finished : scenario.hasPrefix("rank-error") ? .preparing : .listening
+        game.secondsLeft = question.pushLimit - 1.2
+        if scenario.hasPrefix("rank-error") { game.warning = "音源の再生が中断されました。別の曲で続けられます。段位には影響しません。" }
+        model.game = game
+        return model
+      }
       if scenario == "friends-request" || scenario == "friends-invite" {
         let request: [[String: Any]] = scenario == "friends-request" ? [[
           "id": "fixture-request", "fromId": "fixture-haru", "fromName": "はる",

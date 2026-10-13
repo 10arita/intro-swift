@@ -29,6 +29,8 @@ struct CloudProfile: Codable {
     var selectedBadge: ProfileValue<String?>
     var reviewEntries: [String: ProfileReview]
     var history: [SoloResult]
+    // Optional for decoding profiles written before rank measurement existed.
+    var rankRecords: RankRecords? = nil
     // Each installation only increments its own counters. Repeated uploads are idempotent.
     var counters: [String: PlayerStats]
     var roomStatisticsByDevice: [String: RoomStatisticsLedger]? = nil
@@ -119,6 +121,7 @@ struct CloudProfile: Codable {
         result.avatar = avatar.merging(local.avatar)
         result.audio = audio.merging(local.audio)
         result.selectedBadge = selectedBadge.merging(local.selectedBadge)
+        result.rankRecords = (rankRecords ?? .init()).merging(local.rankRecords ?? .init())
         for (id, entry) in local.reviewEntries {
             if let existing = result.reviewEntries[id] {
                 if entry.modifiedAt > existing.modifiedAt { result.reviewEntries[id] = entry }
@@ -184,6 +187,7 @@ struct CloudProfile: Codable {
     private enum CodingKeys: String, CodingKey {
         case version, nickname, avatar, audio, selectedBadge, reviewEntries, history, counters
         case serverProfileID, serverCredentials, importedLegacyProfiles, roomStatisticsByDevice
+        case rankRecords
     }
 
     func encode(to encoder: Encoder) throws {
@@ -195,6 +199,7 @@ struct CloudProfile: Codable {
         try values.encode(selectedBadge, forKey: .selectedBadge)
         try values.encode(reviewEntries, forKey: .reviewEntries)
         try values.encode(history, forKey: .history)
+        try values.encodeIfPresent(rankRecords, forKey: .rankRecords)
         try values.encode(counters, forKey: .counters)
         try values.encodeIfPresent(roomStatisticsByDevice, forKey: .roomStatisticsByDevice)
         try values.encode(serverProfileID, forKey: .serverProfileID)

@@ -4,7 +4,7 @@ import UIKit
 private enum PlayParty: Hashable { case solo, together }
 private enum PlayKind: Hashable { case intro, sabitro }
 private enum PlayStep: Hashable {
-    case home, together, mode(PlayParty), playlist(PlayKind), join
+    case home, together, mode(PlayParty), playlist(PlayKind), rank, join
 }
 
 func playSharedAxisTransition(forward: Bool, reduceMotion: Bool) -> AnyTransition {
@@ -47,6 +47,7 @@ struct PlayView: View {
                 case let value? where value.hasPrefix("room-selection"): step = .together
                 case let value? where value.hasPrefix("code"): step = .join
                 case let value? where value.hasPrefix("playlist"): step = .playlist(.intro)
+                case let value? where value.hasPrefix("rank-setup"): step = .rank
                 default: break
                 }
                 #endif
@@ -71,9 +72,11 @@ struct PlayView: View {
                                     .font(.system(.largeTitle, design: .rounded, weight: .bold))
                                     .foregroundStyle(Studio.primary)
                                     .accessibilityAddTraits(.isHeader)
-                                Text(pageDescription)
-                                    .font(.subheadline)
-                                    .foregroundStyle(Studio.secondary)
+                                if !pageDescription.isEmpty {
+                                    Text(pageDescription)
+                                        .font(.subheadline)
+                                        .foregroundStyle(Studio.secondary)
+                                }
                             }
                             .fixedSize(horizontal: false, vertical: true)
                             stepContent
@@ -194,6 +197,11 @@ struct PlayView: View {
                              disabled: !model.serverConfigured || model.busy || creatingRoom) {
                     choose(.sabitro, party: party)
                 }
+                if party == .solo {
+                    PlayFlowCard(title: "段位測定", subtitle: "共通の曲集で、今のイントロ力を測ろう",
+                                 symbol: "medal.fill", badge: "15〜20問・ベータ版", prominent: true,
+                                 disabled: model.busy) { navigate(to: .rank) }
+                }
                 if creatingRoom {
                     ProgressView("ルームを作成しています…")
                         .tint(Studio.accent)
@@ -201,6 +209,7 @@ struct PlayView: View {
                 }
             }
         case .playlist(let kind): SoloPlaylistSelection(kind: kind)
+        case .rank: RankMeasurementSetupView()
         case .join: RoomCodeEntryView()
         case .home: EmptyView()
         }
@@ -209,6 +218,7 @@ struct PlayView: View {
     private var contextTitle: String {
         switch step {
         case .mode(.solo): return "ひとりで"
+        case .rank: return "ひとりで / イントロ"
         case .playlist(let kind): return "ひとりで / \(kind == .intro ? "イントロ" : "サビトロ")"
         case .mode(.together): return "みんなで / ルームを作る"
         case .join: return "みんなで / コードで参加"
@@ -220,6 +230,7 @@ struct PlayView: View {
         switch step {
         case .together: return "ルーム選択"
         case .mode: return "モード選択"
+        case .rank: return "イントロ段位測定"
         case .playlist: return "プレイリストを選ぼう"
         case .join: return "ルームコードを入力"
         case .home: return ""
@@ -229,7 +240,8 @@ struct PlayView: View {
     private var pageDescription: String {
         switch step {
         case .together: return "友だちと同じ曲を聴いて、早押し対戦。"
-        case .mode(.solo): return "聴きたい部分を選んで、次はプレイリストへ。"
+        case .mode(.solo): return "好きな曲で遊ぶか、共通の曲集で腕試し。"
+        case .rank: return ""
         case .mode(.together): return "モードを選ぶとルームができあがります。\nプレイリストとルールは待機室で設定できます。"
         case .playlist(.intro): return "Apple Music のライブラリから、好きな曲で遊ぼう。"
         case .playlist(.sabitro): return "Apple Music のプレイリストにある曲を、試聴音源と照合します。"
@@ -267,7 +279,7 @@ struct PlayView: View {
         switch step {
         case .together, .mode(.solo): navigate(to: .home, forward: false)
         case .mode(.together), .join: navigate(to: .together, forward: false)
-        case .playlist: navigate(to: .mode(.solo), forward: false)
+        case .playlist, .rank: navigate(to: .mode(.solo), forward: false)
         case .home: break
         }
     }

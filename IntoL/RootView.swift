@@ -2,6 +2,7 @@ import SwiftUI
 import PhotosUI
 import MediaPlayer
 import CloudKit
+import AVFoundation
 
 private enum MainTab: Hashable { case play, review, friends, account }
 
@@ -85,6 +86,12 @@ struct RootView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .CKAccountChanged)) { _ in
             model.cloudAccountChanged()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)) { notification in
+            if let type = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+               type == AVAudioSession.InterruptionType.began.rawValue {
+                model.invalidateRankRound("音声の割り込みが発生しました。")
+            }
         }
         .onAppear {
             #if DEBUG

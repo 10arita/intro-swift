@@ -270,6 +270,35 @@ private struct AppleMusicLibrarySongResponse: Decodable {
         return catalog
     }
 
+    /// Never substitute another recording or a preview clip in the common rank bank.
+    func rankSong(for question: RankQuestion) async throws -> Song {
+        func matches(_ item: MusicKit.Song) -> Bool {
+            item.playParameters != nil && question.matches(title: item.title, artist: item.artistName, album: item.albumTitle)
+        }
+        var resolved: MusicKit.Song?
+        if let hint = question.catalogIDHint,
+           let hinted = try? await catalogSong(for: "applemusic:" + hint), matches(hinted) {
+            resolved = hinted
+        }
+        if resolved == nil {
+            try Task.checkCancellation()
+            var request = MusicCatalogSearchRequest(term: question.title + " " + question.artist, types: [MusicKit.Song.self])
+            request.limit = 25
+            let response = try await request.response()
+            resolved = response.songs.first(where: matches)
+        }
+        try Task.checkCancellation()
+        guard let item = resolved, let duration = item.duration, duration > question.pushLimit else {
+            throw RankError.recordingUnavailable
+        }
+        let id = "applemusic:" + String(describing: item.id)
+        songsByID[id] = item
+        return Song(id: id, title: item.title, artist: item.artistName,
+                    artworkURL: item.artwork?.url(width: 600, height: 600),
+                    previewURL: nil, trackURL: item.url,
+                    durationMS: Int(duration * 1000), genre: item.genreNames.first ?? "J-Pop")
+    }
+
     func previewURL(for songID: String) async -> URL? {
         guard let item = try? await playableSong(for: songID) else { return nil }
         if let url = item.previewAssets?.compactMap(\.url).first { return url }

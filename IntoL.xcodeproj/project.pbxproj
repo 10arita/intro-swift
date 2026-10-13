@@ -57,6 +57,9 @@
 		A0000000000000000000006A /* FeedbackReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000006A /* FeedbackReport.swift */; };
 		A0000000000000000000006B /* FeedbackReportViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000006B /* FeedbackReportViews.swift */; };
 		C04387BDE8F114D35D808B3D /* RevealEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40D296A3BF561B575315D4DA /* RevealEffects.swift */; };
+		A00000000000000000000070 /* RankMeasurement.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000070 /* RankMeasurement.swift */; };
+		A00000000000000000000071 /* RankViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000071 /* RankViews.swift */; };
+		A00000000000000000000072 /* server/rank-catalog.json in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000072 /* server/rank-catalog.json */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -113,6 +116,9 @@
 		B0000000000000000000006A /* FeedbackReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedbackReport.swift; sourceTree = "<group>"; };
 		B0000000000000000000006B /* FeedbackReportViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedbackReportViews.swift; sourceTree = "<group>"; };
 		B1728359B56266971280996B /* RoomPlayerStandings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomPlayerStandings.swift; sourceTree = "<group>"; };
+		B00000000000000000000070 /* RankMeasurement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RankMeasurement.swift; sourceTree = "<group>"; };
+		B00000000000000000000071 /* RankViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RankViews.swift; sourceTree = "<group>"; };
+		B00000000000000000000072 /* server/rank-catalog.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = server/rank-catalog.json; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -166,6 +172,8 @@
 				B0000000000000000000006A /* FeedbackReport.swift */,
 				B0000000000000000000001B /* IntoL.entitlements */,
 				B00000000000000000000005 /* AppModel.swift */,
+				B00000000000000000000071 /* RankViews.swift */,
+				B00000000000000000000070 /* RankMeasurement.swift */,
 				B00000000000000000000006 /* RoomService.swift */,
 				B00000000000000000000020 /* MusicVolumeViews.swift */,
 				B00000000000000000000022 /* RuleControls.swift */,
@@ -189,6 +197,7 @@
 				B00000000000000000000015 /* server/corpus/famousSongsJapaneseExpansion.json */,
 				B00000000000000000000016 /* server/corpus/famousSongsJpop2015Plus.json */,
 				B00000000000000000000017 /* server/corpus/famousSongsChart2015Plus.json */,
+				B00000000000000000000072 /* server/rank-catalog.json */,
 			);
 			path = IntoL;
 			sourceTree = "<group>";
@@ -276,6 +285,7 @@
 				A00000000000000000000015 /* server/corpus/famousSongsJapaneseExpansion.json in Resources */,
 				A00000000000000000000016 /* server/corpus/famousSongsJpop2015Plus.json in Resources */,
 				A00000000000000000000017 /* server/corpus/famousSongsChart2015Plus.json in Resources */,
+				A00000000000000000000072 /* server/rank-catalog.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -334,6 +344,8 @@
 				A0000000000000000000006B /* FeedbackReportViews.swift in Sources */,
 				A0000000000000000000006A /* FeedbackReport.swift in Sources */,
 				A00000000000000000000005 /* AppModel.swift in Sources */,
+				A00000000000000000000071 /* RankViews.swift in Sources */,
+				A00000000000000000000070 /* RankMeasurement.swift in Sources */,
 				A00000000000000000000006 /* RoomService.swift in Sources */,
 				A00000000000000000000020 /* MusicVolumeViews.swift in Sources */,
 				A00000000000000000000022 /* RuleControls.swift in Sources */,

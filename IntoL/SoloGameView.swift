@@ -16,7 +16,7 @@ struct SoloGameView: View {
                     VStack(spacing: 16) {
                         HStack {
                             Button { model.closeGame() } label: {
-                                Image(systemName: "xmark").font(.headline).foregroundStyle(Studio.primary)
+                                Image(systemName: "xmark").font(.system(size: 17, weight: .semibold)).foregroundStyle(Studio.primary)
                                     .frame(width: 44, height: 44).background(Studio.surface, in: Circle())
                             }
                             .accessibilityLabel("ゲームを閉じる")
@@ -29,7 +29,7 @@ struct SoloGameView: View {
                             }
                             .padding(.leading, 6)
                             Spacer()
-                            Text(game.stage == .finished ? "RESULT" : "ROUND \(game.index + 1) / \(game.songs.count)")
+                            Text(game.stage == .finished ? "RESULT" : game.progressLabel)
                                 .font(.system(size: 12, weight: .bold, design: .monospaced))
                                 .tracking(1.5)
                                 .foregroundStyle(Studio.secondary)
@@ -37,18 +37,24 @@ struct SoloGameView: View {
                         }
                         if game.stage == .preparing {
                             Spacer(minLength: 24)
-                            SectionCaption(title: "ROUND \(game.index + 1) / \(game.songs.count)")
-                            ProgressView().tint(Studio.accent).scaleEffect(1.5)
-                            Text("音源を読み込み中")
+                            SectionCaption(title: game.progressLabel)
+                            if game.warning == nil {
+                                ProgressView().tint(Studio.accent).scaleEffect(1.5)
+                            } else {
+                                Image(systemName: "pause.circle").font(.largeTitle).foregroundStyle(Studio.secondary)
+                                    .accessibilityHidden(true)
+                            }
+                            Text(game.warning == nil ? "音源を読み込み中" : (game.rankSession == nil ? "音源を確認できません" : "測定を一時停止"))
                                 .font(.system(size: 29, weight: .bold, design: .rounded))
                                 .foregroundStyle(Studio.primary)
                             if game.warning != nil {
-                                Button("再試行") { model.retrySoloRound() }
+                                Button(game.rankSession == nil ? "再試行" : "別の曲で続ける") { model.retrySoloRound() }
                                     .buttonStyle(StudioButtonStyle(.secondary))
+                                    .accessibilityIdentifier("retry-solo-round")
                             }
                         } else if game.stage == .countdown {
                             Spacer(minLength: 24)
-                            SectionCaption(title: "ROUND \(game.index + 1) / \(game.songs.count)")
+                            SectionCaption(title: game.progressLabel)
                             WaveMark()
                             Text("第\(game.index + 1)問目")
                                 .font(.system(size: 30, weight: .bold, design: .rounded))
@@ -64,7 +70,11 @@ struct SoloGameView: View {
                                 .foregroundStyle(Studio.primary)
                             Text("曲名が分かったら PUSH")
                                 .foregroundStyle(Studio.secondary)
-                            CountdownBar(remaining: game.secondsLeft, total: 30, compact: true)
+                            if game.rankSession != nil {
+                                Text("PUSH期限 \(Int(game.listenLimit))秒")
+                                    .font(.subheadline.weight(.semibold)).foregroundStyle(Studio.primary)
+                            }
+                            CountdownBar(remaining: game.secondsLeft, total: game.listenLimit, compact: true)
                             PushButton(action: { model.push() }, size: 220)
                             Button("この曲をスキップ") { model.skip() }
                                 .buttonStyle(StudioButtonStyle(.tertiary))
@@ -83,9 +93,12 @@ struct SoloGameView: View {
                                        saved: model.reviews.contains { $0.id == game.current.id }) {
                                 model.saveReview(game.current)
                             }
-                            PrimaryButton(title: game.index + 1 == game.songs.count ? "結果を見る" : "次の曲へ", symbol: "arrow.right") {
+                            PrimaryButton(title: (game.rankSession?.shouldFinish ?? (game.index + 1 == game.songs.count)) ? "結果を見る" : "次の曲へ", symbol: "arrow.right") {
                                 model.nextRound()
                             }
+                        } else if let result = model.lastRankResult, game.rankSession != nil {
+                            RankResultSummary(result: result, best: model.rankRecords.bestByVersion[result.comparisonKey])
+                            PrimaryButton(title: "ホームへ戻る", symbol: "house") { model.closeGame() }
                         } else if let result = model.lastResult {
                             ResultSummary(result: result, playerName: model.nickname)
                             PrimaryButton(title: "ホームへ戻る", symbol: "house") { model.closeGame() }

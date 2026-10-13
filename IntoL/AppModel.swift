@@ -21,6 +21,12 @@ struct SoloGame {
     var roundResults: [SoloRoundResult] = []
     var secondsLeft = 30.0
     var warning: String?
+    var rankSession: RankSession? = nil
+    var rankQuestion: RankQuestion? = nil
+    var listenLimit: Double { rankQuestion?.pushLimit ?? 30 }
+    var progressLabel: String {
+        rankSession == nil ? "ROUND \(index + 1) / \(songs.count)" : "測定 \(index + 1)問目 / 最大20問"
+    }
     var current: Song { songs[index] }
     var answer: [String] { TitleRules.characters(current.title) }
 }
@@ -31,6 +37,8 @@ struct SoloGame {
     @Published var sharedSongs: [Song] = []
     @Published var game: SoloGame? { didSet { updateBGM(); if game == nil { scheduleProfileSync() } } }
     @Published var lastResult: SoloResult?
+    @Published var lastRankResult: RankResult?
+    @Published var rankRecords = RankRecords()
     @Published private(set) var soloChoiceFeedback: ChoiceFeedback?
     @Published private(set) var soloChoicePending = false
     @Published private(set) var roomChoiceFeedback: ChoiceFeedback?
@@ -130,6 +138,7 @@ struct SoloGame {
     }
     private var preparedRoomSongs: PreparedRoomSongs?
     private var ticker: Task<Void, Never>?
+    private var rankPlaybackMonitor = RankPlaybackMonitor()
     private var soloRoundTask: Task<Void, Never>?
     private var soloChoiceTask: Task<Void, Never>?
     private var roomChoiceFeedbackTask: Task<Void, Never>?
@@ -220,6 +229,7 @@ struct SoloGame {
         self.chorusReportSender = chorusReportSender
         if let data = UserDefaults.standard.data(forKey: "reviews"), let decoded = try? JSONDecoder().decode([ReviewSong].self, from: data) { reviews = decoded }
         if let data = UserDefaults.standard.data(forKey: "history"), let decoded = try? JSONDecoder().decode([SoloResult].self, from: data) { history = decoded }
+        if let data = UserDefaults.standard.data(forKey: "rankRecords"), let decoded = try? JSONDecoder().decode(RankRecords.self, from: data) { rankRecords = decoded }
         if let data = UserDefaults.standard.data(forKey: "stats"), let decoded = try? JSONDecoder().decode(PlayerStats.self, from: data) { stats = decoded }
         rooms.baseURL = serverURL
         appleMusicConnected = appleMusic.isAuthorized
@@ -239,6 +249,7 @@ struct SoloGame {
                 Secrets.set(profileDeviceID, for: "cloudProfileDeviceID")
                 var initial = CloudProfile(nickname: nickname, avatar: avatarData, audio: profileAudio,
                     reviews: reviews, history: history, stats: stats, serverProfileID: rooms.profileID)
+                initial.rankRecords = rankRecords
                 initial.roomStatisticsByDevice = [profileDeviceID: roomStatistics]
                 if UserDefaults.standard.bool(forKey: "profileDirty") {
                     // The old app treated dirty local data as authoritative, including removed reviews.
@@ -260,6 +271,7 @@ struct SoloGame {
 
     func setAppActive(_ active: Bool) {
         appIsActive = active
+        if !active { invalidateRankRound("アプリを離れたため、この問題は測定対象外になりました。") }
         updateBGM()
     }
 
@@ -413,6 +425,114 @@ struct SoloGame {
         catch { alert = error.localizedDescription }
     }
 
+    func startRankMeasurement() async {
+        guard !busy, canStartSolo else { return }
+        beginGameStart()
+        busy = true
+        defer { busy = false; preparationStatus = nil; finishGameStart() }
+        do {
+            appleMusicPlayable = appleMusic.isAuthorized ? try await appleMusic.canPlay() : try await appleMusic.authorize()
+            appleMusicConnected = appleMusic.isAuthorized
+            guard appleMusicPlayable else { throw AppError.message("段位測定にはApple Musicのサブスクリプションが必要です。") }
+            let catalog = try RankCatalog.load()
+            try Task.checkCancellation()
+            guard canStartSolo else { return }
+            let previous = Set(rankRecords.history.first?.rounds.map { $0.question.recordingID } ?? [])
+            let session = RankSession(catalog: catalog, previousRecordingIDs: previous,
+                                      previouslySeen: rankRecords.seenRecordingIDs)
+            quizCorpus = catalog.questions.map(\.title)
+            lastResult = nil
+            lastRankResult = nil
+            game = SoloGame(songs: [rankPendingSong], playlist: "イントロ段位測定", rankSession: session)
+            startSoloTicker()
+            prepareNextRankQuestion(advancing: false)
+        } catch is CancellationError { return }
+        catch { alert = error.localizedDescription }
+    }
+
+    private var rankPendingSong: Song {
+        Song(id: "rank:pending", title: "", artist: "", durationMS: 0, genre: "")
+    }
+
+    private func prepareNextRankQuestion(advancing: Bool) {
+        guard var current = game, current.rankSession != nil else { return }
+        soloRoundTask?.cancel()
+        soloRoundToken += 1
+        let token = soloRoundToken
+        stopAudio()
+        if advancing {
+            current.songs.append(rankPendingSong)
+            current.index += 1
+        }
+        current.stage = .preparing
+        current.warning = nil
+        current.rankQuestion = nil
+        self.game = current
+        soloRoundTask = Task { [weak self] in
+            guard let self else { return }
+            // Bound a failed batch so poor connectivity has a visible recovery path.
+            for _ in 0..<8 {
+                guard !Task.isCancelled, self.soloRoundToken == token,
+                      var state = self.game, var session = state.rankSession else { return }
+                let question: RankQuestion
+                do { question = try session.nextQuestion() }
+                catch {
+                    state.warning = error.localizedDescription
+                    self.game = state
+                    return
+                }
+                state.rankSession = session
+                state.rankQuestion = question
+                self.game = state
+                do {
+                    var song = try await self.appleMusic.rankSong(for: question)
+                    song.artistTopTitles = session.catalog.questions.filter { $0.artist == question.artist }
+                        .prefix(6).map(\.title)
+                    try Task.checkCancellation()
+                    guard self.soloRoundToken == token, var ready = self.game else { return }
+                    ready.songs[ready.index] = song
+                    self.game = ready
+                    self.beginRound()
+                    return
+                } catch {
+                    guard !Task.isCancelled, self.soloRoundToken == token,
+                          var failed = self.game, var failedSession = failed.rankSession else { return }
+                    failedSession.record(question: question, song: nil, outcome: .invalid,
+                                         pushTime: nil, invalidReason: error.localizedDescription)
+                    failed.rankSession = failedSession
+                    failed.rankQuestion = nil
+                    self.game = failed
+                }
+            }
+            guard self.soloRoundToken == token, var state = self.game else { return }
+            state.warning = "音源を準備できませんでした。通信とApple Musicの再生条件を確認し、別の曲で続けてください。段位には影響しません。"
+            self.game = state
+        }
+    }
+
+    func invalidateRankRound(_ reason: String) {
+        guard var state = game, var session = state.rankSession,
+              [.preparing, .countdown, .listening, .answering].contains(state.stage),
+              state.warning == nil else { return }
+        if let question = state.rankQuestion {
+            let heard = state.stage == .listening || state.stage == .answering
+            session.record(question: question, song: heard ? state.current : nil, outcome: .invalid,
+                           pushTime: nil, invalidReason: reason)
+        }
+        soloRoundToken += 1
+        soloRoundTask?.cancel()
+        soloChoiceTask?.cancel()
+        soloChoicePending = false
+        soloChoiceFeedback = nil
+        stopAudio()
+        state.rankSession = session
+        state.rankQuestion = nil
+        state.stage = .preparing
+        state.warning = reason + " 別の曲で続けられます。段位には影響しません。"
+        self.game = state
+        persist()
+    }
+
     private func launchSolo(songs source: [Song], playlist: String) async throws {
         guard canStartSolo else { throw AppError.message("先に現在のゲームまたはルームを終了してください") }
         let candidates = uniqueSongs(source)
@@ -430,8 +550,13 @@ struct SoloGame {
         try Task.checkCancellation()
         guard canStartSolo else { throw AppError.message("先に現在のゲームまたはルームを終了してください") }
         lastResult = nil
+        lastRankResult = nil
         game = SoloGame(songs: songs, playlist: playlist)
         beginRound()
+        startSoloTicker()
+    }
+
+    private func startSoloTicker() {
         ticker?.cancel()
         ticker = Task { [weak self] in
             while !Task.isCancelled {
@@ -450,7 +575,7 @@ struct SoloGame {
         if let nextIndex { game.index = nextIndex }
         let song = game.current
         game.stage = .preparing
-        game.secondsLeft = 30
+        game.secondsLeft = game.listenLimit
         game.letterIndex = 0
         game.answered = ""
         game.wasCorrect = false
@@ -482,11 +607,20 @@ struct SoloGame {
                 guard self.soloRoundToken == token, var playing = self.game else { return }
                 playing.stage = .listening
                 playing.startedAt = .now
-                playing.deadline = .now.addingTimeInterval(30)
-                playing.secondsLeft = 30
+                playing.deadline = .now.addingTimeInterval(playing.listenLimit)
+                playing.secondsLeft = playing.listenLimit
+                if let question = playing.rankQuestion {
+                    self.rankPlaybackMonitor.reset(now: ProcessInfo.processInfo.systemUptime)
+                    self.rankRecords.seenRecordingIDs.insert(question.recordingID)
+                    self.persist()
+                }
                 self.game = playing
             } catch {
                 guard self.soloRoundToken == token, !Task.isCancelled, var current = self.game else { return }
+                if current.rankSession != nil {
+                    self.invalidateRankRound("音源の準備または再生に失敗しました。")
+                    return
+                }
                 self.stopAudio()
                 current.stage = .preparing
                 current.warning = error.localizedDescription
@@ -529,10 +663,18 @@ struct SoloGame {
             self.game = game
         case .listening, .answering:
             if soloChoicePending { return }
-            game.secondsLeft = max(0, game.deadline.timeIntervalSinceNow)
+            if game.rankSession != nil, game.stage == .listening {
+                let position = appleMusic.currentTime
+                if let reason = rankPlaybackMonitor.invalidReason(position: position, playing: appleMusic.isPlaying,
+                                                                  now: ProcessInfo.processInfo.systemUptime) {
+                    invalidateRankRound(reason)
+                    return
+                }
+                game.secondsLeft = max(0, game.listenLimit - position)
+            } else { game.secondsLeft = max(0, game.deadline.timeIntervalSinceNow) }
             if game.secondsLeft <= 0 {
                 self.game = game
-                reveal(correct: false)
+                reveal(correct: false, rankOutcome: game.stage == .listening ? .pushTimeout : .answerTimeout)
             } else { self.game = game }
         default: break
         }
@@ -540,22 +682,36 @@ struct SoloGame {
 
     func retrySoloRound() {
         guard game?.stage == .preparing, game?.warning != nil else { return }
+        if game?.rankSession != nil {
+            prepareNextRankQuestion(advancing: false)
+            return
+        }
         beginRound()
     }
 
     func push() {
         guard var game, game.stage == .listening else { return }
-        game.pushTime = min(30, Date.now.timeIntervalSince(game.startedAt))
+        if game.rankSession != nil {
+            guard appleMusic.isPlaying else {
+                invalidateRankRound("音源の再生が中断されました。")
+                return
+            }
+            let position = appleMusic.currentTime
+            guard position <= game.listenLimit else { reveal(correct: false, rankOutcome: .pushTimeout); return }
+            game.pushTime = position
+        } else { game.pushTime = min(30, Date.now.timeIntervalSince(game.startedAt)) }
         game.stage = .answering
         game.letterIndex = 0
         game.deadline = .now.addingTimeInterval(5)
         game.secondsLeft = 5
         game.choices = TitleRules.choices(answer: game.answer[0], prefix: "", corpus: game.current.id.hasPrefix("applemusic:") ? quizCorpus : game.songs.map(\.title), artistTopTitles: game.current.artistTopTitles ?? [], currentTitle: game.current.title)
-        stats.attempts += 1
-        stats.totalPushSeconds += game.pushTime
-        var genre = stats.genres[game.current.genre] ?? GenreRecord()
-        genre.attempts += 1
-        stats.genres[game.current.genre] = genre
+        if game.rankSession == nil {
+            stats.attempts += 1
+            stats.totalPushSeconds += game.pushTime
+            var genre = stats.genres[game.current.genre] ?? GenreRecord()
+            genre.attempts += 1
+            stats.genres[game.current.genre] = genre
+        }
         persist()
         self.game = game
         sound.play(.push)
@@ -565,6 +721,10 @@ struct SoloGame {
     func choose(_ choice: String) {
         guard let game, game.stage == .answering, !soloChoicePending,
               game.choices.contains(choice) else { return }
+        if game.rankSession != nil, game.deadline <= .now {
+            reveal(correct: false, rankOutcome: .answerTimeout)
+            return
+        }
         soloChoicePending = true
         soloChoiceFeedback = ChoiceFeedback(choice: choice, correct: choice == game.answer[game.letterIndex], choices: game.choices)
         let round = game.index
@@ -599,20 +759,28 @@ struct SoloGame {
         }
     }
 
-    func skip() { reveal(correct: false) }
+    func skip() { reveal(correct: false, rankOutcome: .skipped) }
 
-    private func reveal(correct: Bool) {
+    private func reveal(correct: Bool, rankOutcome: RankOutcome? = nil) {
         guard var game, game.stage == .listening || game.stage == .answering else { return }
+        if var session = game.rankSession, let question = game.rankQuestion {
+            session.record(question: question, song: game.current,
+                           outcome: rankOutcome ?? (correct ? .correct : .wrong),
+                           pushTime: game.stage == .answering ? game.pushTime : nil)
+            game.rankSession = session
+        }
         game.roundResults.append(SoloRoundResult(song: game.current.portableReviewSong, correct: correct,
             pushTime: game.stage == .answering ? game.pushTime : nil))
         game.stage = .reveal
         game.wasCorrect = correct
         if correct {
             game.correctPushTimes.append(game.pushTime)
-            stats.correct += 1
-            var genre = stats.genres[game.current.genre] ?? GenreRecord()
-            genre.correct += 1
-            stats.genres[game.current.genre] = genre
+            if game.rankSession == nil {
+                stats.correct += 1
+                var genre = stats.genres[game.current.genre] ?? GenreRecord()
+                genre.correct += 1
+                stats.genres[game.current.genre] = genre
+            }
         }
         stats.awardBadges()
         persist()
@@ -624,6 +792,18 @@ struct SoloGame {
 
     func nextRound() {
         guard var game, game.stage == .reveal else { return }
+        if let session = game.rankSession {
+            if let result = session.result() {
+                game.stage = .finished
+                self.game = game
+                lastRankResult = result
+                rankRecords.record(result)
+                persist()
+                stopAudio()
+                ticker?.cancel(); ticker = nil
+            } else { prepareNextRankQuestion(advancing: true) }
+            return
+        }
         if game.index + 1 < game.songs.count {
             withAnimation(Studio.spring) { beginRound(advancingTo: game.index + 1) }
         } else {
@@ -687,6 +867,7 @@ struct SoloGame {
         guard profileCacheReadable, var profile = cloudProfile else { return }
         profile.capture(nickname: nickname, avatar: avatarData, audio: profileAudio,
                         reviews: reviews, history: history, stats: stats, deviceID: profileDeviceID)
+        profile.rankRecords = (profile.rankRecords ?? .init()).merging(rankRecords)
         var ledgers = profile.roomStatisticsByDevice ?? [:]
         ledgers[profileDeviceID] = roomStatistics
         profile.roomStatisticsByDevice = ledgers
@@ -702,6 +883,7 @@ struct SoloGame {
     private func saveLegacyProfileCache() {
         UserDefaults.standard.set(try? JSONEncoder().encode(reviews), forKey: "reviews")
         UserDefaults.standard.set(try? JSONEncoder().encode(history), forKey: "history")
+        UserDefaults.standard.set(try? JSONEncoder().encode(rankRecords), forKey: "rankRecords")
         UserDefaults.standard.set(try? JSONEncoder().encode(stats), forKey: "stats")
     }
 
@@ -817,6 +999,7 @@ struct SoloGame {
         avatarData = profile.avatar.value
         reviews = profile.reviews
         history = profile.history
+        rankRecords = profile.rankRecords ?? .init()
         stats = profile.stats
         roomStatistics = profile.roomStatisticsByDevice?[profileDeviceID] ?? .init()
         bgmVolume = min(1, max(0, profile.audio.value.bgm))
