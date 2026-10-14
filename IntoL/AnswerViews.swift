@@ -78,10 +78,6 @@ struct ChoiceFeedbackPresentation: ViewModifier {
           .padding(6).allowsHitTesting(false).accessibilityHidden(true)
         }
       }
-      .sensoryFeedback(trigger: feedback?.id) { _, new in
-        guard new != nil, let feedback else { return nil }
-        return feedback.correct ? .success : .error
-      }
   }
 }
 

@@ -80,18 +80,20 @@ enum RankError: LocalizedError {
 }
 
 enum IntroRank {
-    // Stored levels and estimation boundaries stay compatible with existing measurements.
+    // Stored levels retain their display names; grading changes apply to new measurements.
     static let names = ["F", "E", "D", "C", "C+", "B", "B+", "A", "A+", "S", "S+"]
+    // Lower every boundary by four original tiers, so the former D band becomes B+.
+    private static let gradingOffset = 2.4
     static func name(_ level: Int) -> String { names[min(10, max(0, level))] }
     static func difficulty(for level: Int) -> Double { -2.7 + Double(level - 1) * 0.6 }
     static func level(for ability: Double) -> Int {
-        (1...10).filter { ability >= difficulty(for: $0) + log(0.7 / 0.3) }.count
+        (1...10).filter { ability >= difficulty(for: $0) + log(0.7 / 0.3) - gradingOffset }.count
     }
 }
 
 /// Fixed scale and prior are versioned so catalog updates cannot silently change old results.
 struct RankEstimator {
-    static let version = "rasch-v1"
+    static let version = "rasch-v2"
     private static let grid = (0...120).map { -6.0 + Double($0) * 0.1 }
     private var weights = grid.map { exp(-$0 * $0 / 18) }
 

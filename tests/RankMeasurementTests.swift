@@ -84,6 +84,9 @@ import Foundation
         expect(perfect.ability > boundary.ability && boundary.ability > zero.ability, "Ability changes with observed performance")
         expect(perfect.rounds.dropFirst(3).contains { $0.question.level >= 8 }, "Strong players reach the hardest pool")
         expect(zero.level == 0, "No successful recognition cannot award a passing rank")
+        let formerD = try simulate(bank) { _, question in question.level <= 2 }
+        expect(formerD.level == 6 && formerD.rankLabel == "B+相当", "Former D performance now earns B+")
+        expect(formerD.lowerLevel == 5 && formerD.upperLevel == 7, "The measurement interval uses the relaxed scale too")
         expect(oneMiss.level >= perfect.level - 2, "One unknown song does not collapse a strong result")
         let uninformative = RankCatalog(schemaVersion: bank.schemaVersion, version: bank.version, provisional: true,
                                        questions: bank.questions.map {
@@ -140,6 +143,26 @@ import Foundation
         }
     }
 
+    static func testRelaxedGrading() {
+        // These are the centers of the original E through S+ ability bands.
+        let abilities = [-1.55, -0.95, -0.35, 0.25, 0.85, 1.45, 2.05, 2.65, 3.25, 3.85]
+        let expectedLevels = [5, 6, 7, 8, 9, 10, 10, 10, 10, 10]
+        for (ability, expectedLevel) in zip(abilities, expectedLevels) {
+            expect(IntroRank.level(for: ability) == expectedLevel, "Grading rises by four tiers, capped at S+")
+        }
+        expect(IntroRank.level(for: -6) == 0, "The lowest ability remains F")
+        // Every estimator grid point in the original D band must map to B+.
+        let oldDLower = -2.1 + log(0.7 / 0.3)
+        let oldDUpper = -1.5 + log(0.7 / 0.3)
+        for ability in (-60...60).map({ Double($0) / 10 }).filter({ $0 >= oldDLower && $0 < oldDUpper }) {
+            expect(IntroRank.level(for: ability) == 6, "All former D abilities map to B+")
+        }
+        var estimator = RankEstimator()
+        for index in 0..<20 { estimator.observe(difficulty: -1.5, success: index < 13) }
+        expect(estimator.level == 6 && estimator.lowerLevel <= 6 && estimator.upperLevel >= 6,
+               "The estimator applies relaxed grading to the same observed answers")
+    }
+
     static func testAudioClock() {
         var clock = RankPlaybackMonitor()
         clock.reset(now: 100)
@@ -184,6 +207,19 @@ import Foundation
         var updated = merged
         updated.record(changedVersion)
         expect(updated.bestByVersion.count == 2, "Best records are separated by scale version")
+        let legacyD = RankResult(catalogVersion: bank.version, estimatorVersion: "rasch-v1", provisional: true,
+                                 level: 2, lowerLevel: 1, upperLevel: 3, ability: -1, rounds: [])
+        let relaxedBPlus = RankResult(catalogVersion: bank.version, estimatorVersion: RankEstimator.version, provisional: true,
+                                     level: 6, lowerLevel: 5, upperLevel: 7, ability: legacyD.ability, rounds: [])
+        var gradingRecords = RankRecords()
+        gradingRecords.record(legacyD)
+        gradingRecords.record(relaxedBPlus)
+        let restoredGrading = try JSONDecoder().decode(RankRecords.self, from: encode(gradingRecords))
+        expect(restoredGrading.bestByVersion.count == 2, "Old and relaxed grading keep separate best records")
+        expect(restoredGrading.bestByVersion[legacyD.comparisonKey]?.rankLabel == "D相当",
+               "Old results keep the rank earned under their original grading")
+        expect(restoredGrading.bestByVersion[relaxedBPlus.comparisonKey]?.rankLabel == "B+相当",
+               "New results persist the relaxed rank")
 
         var profile = CloudProfile(history: [SoloResult.make(playlist: "Old", total: 1, pushTimes: [2])])
         let legacy = try JSONDecoder().decode(CloudProfile.self, from: profile.encoded())
@@ -236,6 +272,7 @@ import Foundation
     static func main() throws {
         let bank = try RankCatalog.decode(Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1])))
         try testCatalog(bank)
+        testRelaxedGrading()
         try testInference(bank)
         testAudioClock()
         try testPersistence(bank)

@@ -246,6 +246,6 @@ struct RevealCard: View {
             ChorusReportButton(song: song)
         }
         .frame(maxWidth: .infinity)
-        .modifier(RevealSurface(song: song, correct: correct))
+        .modifier(RevealSurface(song: song))
     }
 }

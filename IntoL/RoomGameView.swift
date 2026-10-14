@@ -502,10 +502,7 @@ struct RoomGameView: View {
         .lineLimit(2)
         .minimumScaleFactor(0.85)
     }
-    .modifier(
-      RevealSurface(
-        song: room.current?.song,
-        correct: room.correctPlayerIDs.contains(model.rooms.playerId)))
+    .modifier(RevealSurface(song: room.current?.song))
   }
 
   private func skipButton(_ room: RoomState) -> some View {

@@ -1805,7 +1805,6 @@ struct SoloGame {
             scheduledRoomAudio = nil
             roomError = nil
             if let song = state.current?.song { revealAudio(song) }
-            UINotificationFeedbackGenerator().notificationOccurred(state.correctPlayerIDs.contains(rooms.playerId) ? .success : .warning)
         }
         if state.phase == "finished" && lastRoomPhase != "finished" {
             stopAudio()
