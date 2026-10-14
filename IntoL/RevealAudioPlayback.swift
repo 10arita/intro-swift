@@ -3,13 +3,10 @@ import Foundation
 enum RevealPlaybackSource: String, Codable {
     case manualDatabase = "manual_database"
     case songleDatabase = "songle_database"
-    case songMetadata = "song_metadata"
-    case songle
-    case preview = "itunes_preview"
     case estimated = "duration_estimate"
 }
 
-/// Database and Songle positions refer to the full recording, never to an iTunes excerpt.
+/// Reveal playback uses only database positions or an estimate from the full recording's duration.
 @MainActor enum RevealAudioPlayback {
     static func hasFullAudio(_ song: Song) -> Bool {
         !song.id.hasPrefix("itunes:") && (song.id.hasPrefix("applemusic:") || song.previewURL != nil)
@@ -30,14 +27,9 @@ enum RevealPlaybackSource: String, Codable {
 
     static func play(_ song: Song,
                      databaseChorus: () async -> Int? = { nil },
-                     databaseIsAuthoritative: () -> Bool = { false },
                      databaseSource: () -> RevealPlaybackSource = { .manualDatabase },
-                     chorus: () async -> Int?,
-                     preview: () async -> URL?,
                      playFullAudio: (Int?) async throws -> Void,
-                     playPreview: (URL) async throws -> Void,
                      stopPlayback: () -> Void = {},
-                     chorusSource: () -> RevealPlaybackSource = { .songle },
                      didStartPlayback: (RevealPlaybackSource, Int?) -> Void = { _, _ in },
                      isCurrent: () -> Bool) async throws {
         func checkCurrent() throws {
@@ -45,49 +37,22 @@ enum RevealPlaybackSource: String, Codable {
             guard isCurrent() else { throw CancellationError() }
         }
         try checkCurrent()
-        let fullAudio = hasFullAudio(song)
-        if fullAudio {
-            let manual = await databaseChorus()
-            try checkCurrent()
-            let known = databaseIsAuthoritative() ? nil : validChorus(song.chorusMS, durationMS: song.durationMS)
-            let database = validChorus(manual, durationMS: song.durationMS)
-            var position = database ?? known
-            var source: RevealPlaybackSource = database != nil ? databaseSource()
-                : RevealPlaybackSource(rawValue: song.chorusSource ?? "") ?? .songMetadata
-            if position == nil {
-                position = await chorus()
-                source = chorusSource()
-            }
-            try checkCurrent()
-            if let position = validChorus(position, durationMS: song.durationMS) {
-                do {
-                    try await playFullAudio(position)
-                    try checkCurrent()
-                    didStartPlayback(source, position)
-                    return
-                } catch {
-                    if error is CancellationError { throw error }
-                    try checkCurrent()
-                    stopPlayback()
-                }
-            }
-        }
-        let previewURL = await preview()
+        guard hasFullAudio(song) else { throw AppError.message("この曲のフル音源を再生できません") }
+        let database = await databaseChorus()
         try checkCurrent()
-        if let previewURL {
+        if let position = validChorus(database, durationMS: song.durationMS) {
+            let source = databaseSource()
             do {
-                try await playPreview(previewURL)
+                try await playFullAudio(position)
                 try checkCurrent()
-                didStartPlayback(.preview, 0)
+                didStartPlayback(source, position)
                 return
             } catch {
                 if error is CancellationError { throw error }
                 try checkCurrent()
                 stopPlayback()
-                if !fullAudio { throw error }
             }
         }
-        guard fullAudio else { throw AppError.message("この曲の試聴音源を再生できません") }
         // nil asks the player to estimate from the actual full audio duration.
         try await playFullAudio(nil)
         try checkCurrent()

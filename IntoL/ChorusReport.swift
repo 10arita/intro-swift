@@ -29,8 +29,7 @@ struct ChorusReport: Encodable, Identifiable {
         self.song = Track(id: song.id, title: song.title, artist: song.artist,
                           durationMS: song.durationMS, genre: song.genre, trackURL: song.trackURL)
         playback = Playback(source: source,
-                            audioSource: source == .preview ? "itunes_preview"
-                                : song.id.hasPrefix("applemusic:") ? "apple_music" : "full_audio",
+                            audioSource: song.id.hasPrefix("applemusic:") ? "apple_music" : "full_audio",
                             startPositionMS: startPositionMS)
         self.playMode = playMode
         appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"

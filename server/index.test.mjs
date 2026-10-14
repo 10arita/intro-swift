@@ -361,7 +361,7 @@ test('unsupported music providers cannot create rooms', () => {
   assert.equal(result.status, 400);
 });
 
-for (const [chorusMS, chorusSource] of [[56494.88, 'songle_database'], [0, 'songle']]) test(`a retried Apple Music choice is applied once and retains chorus ${chorusMS}`, () => {
+for (const [chorusMS, chorusSource] of [[56494.88, 'songle_database'], [0, 'manual_database']]) test(`a retried Apple Music choice is applied once and retains chorus ${chorusMS}`, () => {
   const originalNow = Date.now;
   let now = originalNow();
   Date.now = () => now;
@@ -398,27 +398,19 @@ for (const [chorusMS, chorusSource] of [[56494.88, 'songle_database'], [0, 'song
   }
 });
 
-for (const mode of ['applemusic', 'shared']) test(`${mode} room reveals the Songle chorus position`, async () => {
+for (const mode of ['applemusic', 'shared']) test(`${mode} room with no DB position never queries Songle or iTunes`, async () => {
   const originalFetch = globalThis.fetch;
   const originalNow = Date.now;
   let now = originalNow();
   Date.now = () => now;
   const requests = [];
   const songs = mode === 'applemusic'
-    ? [{ id: 'applemusic:1234567890', title: '青い空', artist: '歌手', durationMS: 180000 }]
+    ? [{ id: 'applemusic:1234567890', title: '青い空', artist: '歌手', durationMS: 180000,
+      chorusMS: 63500, chorusSource: 'songle', songleURL: 'https://www.youtube.com/watch?v=old-chorus' }]
     : handle('GET', '/catalog', {}, new URLSearchParams()).body.songs;
-  const chorusStart = mode === 'applemusic' ? 65000 : 20000;
   globalThis.fetch = async url => {
-    const address = new URL(url);
-    requests.push(address);
-    if (address.pathname.endsWith('/songs/search.json')) return new Response(JSON.stringify(songs.map(song => ({
-      title: song.title, artist: { name: song.artist }, duration: song.durationMS,
-      permalink: `http://www.youtube.com/watch?v=${mode}-chorus-test`
-    }))), { status: 200 });
-    if (address.pathname.endsWith('/song/chorus.json')) return new Response(JSON.stringify({
-      chorusSegments: [{ isChorus: true, repeats: [{ start: chorusStart }] }]
-    }), { status: 200 });
-    throw new Error(`Unexpected URL: ${address}`);
+    requests.push(String(url));
+    throw new Error(`Reveal must not request external metadata: ${url}`);
   };
   try {
     const playerId = `${mode}-chorus-host`;
@@ -443,8 +435,7 @@ for (const mode of ['applemusic', 'shared']) test(`${mode} room reveals the Song
     assert.equal(started.body.current.chorusMS, undefined, 'Do not disclose chorus metadata before reveal');
     assert.equal(started.body.current.chorusSource, undefined, 'Keep playback provenance hidden until reveal');
     await new Promise(resolve => setImmediate(resolve));
-    assert.equal(requests.length, 2);
-    assert.equal(requests[1].searchParams.get('url'), `www.youtube.com/watch?v=${mode}-chorus-test`);
+    assert.equal(requests.length, 0);
     const ready = handle('POST', `/rooms/${id}/ready`, { playerId },
       new URLSearchParams(), authorization);
     assert.equal(ready.body.phase, 'countdown');
@@ -452,8 +443,9 @@ for (const mode of ['applemusic', 'shared']) test(`${mode} room reveals the Song
     const revealed = handle('POST', `/rooms/${id}/skip`, { playerId },
       new URLSearchParams(), authorization);
     assert.equal(revealed.body.phase, 'reveal');
-    assert.equal(revealed.body.current.chorusMS, chorusStart - 1500);
-    assert.equal(revealed.body.current.chorusSource, 'songle');
+    assert.equal(revealed.body.current.chorusMS, null);
+    assert.equal(revealed.body.current.chorusSource, null);
+    assert.equal(requests.length, 0);
   } finally {
     globalThis.fetch = originalFetch;
     Date.now = originalNow;
@@ -1517,13 +1509,41 @@ test('first room letter prefers the current artist top songs', () => {
   } finally { Date.now = realNow; }
 });
 
-test('sabitro rooms accept only matched HTTPS previews', () => {
-  const invalid = handle('POST', '/rooms', { playerId: 'badPreview', name: 'Host', mode: 'sabitro',
-    songs: [{ id: 'itunes:1', title: '夜に駆ける', artist: 'YOASOBI', previewURL: 'http://unsafe.example/a.m4a' }] }, new URLSearchParams());
-  assert.equal(invalid.status, 400);
-  const valid = handle('POST', '/rooms', { playerId: 'goodPreview', name: 'Host', mode: 'sabitro',
-    songs: [{ id: 'itunes:1', title: '夜に駆ける', artist: 'YOASOBI', previewURL: 'https://audio.example/a.m4a',
-      durationMS: 30000, genre: 'J-Pop' }], settings: { questionCount: 1 } }, new URLSearchParams());
-  assert.equal(valid.status, 201);
-  assert.equal(valid.body.mode, 'sabitro');
+test('removed sabitro mode cannot create rooms even with a valid preview', () => {
+  for (const previewURL of ['http://unsafe.example/a.m4a', 'https://audio.example/a.m4a']) {
+    const result = handle('POST', '/rooms', { playerId: 'removed-mode', name: 'Host', mode: 'sabitro',
+      songs: [{ id: 'itunes:1', title: '夜に駆ける', artist: 'YOASOBI', previewURL,
+        durationMS: 30000, genre: 'J-Pop' }], settings: { questionCount: 1 } }, new URLSearchParams());
+    assert.equal(result.status, 400);
+    assert.equal(result.body.error, 'この音源モードは利用できません');
+  }
+});
+
+test('removed preview endpoints and DB-only chorus lookup never call external services', async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async url => { requests.push(String(url)); throw new Error('No external lookup is allowed'); };
+  const request = async (method, url, body = {}) => {
+    const incoming = Readable.from(method === 'GET' ? [] : [Buffer.from(JSON.stringify(body))]);
+    incoming.method = method; incoming.url = url; incoming.headers = { host: 'localhost' };
+    return await new Promise(resolve => {
+      const response = {
+        writeHead(status) { this.status = status; },
+        end(data) { resolve({ status: this.status, body: JSON.parse(data) }); }
+      };
+      server.emit('request', incoming, response);
+    });
+  };
+  try {
+    assert.equal((await request('GET', '/itunes/search?term=test')).status, 404);
+    assert.equal((await request('POST', '/itunes/match', { title: '青い空', artist: '歌手' })).status, 404);
+    const song = { id: 'applemusic:123', title: '青い空', artist: '歌手', durationMS: 180000,
+      chorusMS: 63500, chorusSource: 'songle', songleURL: 'https://www.youtube.com/watch?v=old-chorus' };
+    for (const route of ['/chorus', '/chorus/database']) {
+      const result = await request('POST', route, song);
+      assert.equal(result.status, 200);
+      assert.deepEqual(result.body, { databaseConfigured: false, positionMS: null, source: null });
+    }
+    assert.deepEqual(requests, []);
+  } finally { globalThis.fetch = originalFetch; }
 });

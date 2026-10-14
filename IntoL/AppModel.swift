@@ -95,8 +95,6 @@ struct SoloGame {
     @Published var appleMusicSongs: [Song] = []
     @Published var selectedAppleMusicPlaylistID = ""
     private var playlistSelectionRevision = 0
-    @Published var itunesTerm = ""
-    @Published var itunesSongs: [Song] = []
     @Published var profileSyncStatus: String?
     @Published private(set) var profileSyncing = false
     @Published var bgmVolume = UserDefaults.standard.object(forKey: "bgmVolume") as? Double ?? 0.35 {
@@ -178,8 +176,6 @@ struct SoloGame {
         return created
     }()
     private var roomStatistics = RoomStatisticsLedger()
-    private var chorusPositions: [String: Int] = [:]
-    private var chorusLookups: [String: Task<Int?, Never>] = [:]
     private var revealAudioTask: Task<Void, Never>?
     @Published private(set) var revealReport: ChorusReport?
     @Published private(set) var chorusReportDraft: ChorusReport?
@@ -377,13 +373,6 @@ struct SoloGame {
         catch { alert = error.localizedDescription }
     }
 
-    func searchItunes() async {
-        rooms.baseURL = serverURL
-        busy = true; defer { busy = false }
-        do { itunesSongs = try await rooms.searchItunes(itunesTerm) }
-        catch { alert = error.localizedDescription }
-    }
-
     func startSolo(shared: Bool = false) async {
         let source = shared ? sharedSongs : searchSongs
         guard !source.isEmpty else { alert = shared ? "先に共有音源を読み込んでください" : "デモ曲がありません"; return }
@@ -392,36 +381,6 @@ struct SoloGame {
         defer { finishGameStart() }
         busy = true; defer { busy = false; preparationStatus = nil }
         do { try await launchSolo(songs: source, playlist: shared ? "共有音源" : "オリジナルデモ") }
-        catch { alert = error.localizedDescription }
-    }
-
-    func startItunesSolo() async {
-        let songs = itunesSongs.filter { $0.playablePreview && !TitleRules.characters($0.title).isEmpty }
-        guard !songs.isEmpty else { alert = "先に試聴曲を検索してください"; return }
-        guard !busy else { return }
-        beginGameStart()
-        defer { finishGameStart() }
-        busy = true; defer { busy = false; preparationStatus = nil }
-        do { try await launchSolo(songs: songs, playlist: "サビトロ · 試聴曲") }
-        catch { alert = error.localizedDescription }
-    }
-
-    func startSabitroSolo() async {
-        guard !appleMusicSongs.isEmpty else { alert = "先にプレイリストを選んでください"; return }
-        guard !busy else { return }
-        beginGameStart()
-        defer { finishGameStart() }
-        busy = true; defer { busy = false; preparationStatus = nil }
-        rooms.baseURL = serverURL
-        do {
-            let matches = try await playlistPreparation.songs(from: appleMusicSongs.shuffled(), count: 10,
-                namespace: "itunes:\(serverURL)", requiresPreview: true,
-                progress: { [weak self] ready, total in
-                    self?.preparationStatus = "出題曲を準備中 \(ready) / \(total)"
-                }, resolve: { [rooms] song in try await rooms.matchItunes(song) })
-            guard !matches.isEmpty else { alert = "iTunes に一致する試聴曲がありません"; return }
-            try await launchSolo(songs: matches, playlist: "サビトロ · " + (appleMusicPlaylists.first { $0.id == selectedAppleMusicPlaylistID }?.name ?? "Apple Music"))
-        } catch is CancellationError { }
         catch { alert = error.localizedDescription }
     }
 
@@ -626,9 +585,6 @@ struct SoloGame {
                 current.warning = error.localizedDescription
                 self.game = current
             }
-        }
-        if RevealAudioPlayback.hasFullAudio(song) {
-            _ = chorusLookup(for: song)
         }
     }
 
@@ -1053,43 +1009,15 @@ struct SoloGame {
             guard let self else { return }
             var playbackStartMS = 0
             do {
+                self.rooms.baseURL = self.serverURL
                 try await RevealAudioPlayback.play(song, databaseChorus: {
                     await self.rooms.databaseChorus(song)
-                }, databaseIsAuthoritative: {
-                    self.rooms.databaseIsAuthoritative(for: song)
                 }, databaseSource: {
                     RevealPlaybackSource(rawValue: self.rooms.chorusSources[song.id] ?? "") ?? .manualDatabase
-                }, chorus: {
-                    if self.rooms.databaseIsAuthoritative(for: song) {
-                        // Do not resurrect a deleted DB entry from a prepared task or per-song cache.
-                        return await self.rooms.chorus(song)
-                    }
-                    if let cached = RevealAudioPlayback.validChorus(self.chorusPositions[song.id], durationMS: song.durationMS) {
-                        return cached
-                    }
-                    return await self.chorusLookup(for: song).value
-                }, preview: {
-                    if song.id.hasPrefix("itunes:") { return song.previewURL }
-                    if song.id.hasPrefix("applemusic:") {
-                        if let preview = song.previewURL { return preview }
-                        if let preview = await self.appleMusic.previewURL(for: song.id) { return preview }
-                    }
-                    guard !Task.isCancelled else { return nil }
-                    return try? await self.rooms.matchItunes(song)?.previewURL
                 }, playFullAudio: { position in
                     playbackStartMS = try await self.playRevealFullAudio(song, positionMS: position)
-                }, playPreview: { preview in
-                    self.appleMusic.stop()
-                    self.appleMusicPlaying = false
-                    try await self.player.prepare(preview)
-                    try Task.checkCancellation()
-                    guard self.isRevealing(song) else { throw CancellationError() }
-                    try await self.player.startPreparedAndWait(preview)
-                }, stopPlayback: { self.stopAudioPlayers() }, chorusSource: {
-                    RevealPlaybackSource(rawValue: self.rooms.chorusSources[song.id] ?? "") ?? .songle
-                }, didStartPlayback: { source, _ in
-                    self.recordRevealPlayback(song, source: source,
-                                              startPositionMS: source == .preview ? 0 : playbackStartMS)
+                }, stopPlayback: { self.stopAudioPlayers() }, didStartPlayback: { source, _ in
+                    self.recordRevealPlayback(song, source: source, startPositionMS: playbackStartMS)
                 }, isCurrent: { self.isRevealing(song) })
             } catch {
                 guard !Task.isCancelled, !(error is CancellationError), self.isRevealing(song) else { return }
@@ -1139,21 +1067,6 @@ struct SoloGame {
     private func isRevealing(_ song: Song) -> Bool {
         if roomID != nil { return room?.phase == "reveal" && room?.current?.id == song.id }
         return game?.stage == .reveal && game?.current.id == song.id
-    }
-
-    private func chorusLookup(for song: Song) -> Task<Int?, Never> {
-        if let lookup = chorusLookups[song.id] { return lookup }
-        let lookup: Task<Int?, Never> = Task { [weak self] in
-            guard let self else { return nil }
-            self.rooms.baseURL = self.serverURL
-            return await self.rooms.chorus(song)
-        }
-        chorusLookups[song.id] = lookup
-        Task { [weak self] in
-            let position = await lookup.value
-            if let position { self?.chorusPositions[song.id] = position }
-        }
-        return lookup
     }
 
     var totalGames: Int { stats.games }
@@ -1208,7 +1121,7 @@ struct SoloGame {
                 throw AppError.message("対戦サーバーを更新してから、この音源でルームを作成してください")
             }
             roomSettings = RoomSettings()
-            enterRoom(state)
+            try await enterRoom(state)
         } catch { alert = error.localizedDescription }
     }
 
@@ -1332,16 +1245,12 @@ struct SoloGame {
                 } else {
                     songs = try await playlistPreparation.songs(from: selectedPlaylistSongs.shuffled(),
                         count: selectedSettings.questionCount, playedIDs: played,
-                        namespace: current.mode == "applemusic" ? "applemusic" : "itunes:\(serverURL)",
-                        requiresPreview: current.mode != "applemusic", cacheMisses: current.mode != "applemusic",
+                        namespace: "applemusic", cacheMisses: false,
                         progress: { [weak self] ready, total in
                             self?.preparationStatus = "出題曲を準備中 \(ready) / \(total)"
                             self?.roomStartProgress = Double(ready) / preparationSteps
-                        }, resolve: { [appleMusic, rooms] candidate in
-                            if current.mode == "applemusic" {
-                                return await appleMusic.catalogSongs(for: [candidate]).first
-                            }
-                            return try await rooms.matchItunes(candidate)
+                        }, resolve: { [appleMusic] candidate in
+                            await appleMusic.catalogSongs(for: [candidate]).first
                         })
                     guard songs.count >= selectedSettings.questionCount else {
                         throw AppError.message("指定された問題数分の曲を用意できません（照合可能: \(songs.count)曲）")
@@ -1406,7 +1315,7 @@ struct SoloGame {
                     throw AppError.message("このルームには Apple Music の接続とサブスクリプションが必要です")
                 }
             }
-            enterRoom(state)
+            try await enterRoom(state)
             return nil
         } catch {
             if reportErrors { alert = error.localizedDescription }
@@ -1479,7 +1388,7 @@ struct SoloGame {
                     throw AppError.message("このルームには Apple Music の接続とサブスクリプションが必要です")
                 }
             }
-            enterRoom(state)
+            try await enterRoom(state)
             await refreshFriends()
         } catch { alert = error.localizedDescription }
     }
@@ -1494,7 +1403,7 @@ struct SoloGame {
                 if state.phase == "lobby", (state.assetsReadyIds ?? []).contains(rooms.playerId) {
                     state = try await rooms.action("assets-unready", id: roomID)
                 }
-                enterRoom(state)
+                try await enterRoom(state)
                 return
             }
             catch {
@@ -1509,7 +1418,11 @@ struct SoloGame {
         }
     }
 
-    private func enterRoom(_ state: RoomState) {
+    private func enterRoom(_ state: RoomState) async throws {
+        guard ["shared", "applemusic"].contains(state.mode) else {
+            _ = try? await rooms.action("leave", id: state.id)
+            throw RoomHTTPError(status: 403, message: "この音源モードは利用できません", state: nil)
+        }
         leavingRoomID = nil
         roomRoundPreparation.cancel()
         roomAudioRevision += 1

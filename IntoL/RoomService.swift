@@ -257,28 +257,11 @@ struct RoomState: Decodable, Identifiable {
 }
 
 private struct RoomCatalog: Decodable { let songs: [Song] }
-private struct ItunesMatch: Decodable { let song: Song? }
 private struct CorpusResponse: Decodable { let titles: [String] }
 private struct ChorusResponse: Decodable {
     let positionMS: Int?
     let source: String?
     let databaseConfigured: Bool?
-}
-private struct SongleSearchEntry: Decodable {
-    struct Artist: Decodable { let name: String }
-    let title: String
-    let artist: Artist?
-    let duration: Double?
-    let permalink: URL?
-    let url: URL?
-}
-private struct SongleChorusMap: Decodable {
-    struct Segment: Decodable {
-        struct Repeat: Decodable { let start: Double }
-        let isChorus: Bool
-        let repeats: [Repeat]
-    }
-    let chorusSegments: [Segment]
 }
 private struct RoomFailure: Decodable { let error: String; let state: RoomState? }
 private struct RoomSocketMessage: Decodable {
@@ -311,7 +294,6 @@ struct SavedProfile: Decodable {
     private let session: URLSession
     private let databaseChorusLookup: ((Song) async -> Int?)?
     private(set) var chorusSources: [String: String] = [:]
-    private var authoritativeChorusIDs: Set<String> = []
     private var latestRoomState: RoomState?
     private(set) var serverClockOffsetMS = 0.0
     private var bestClockRTTMS = Double.infinity
@@ -324,7 +306,6 @@ struct SavedProfile: Decodable {
     var profileID: String
     var onProfileCredentialsChange: (() -> Void)?
     private(set) var token: String?
-    private var itunesMatches: [String: ItunesMatch] = [:]
     private var roomSocket: URLSessionWebSocketTask?
     private var socketRoomID: String?
     private var socketReady = false
@@ -561,26 +542,6 @@ struct SavedProfile: Decodable {
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw AppError.message("音源カタログを読み込めません") }
         return try JSONDecoder().decode(RoomCatalog.self, from: data).songs
     }
-    func searchItunes(_ term: String) async throws -> [Song] {
-        var url = try endpoint("itunes/search")
-        url.append(queryItems: [URLQueryItem(name: "term", value: term)])
-        let (data, response) = try await URLSession.shared.data(from: url)
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw AppError.message("iTunes 検索に失敗しました") }
-        return try JSONDecoder().decode(RoomCatalog.self, from: data).songs
-    }
-    func matchItunes(_ song: Song) async throws -> Song? {
-        if let cached = itunesMatches[song.id] { return cached.song }
-        var request = URLRequest(url: try endpoint("itunes/match"))
-        request.httpMethod = "POST"
-        request.timeoutInterval = 6
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(song)
-        let (data, response) = try await session.data(for: request)
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw AppError.message("iTunes 照合に失敗しました") }
-        let match = try JSONDecoder().decode(ItunesMatch.self, from: data)
-        itunesMatches[song.id] = match
-        return match.song
-    }
     func topSongs() async throws -> [String] {
         let (data, response) = try await URLSession.shared.data(from: endpoint("itunes/top"))
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { return [] }
@@ -588,7 +549,7 @@ struct SavedProfile: Decodable {
     }
     func databaseChorus(_ song: Song) async -> Int? {
         guard !song.id.hasPrefix("itunes:"), !Task.isCancelled else { return nil }
-        authoritativeChorusIDs.remove(song.id)
+        chorusSources[song.id] = nil
         if let url = try? endpoint("chorus/database") {
             var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
             request.httpMethod = "POST"
@@ -599,7 +560,6 @@ struct SavedProfile: Decodable {
                (response as? HTTPURLResponse)?.statusCode == 200,
                let result = try? JSONDecoder().decode(ChorusResponse.self, from: data),
                result.databaseConfigured == true {
-                authoritativeChorusIDs.insert(song.id)
                 chorusSources[song.id] = nil
                 guard let position = result.positionMS, position >= 0,
                       song.durationMS <= 0 || position < song.durationMS,
@@ -616,82 +576,6 @@ struct SavedProfile: Decodable {
         return position
     }
 
-    func databaseIsAuthoritative(for song: Song) -> Bool {
-        authoritativeChorusIDs.contains(song.id)
-    }
-
-    func chorus(_ song: Song) async -> Int? {
-        guard !song.id.hasPrefix("itunes:") else { return nil }
-        if let position = await databaseChorus(song) {
-            return position
-        }
-        guard !Task.isCancelled else { return nil }
-        if let url = try? endpoint("chorus") {
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.timeoutInterval = 16
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try? JSONEncoder().encode(song)
-            if let (data, response) = try? await session.data(for: request),
-               (response as? HTTPURLResponse)?.statusCode == 200,
-               let decoded = try? JSONDecoder().decode(ChorusResponse.self, from: data) {
-                if decoded.positionMS != nil {
-                    chorusSources[song.id] = ["manual_database", "songle_database", "songle"].contains(decoded.source ?? "")
-                        ? decoded.source : "songle"
-                }
-                return decoded.positionMS
-            }
-        }
-        let position = await songleChorus(song)
-        if position != nil { chorusSources[song.id] = "songle" }
-        return position
-    }
-    private func songleChorus(_ song: Song) async -> Int? {
-        var source = song.songleURL
-        if source == nil {
-            guard var search = URLComponents(string: "https://widget.songle.jp/api/v1/songs/search.json") else { return nil }
-            search.queryItems = [URLQueryItem(name: "q", value: "\(song.title) \(song.artist)".trimmingCharacters(in: .whitespaces))]
-            guard let url = search.url, let entries: [SongleSearchEntry] = await songleResponse(url) else { return nil }
-            let title = TitleRules.normalized(song.title)
-            let artist = TitleRules.normalized(song.artist.components(separatedBy: ",").first ?? song.artist)
-            let matches = entries.filter { entry in
-                TitleRules.normalized(entry.title) == title &&
-                    (artist.isEmpty || TitleRules.normalized(entry.artist?.name ?? "").contains(artist))
-            }
-            let closest = matches.min {
-                abs(($0.duration ?? Double(song.durationMS)) - Double(song.durationMS)) <
-                    abs(($1.duration ?? Double(song.durationMS)) - Double(song.durationMS))
-            }
-            source = closest?.permalink ?? closest?.url
-        }
-        guard var source, ["http", "https"].contains(source.scheme?.lowercased() ?? "") else { return nil }
-        if ["songle.jp", "www.songle.jp"].contains(source.host?.lowercased() ?? "") {
-            guard let path = URLComponents(url: source, resolvingAgainstBaseURL: false)?.percentEncodedPath,
-                  path.hasPrefix("/songs/"),
-                  let original = String(path.dropFirst("/songs/".count)).removingPercentEncoding,
-                  let decoded = URL(string: "https://\(original)") else { return nil }
-            source = decoded
-        }
-        guard let parts = URLComponents(url: source, resolvingAgainstBaseURL: false),
-              let host = parts.host?.lowercased(),
-              ["www.youtube.com", "youtube.com", "youtu.be", "www.nicovideo.jp", "www.niconico.jp"].contains(host),
-              parts.port == nil, parts.user == nil, parts.password == nil else { return nil }
-        var chorus = URLComponents(string: "https://widget.songle.jp/api/v1/song/chorus.json")!
-        chorus.queryItems = [URLQueryItem(name: "url", value:
-            host + parts.percentEncodedPath + (parts.percentEncodedQuery.map { "?\($0)" } ?? ""))]
-        guard let url = chorus.url, let map: SongleChorusMap = await songleResponse(url),
-              let start = map.chorusSegments.first(where: \.isChorus)?.repeats.first?.start,
-              start.isFinite, start >= 0, start < Double(song.durationMS > 0 ? song.durationMS : 180_000) else { return nil }
-        let maximum = Double(max(0, song.durationMS > 0 ? song.durationMS - 5000 : 175_000))
-        return Int(max(0, min(maximum, (start - 1500).rounded())))
-    }
-    private func songleResponse<Value: Decodable>(_ url: URL) async -> Value? {
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 8
-        guard let (data, response) = try? await session.data(for: request),
-              (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
-        return try? JSONDecoder().decode(Value.self, from: data)
-    }
     func action(_ action: String, id: String, payload: [String: Any] = [:]) async throws -> RoomState {
         var payload = payload
         if action == "choose" { payload["actionId"] = UUID().uuidString }

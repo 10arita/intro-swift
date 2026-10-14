@@ -3,7 +3,7 @@ import { randomUUID, randomInt, timingSafeEqual, createHash } from 'node:crypto'
 import { createReadStream, readFileSync, statSync, existsSync, mkdirSync, writeFileSync, renameSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import WebSocket, { WebSocketServer } from 'ws';
-import { searchItunes, matchItunes, topSongs, chorusResult } from './external.mjs';
+import { topSongs, chorusResult } from './external.mjs';
 import { manualChorusPosition } from './manual-chorus.mjs';
 import { sqliteChorusStore } from './sqlite-chorus.mjs';
 import { createChorusReportHandler } from './chorus-reports.mjs';
@@ -21,7 +21,7 @@ if (DATA_FILE && existsSync(DATA_FILE)) {
   try {
     const saved = JSON.parse(readFileSync(DATA_FILE, 'utf8'));
     for (const room of saved.rooms || []) {
-      if (!['shared', 'applemusic', 'sabitro'].includes(room.mode)) continue;
+      if (!['shared', 'applemusic'].includes(room.mode)) continue;
       room.pushed = new Set(room.pushed || []); room.skipped = new Set(room.skipped || []);
       room.settings.handicaps ||= {};
       room.readyIds = new Set(room.readyIds || []);
@@ -158,15 +158,14 @@ function catalogSongs(origin) {
 function suppliedSongs(value, mode) {
   return Array.isArray(value) ? value.slice(0, 50).filter(song =>
     song && typeof song.title === 'string' && normalize(song.title) && typeof song.artist === 'string' &&
-    ((mode === 'applemusic' && /^applemusic:\d+$/.test(song.id)) ||
-     (mode === 'sabitro' && /^itunes:\d+$/.test(song.id) && /^https:\/\//.test(song.previewURL || ''))))
+    mode === 'applemusic' && /^applemusic:\d+$/.test(song.id))
     .map(song => ({ id: song.id, title: song.title.slice(0, 150), artist: song.artist.slice(0, 100),
       artistTopTitles: artistTopTitles(song.artistTopTitles),
-      artworkURL: song.artworkURL || null, previewURL: mode === 'applemusic' ? null : song.previewURL,
+      artworkURL: song.artworkURL || null, previewURL: null,
       trackURL: song.trackURL || null, durationMS: Number(song.durationMS) || 180_000,
       genre: song.genre || 'その他', songleURL: song.songleURL || null,
-      chorusMS: Number.isFinite(song.chorusMS) ? song.chorusMS : null,
-      chorusSource: ['manual_database', 'songle_database', 'songle', 'song_metadata'].includes(song.chorusSource) ? song.chorusSource : null })) : [];
+      chorusMS: ['manual_database', 'songle_database'].includes(song.chorusSource) && Number.isFinite(song.chorusMS) ? song.chorusMS : null,
+      chorusSource: ['manual_database', 'songle_database'].includes(song.chorusSource) ? song.chorusSource : null })) : [];
 }
 function artistTopTitles(value) {
   return Array.isArray(value) ? value.filter(t => typeof t === 'string' && normalize(t)).slice(0, 6).map(t => t.slice(0, 150)) : [];
@@ -601,7 +600,7 @@ export function handle(method, path, body, query, authorization, origin = 'https
   if (method === 'POST' && path === '/rooms') {
     if (rooms.size >= 500) return fail(503, 'ルーム数の上限に達しました');
     const mode = body.mode ?? 'shared';
-    if (!['shared', 'applemusic', 'sabitro'].includes(mode)) return fail(400, 'この音源モードは利用できません');
+    if (!['shared', 'applemusic'].includes(mode)) return fail(400, 'この音源モードは利用できません');
     const supplied = suppliedSongs(body.songs, mode);
     const suppliedTopTitles = new Map((Array.isArray(body.songs) ? body.songs : [])
       .filter(song => song && typeof song.id === 'string').map(song => [song.id, artistTopTitles(song.artistTopTitles)]));
@@ -943,21 +942,14 @@ function closeRoomStreams(id) {
 function enrichStreamingChorus(id) {
   const room = rooms.get(id);
   const song = room && currentSong(room);
-  if (room && room.mode !== 'sabitro' && song) {
+  if (room && song) {
     let stored;
     try { stored = sqliteChorusStore.lookup(song); }
     catch { return; } // A missing/corrupt DB must not fail after the room response was already sent.
     const manual = stored.databaseConfigured ? null : manualChorusPosition(song);
-    if (stored.positionMS !== null || manual !== null) {
-      song.chorusMS = stored.positionMS ?? manual;
-      song.chorusSource = stored.source ?? 'manual_database'; persist();
-    } else if (!Number.isFinite(song.chorusMS) || stored.databaseConfigured) {
-      chorusResult(song).then(result => {
-        // A later round may already be active when the external lookup finishes.
-        if (rooms.get(id) !== room || currentSong(room) !== song) return;
-        song.chorusMS = result.positionMS; song.chorusSource = result.source; persist();
-      }).catch(() => {});
-    }
+    song.chorusMS = stored.positionMS ?? manual;
+    song.chorusSource = stored.source ?? (manual !== null ? 'manual_database' : null);
+    persist();
   }
 }
 
@@ -1052,12 +1044,6 @@ export const server = createServer(async (request, response) => {
     if (request.method === 'POST' && url.pathname === '/feedback') {
       const result = await reportFeedback(body);
       send(response, result.status, result.body); return;
-    }
-    if (request.method === 'GET' && url.pathname === '/itunes/search') {
-      send(response, 200, { songs: await searchItunes(url.searchParams.get('term') || '') }); return;
-    }
-    if (request.method === 'POST' && url.pathname === '/itunes/match') {
-      send(response, 200, { song: await matchItunes(body) }); return;
     }
     if (request.method === 'GET' && url.pathname === '/itunes/top') {
       send(response, 200, { titles: await topSongs() }); return;

@@ -166,7 +166,7 @@ struct FriendsView: View {
                                         HStack(spacing: 12) {
                                             VStack(alignment: .leading, spacing: 4) {
                                                 Text(invite.fromName).font(.subheadline.bold())
-                                                Text("\(invite.mode == "sabitro" ? "サビトロ" : "イントロ") · \(invite.playerCount.map { "\($0)/4人" } ?? "2〜4人")")
+                                                Text("イントロ · \(invite.playerCount.map { "\($0)/4人" } ?? "2〜4人")")
                                                     .font(.caption).foregroundStyle(Studio.secondary)
                                             }
                                             Spacer()

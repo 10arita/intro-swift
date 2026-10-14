@@ -1,10 +1,8 @@
 import SwiftUI
 import UIKit
 
-private enum PlayParty: Hashable { case solo, together }
-private enum PlayKind: Hashable { case intro, sabitro }
 private enum PlayStep: Hashable {
-    case home, together, mode(PlayParty), playlist(PlayKind), rank, join
+    case home, together, mode, playlist, rank, join
 }
 
 func playSharedAxisTransition(forward: Bool, reduceMotion: Bool) -> AnyTransition {
@@ -43,10 +41,10 @@ struct PlayView: View {
                 if startsTogether { step = .together }
                 #if DEBUG
                 switch previewStep {
-                case let value? where value.hasPrefix("mode"): step = .mode(.solo)
+                case let value? where value.hasPrefix("mode"): step = .mode
                 case let value? where value.hasPrefix("room-selection"): step = .together
                 case let value? where value.hasPrefix("code"): step = .join
-                case let value? where value.hasPrefix("playlist"): step = .playlist(.intro)
+                case let value? where value.hasPrefix("playlist"): step = .playlist
                 case let value? where value.hasPrefix("rank-setup"): step = .rank
                 default: break
                 }
@@ -133,7 +131,7 @@ struct PlayView: View {
                     VStack(spacing: 16) {
                         PlayFlowCard(title: "ひとりで", subtitle: "じっくり腕試し",
                                      symbol: "headphones") {
-                            navigate(to: .mode(.solo))
+                            navigate(to: .mode)
                         }
                         PlayFlowCard(title: "みんなで", subtitle: "友だちと早押し対戦",
                                      symbol: "person.2.fill", badge: "2〜4人", disabled: !model.serverConfigured) {
@@ -177,30 +175,14 @@ struct PlayView: View {
         case .together:
             VStack(spacing: 16) {
                 PlayFlowCard(title: "ルームを作る", subtitle: "友だちを招待しよう",
-                             symbol: "plus", prominent: true) {
-                    navigate(to: .mode(.together))
+                             symbol: "plus", prominent: true,
+                             disabled: model.busy || creatingRoom) {
+                    createIntroRoom()
                 }
                 PlayFlowCard(title: "コードで参加", subtitle: "6文字のコードで合流",
-                             symbol: "ticket.fill", prominent: true) {
-                    navigate(to: .join)
-                }
-            }
-        case .mode(let party):
-            VStack(spacing: 16) {
-                PlayFlowCard(title: "イントロ", subtitle: "曲のはじまりを聴こう",
-                             symbol: "play.fill", prominent: true,
+                             symbol: "ticket.fill", prominent: true,
                              disabled: model.busy || creatingRoom) {
-                    choose(.intro, party: party)
-                }
-                PlayFlowCard(title: "サビトロ", subtitle: "サビを聴いて当てよう",
-                             symbol: "music.note.list", prominent: true,
-                             disabled: !model.serverConfigured || model.busy || creatingRoom) {
-                    choose(.sabitro, party: party)
-                }
-                if party == .solo {
-                    PlayFlowCard(title: "ランク測定", subtitle: "共通の曲集で、今のイントロ力を測ろう",
-                                 symbol: "medal.fill", badge: "15〜20問・ベータ版", prominent: true,
-                                 disabled: model.busy) { navigate(to: .rank) }
+                    navigate(to: .join)
                 }
                 if creatingRoom {
                     ProgressView("ルームを作成しています…")
@@ -208,7 +190,18 @@ struct PlayView: View {
                         .frame(maxWidth: .infinity, minHeight: 44)
                 }
             }
-        case .playlist(let kind): SoloPlaylistSelection(kind: kind)
+        case .mode:
+            VStack(spacing: 16) {
+                PlayFlowCard(title: "イントロ", subtitle: "曲のはじまりを聴こう",
+                             symbol: "play.fill", prominent: true,
+                             disabled: model.busy || creatingRoom) {
+                    navigate(to: .playlist)
+                }
+                PlayFlowCard(title: "ランク測定", subtitle: "共通の曲集で、今のイントロ力を測ろう",
+                             symbol: "medal.fill", badge: "15〜20問・ベータ版", prominent: true,
+                             disabled: model.busy) { navigate(to: .rank) }
+            }
+        case .playlist: SoloPlaylistSelection()
         case .rank: RankMeasurementSetupView()
         case .join: RoomCodeEntryView()
         case .home: EmptyView()
@@ -217,10 +210,9 @@ struct PlayView: View {
 
     private var contextTitle: String {
         switch step {
-        case .mode(.solo): return "ひとりで"
+        case .mode: return "ひとりで"
         case .rank: return "ひとりで / イントロ"
-        case .playlist(let kind): return "ひとりで / \(kind == .intro ? "イントロ" : "サビトロ")"
-        case .mode(.together): return "みんなで / ルームを作る"
+        case .playlist: return "ひとりで / イントロ"
         case .join: return "みんなで / コードで参加"
         default: return "みんなで"
         }
@@ -240,11 +232,9 @@ struct PlayView: View {
     private var pageDescription: String {
         switch step {
         case .together: return "友だちと同じ曲を聴いて、早押し対戦。"
-        case .mode(.solo): return "好きな曲で遊ぶか、共通の曲集で腕試し。"
+        case .mode: return "好きな曲で遊ぶか、共通の曲集で腕試し。"
         case .rank: return ""
-        case .mode(.together): return "モードを選ぶとルームができあがります。\nプレイリストとルールは待機室で設定できます。"
-        case .playlist(.intro): return "Apple Music のライブラリから、好きな曲で遊ぼう。"
-        case .playlist(.sabitro): return "Apple Music のプレイリストにある曲を、試聴音源と照合します。"
+        case .playlist: return "Apple Music のライブラリから、好きな曲で遊ぼう。"
         case .join: return "英字6桁のルームコードを入力してください。"
         case .home: return ""
         }
@@ -262,24 +252,20 @@ struct PlayView: View {
         }
     }
 
-    private func choose(_ kind: PlayKind, party: PlayParty) {
-        if party == .solo {
-            navigate(to: .playlist(kind))
-        } else {
-            guard !creatingRoom, !model.busy else { return }
-            creatingRoom = true
-            Task { @MainActor in
-                defer { creatingRoom = false }
-                await model.createRoom(mode: kind == .intro ? "applemusic" : "sabitro")
-            }
+    private func createIntroRoom() {
+        guard !creatingRoom, !model.busy else { return }
+        creatingRoom = true
+        Task { @MainActor in
+            defer { creatingRoom = false }
+            await model.createRoom(mode: "applemusic")
         }
     }
 
     private func goBack() {
         switch step {
-        case .together, .mode(.solo): navigate(to: .home, forward: false)
-        case .mode(.together), .join: navigate(to: .together, forward: false)
-        case .playlist, .rank: navigate(to: .mode(.solo), forward: false)
+        case .together, .mode: navigate(to: .home, forward: false)
+        case .join: navigate(to: .together, forward: false)
+        case .playlist, .rank: navigate(to: .mode, forward: false)
         case .home: break
         }
     }
@@ -363,7 +349,6 @@ private struct PlayFlowCard: View {
 }
 
 private struct SoloPlaylistSelection: View {
-    let kind: PlayKind
     @EnvironmentObject private var model: AppModel
 
     var body: some View {
@@ -382,7 +367,7 @@ private struct SoloPlaylistSelection: View {
                         PrimaryButton(title: "Apple Music に接続", symbol: "arrow.right", disabled: model.busy) {
                             Task { await model.connectAppleMusic() }
                         }
-                        Text(kind == .intro ? "ライブラリへのアクセスとサブスクリプションが必要です。" : "ライブラリへのアクセスが必要です。")
+                        Text("ライブラリへのアクセスとサブスクリプションが必要です。")
                             .font(.caption).foregroundStyle(Studio.secondary)
                     }
                     .padding(8)
@@ -421,11 +406,8 @@ private struct SoloPlaylistSelection: View {
                                 .font(.subheadline.weight(.semibold)).foregroundStyle(Studio.secondary)
                             ForEach(model.appleMusicSongs.prefix(3)) { SongRow(song: $0) }
                             PrimaryButton(title: "プレイ開始", symbol: "play.fill",
-                                          disabled: model.busy || (kind == .intro && !model.appleMusicPlayable)) {
-                                Task {
-                                    if kind == .intro { await model.startAppleMusicSolo() }
-                                    else { await model.startSabitroSolo() }
-                                }
+                                          disabled: model.busy || !model.appleMusicPlayable) {
+                                Task { await model.startAppleMusicSolo() }
                             }
                         }
                     }
@@ -433,7 +415,7 @@ private struct SoloPlaylistSelection: View {
                     Text("このプレイリストには利用できる曲がありません。別のプレイリストを選んでください。")
                         .font(.subheadline).foregroundStyle(Studio.secondary)
                 }
-                if kind == .intro && !model.appleMusicPlayable {
+                if !model.appleMusicPlayable {
                     Text("曲の再生には Apple Music のサブスクリプションが必要です。")
                         .font(.caption).foregroundStyle(Studio.secondary)
                 }

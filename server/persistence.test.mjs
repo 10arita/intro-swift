@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -86,5 +86,27 @@ test('registration retry credentials survive a server restart after a lost ackno
       console.log(JSON.stringify({ status: retried.status, token: retried.body.token }));
     `, directory);
     assert.deepEqual(restored, { status: 200, token: registrationToken });
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('removed sabitro rooms are not restored from saved state', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'intol-removed-mode-'));
+  try {
+    const first = run(`
+      import { handle, saveStateNow } from './index.mjs';
+      const room = handle('POST', '/rooms', { playerId: 'removed-mode-player', name: 'Tester', settings: { questionCount: 1 } }, new URLSearchParams()).body;
+      saveStateNow();
+      console.log(JSON.stringify({ roomID: room.id, roomToken: room.sessionToken }));
+    `, directory);
+    const path = join(directory, 'state.json');
+    const saved = JSON.parse(readFileSync(path, 'utf8'));
+    saved.rooms[0].mode = 'sabitro';
+    writeFileSync(path, JSON.stringify(saved));
+    const restored = run(`
+      import { handle } from './index.mjs';
+      const room = handle('GET', '/rooms/${first.roomID}', {}, new URLSearchParams({ playerId: 'removed-mode-player' }), 'Bearer ${first.roomToken}');
+      console.log(JSON.stringify({ status: room.status }));
+    `, directory);
+    assert.equal(restored.status, 404);
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });

@@ -62,11 +62,8 @@ test('joining during preparation waits for the new player; countdown keeps its o
 }));
 
 test('all audio modes allow joining a running round without exposing the answer', () => withClock(advance => {
-  for (const mode of ['shared', 'applemusic', 'sabitro']) {
-    const options = mode === 'sabitro' ? { songs: [1, 2].map(id => ({
-      id: `itunes:${id}`, title: '青', artist: 'Artist', previewURL: `https://example.test/${id}.m4a`
-    })) } : {};
-    const g = game({ mode, ...options });
+  for (const mode of ['shared', 'applemusic']) {
+    const g = game({ mode });
     g.send('ready');
     advance(9_000);
     const before = g.state();

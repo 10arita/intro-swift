@@ -34,9 +34,9 @@ private final class ChorusReportProtocol: URLProtocol {
         precondition(playback["source"] as? String == "manual_database")
         precondition(playback["startPositionMS"] as? Int == 48_681)
         precondition(playback["audioSource"] as? String == "apple_music")
-        let preview = ChorusReport(song: song, source: .preview, startPositionMS: 0, playMode: "room")
-        precondition(preview.playback.audioSource == "itunes_preview")
-        for source in [RevealPlaybackSource.songleDatabase, .songle] {
+        let estimated = ChorusReport(song: song, source: .estimated, startPositionMS: 56_100, playMode: "room")
+        precondition(estimated.playback.source == .estimated && estimated.playback.audioSource == "apple_music")
+        for source in [RevealPlaybackSource.manualDatabase, .songleDatabase] {
             let report = ChorusReport(song: song, source: source, startPositionMS: 63_500, playMode: "room")
             let body = try JSONSerialization.jsonObject(with: JSONEncoder().encode(report)) as! [String: Any]
             let playback = body["playback"] as! [String: Any]

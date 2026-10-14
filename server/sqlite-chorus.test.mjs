@@ -172,7 +172,7 @@ test('a local DB edit reaches the private server replica and HTTP lookup while t
     for (const route of ['/chorus/database', '/chorus']) {
       const response = await fetch(origin + route, { method: 'POST',
         headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(otherAlbum) });
-      assert.deepEqual(await response.json(), storedSongle, `${route} must use DB before live Songle across albums`);
+      assert.deepEqual(await response.json(), storedSongle, `${route} must use stored DB positions across albums`);
     }
   } finally {
     watcher?.kill();

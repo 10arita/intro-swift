@@ -71,7 +71,7 @@ import Foundation
         _ = try await preparation.songs(from: [song("a", title: "青空")], count: 1, namespace: "applemusic",
             progress: { _, _ in }, resolve: resolver.resolve)
         precondition(resolver.calls.count == calls + 1, "Changed song metadata must be resolved again")
-        _ = try await preparation.songs(from: source, count: 2, namespace: "itunes:other-server",
+        _ = try await preparation.songs(from: source, count: 2, namespace: "applemusic:other-library",
             progress: { _, _ in }, resolve: resolver.resolve)
         precondition(resolver.calls.count == calls + 3, "Provider caches must stay independent")
     }
@@ -98,23 +98,23 @@ import Foundation
         let preparation = PlaylistPreparation(concurrency: 2)
         let resolver = Resolver()
         resolver.missing = ["missing"]
-        let source = [song("missing"), song("no-preview"), song("valid", preview: true), song("invalid", title: "♪", preview: true)]
-        let result = try await preparation.songs(from: source, count: 2, namespace: "itunes", requiresPreview: true,
+        let source = [song("missing"), song("valid"), song("invalid", title: "♪")]
+        let result = try await preparation.songs(from: source, count: 2, namespace: "cached-catalog",
             progress: { _, _ in }, resolve: resolver.resolve)
         precondition(result.map(\.id) == ["valid"])
         let calls = resolver.calls.count
-        _ = try await preparation.songs(from: source, count: 2, namespace: "itunes", requiresPreview: true,
+        _ = try await preparation.songs(from: source, count: 2, namespace: "cached-catalog",
             progress: { _, _ in }, resolve: resolver.resolve)
         precondition(resolver.calls.count == calls, "Completed no-match results should not trigger another scan")
 
         resolver.failing = ["retry"]
         do {
-            _ = try await preparation.songs(from: [song("retry")], count: 1, namespace: "itunes",
+            _ = try await preparation.songs(from: [song("retry")], count: 1, namespace: "cached-catalog",
                 progress: { _, _ in }, resolve: resolver.resolve)
             preconditionFailure("Network failures must be reported")
         } catch Resolver.Failure.unavailable { }
         resolver.failing = []
-        let recovered = try await preparation.songs(from: [song("retry")], count: 1, namespace: "itunes",
+        let recovered = try await preparation.songs(from: [song("retry")], count: 1, namespace: "cached-catalog",
             progress: { _, _ in }, resolve: resolver.resolve)
         precondition(recovered.count == 1 && resolver.calls.filter { $0 == "retry" }.count == 2)
 

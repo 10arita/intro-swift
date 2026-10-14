@@ -116,7 +116,7 @@
         ]] : []
         let invites: [[String: Any]] = scenario == "friends-invite" ? [[
           "id": "fixture-invite", "fromId": "fixture-haru", "fromName": "はる",
-          "roomId": "ABCDEF", "mode": "sabitro", "playerCount": 2, "createdAt": 0,
+          "roomId": "ABCDEF", "mode": "applemusic", "playerCount": 2, "createdAt": 0,
         ]] : []
         model.friendsState = try! JSONDecoder().decode(FriendsState.self,
           from: JSONSerialization.data(withJSONObject: ["friends": [], "requests": request, "invites": invites]))
@@ -252,7 +252,7 @@
         RoomState.self, from: JSONSerialization.data(withJSONObject: state))
       model.roomPushPending = scenario.contains("push-pending")
       if phase == "reveal" {
-        model.recordRevealPlayback(songs[2], source: .preview, startPositionMS: 0)
+        model.recordRevealPlayback(songs[2], source: .estimated, startPositionMS: 56_100)
       }
       model.roomAnswer = "青"
       model.roomOptions = ["い", "の", "き", "と"]

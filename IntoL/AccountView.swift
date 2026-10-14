@@ -254,7 +254,7 @@ struct AccountView: View {
                 DisclosureGroup(isExpanded: $showConnectionBenefits) {
                     VStack(alignment: .leading, spacing: 16) {
                         connectionBenefit("Apple Music",
-                            description: "自分のプレイリストでイントロ・サビトロを遊べます。イントロの再生にはサブスクリプションが必要です。")
+                            description: "自分のプレイリストでイントロを遊べます。再生にはサブスクリプションが必要です。")
                         connectionBenefit("iCloud",
                             description: "名前・アイコン・復習リスト・プレイ記録・音量設定を保存し、同じiCloudアカウントのiPhoneで引き継げます。")
                     }

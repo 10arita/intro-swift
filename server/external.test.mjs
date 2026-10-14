@@ -1,104 +1,39 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { matchItunes, topSongs, chorusPosition, chorusResult, fallbackChorus } from './external.mjs';
+import { topSongs, chorusPosition, chorusResult, fallbackChorus } from './external.mjs';
 
-test('iTunes matching requires the title and artist, and Songle starts before the chorus', async () => {
+test('top song metadata remains available for answer choices', async () => {
   const original = globalThis.fetch;
   globalThis.fetch = async url => {
-    const address = String(url);
-    if (address.includes('itunes.apple.com/search')) return new Response(JSON.stringify({ results: [
-      { trackId: 1, trackName: '怪獣の花唄', artistName: '別の人', previewUrl: 'https://audio.example/1.m4a' },
-      { trackId: 2, trackName: '怪獣の花唄', artistName: 'Vaundy', previewUrl: 'https://audio.example/2.m4a',
-        trackTimeMillis: 220000, primaryGenreName: 'J-Pop' }
-    ] }), { status: 200 });
-    if (address.includes('rss.applemarketingtools.com')) return new Response(JSON.stringify({ feed: { results: [{ name: '群青' }] } }), { status: 200 });
-    if (address.includes('song/chorus.json')) return new Response(JSON.stringify({ chorusSegments: [
-      { isChorus: true, repeats: [{ start: 65125.6 }] }
-    ] }), { status: 200 });
-    throw new Error(`Unexpected URL: ${address}`);
+    assert.ok(String(url).includes('rss.applemarketingtools.com'));
+    return new Response(JSON.stringify({ feed: { results: [{ name: '群青' }] } }), { status: 200 });
   };
-  try {
-    const match = await matchItunes({ title: '怪獣の花唄', artist: 'Vaundy' });
-    assert.equal(match.id, 'itunes:2');
-    assert.equal(match.genre, 'J-Pop');
-    assert.equal(await matchItunes({ title: '怪獣の花唄 (Live)', artist: 'Vaundy' }), null);
-    assert.equal(await matchItunes({ title: '怪獣の花唄', artist: 'Vaundy', durationMS: 190000 }), null);
-    assert.equal(await matchItunes({ title: '別の曲', artist: 'Vaundy' }), null);
-    assert.deepEqual(await topSongs(), ['群青']);
-    assert.equal(await chorusPosition({ durationMS: 220000, songleURL: 'https://www.youtube.com/watch?v=abc' }), 63626);
-    assert.equal((await chorusResult({ durationMS: 220000,
-      songleURL: 'https://www.youtube.com/watch?v=abc' })).source, 'songle');
-    assert.equal(fallbackChorus(180000), 56100);
-    assert.equal(fallbackChorus(181234), 56495);
-    assert.equal(fallbackChorus(30000), 25000);
-    assert.equal(fallbackChorus(3000), 0);
-  } finally { globalThis.fetch = original; }
+  try { assert.deepEqual(await topSongs(), ['群青']); }
+  finally { globalThis.fetch = original; }
 });
 
-test('Songle search uses the original video permalink for a revealed Apple Music song', async () => {
+test('DB misses never query Songle or iTunes, including songs with old URLs and positions', async () => {
   const original = globalThis.fetch;
   const requests = [];
   globalThis.fetch = async url => {
-    const address = new URL(url);
-    requests.push(address);
-    if (address.pathname.endsWith('/songs/search.json')) return new Response(JSON.stringify([
-      { title: '青い空', artist: { name: '別の人' }, permalink: 'http://www.youtube.com/watch?v=wrong' },
-      { title: '青い空', artist: { name: '歌手' }, duration: 400000,
-        permalink: 'http://www.youtube.com/watch?v=other-version' },
-      { title: '青い空', artist: { name: '歌手' },
-        duration: 210100,
-        url: 'https://songle.jp/songs/www.youtube.com%2Fwatch%3Fv%3Dcorrect',
-        permalink: 'http://www.youtube.com/watch?v=correct' }
-    ]), { status: 200 });
-    if (address.pathname.endsWith('/song/chorus.json')) return new Response(JSON.stringify({
-      chorusSegments: [{ isChorus: true, repeats: [{ start: 64000 }] }]
-    }), { status: 200 });
-    throw new Error(`Unexpected URL: ${address}`);
+    requests.push(String(url));
+    throw new Error('External lookups must not be used for chorus positions');
   };
   try {
-    assert.equal(await chorusPosition({ title: '青い空', artist: '歌手', durationMS: 210000 }), 62500);
-    assert.equal(requests.length, 2);
-    assert.equal(requests[1].searchParams.get('url'), 'www.youtube.com/watch?v=correct');
-  } finally { globalThis.fetch = original; }
-});
-
-test('Songle page URLs resolve to their original video', async () => {
-  const original = globalThis.fetch;
-  let sourceURL;
-  globalThis.fetch = async url => {
-    sourceURL = new URL(url).searchParams.get('url');
-    return new Response(JSON.stringify({ chorusSegments: [{ isChorus: true, repeats: [{ start: 50000 }] }] }), { status: 200 });
-  };
-  try {
-    assert.equal(await chorusPosition({ durationMS: 180000,
-      songleURL: 'https://songle.jp/songs/www.nicovideo.jp%2Fwatch%2Fsm123' }), 48500);
-    assert.equal(sourceURL, 'www.nicovideo.jp/watch/sm123');
-  } finally { globalThis.fetch = original; }
-});
-
-test('missing Songle chorus stays missing so the client can try a preview', async () => {
-  const original = globalThis.fetch;
-  globalThis.fetch = async () => new Response(JSON.stringify({ chorusSegments: [] }), { status: 200 });
-  try {
-    assert.equal(await chorusPosition({ durationMS: 180000,
-      songleURL: 'https://www.youtube.com/watch?v=no-chorus' }), null);
-  } finally { globalThis.fetch = original; }
-});
-
-test('invalid Songle timestamps do not bypass preview fallback, and zero is a valid position', async () => {
-  const original = globalThis.fetch;
-  let start;
-  globalThis.fetch = async () => new Response(JSON.stringify({
-    chorusSegments: [{ isChorus: true, repeats: [{ start }] }]
-  }), { status: 200 });
-  try {
-    for (const value of [-1, 180000, 1e100]) {
-      start = value;
-      assert.equal(await chorusPosition({ durationMS: 180000,
-        songleURL: `https://www.youtube.com/watch?v=invalid-${value}` }), null);
+    for (const id of ['applemusic:123', 'shared:recording', 'demo:aoi', 'itunes:123']) {
+      const song = { id, title: '青い空', artist: '歌手', durationMS: 180000,
+        songleURL: 'https://songle.jp/songs/www.nicovideo.jp%2Fwatch%2Fsm123',
+        previewURL: 'https://audio.example/preview.m4a', chorusMS: 63500, chorusSource: 'songle' };
+      assert.equal(await chorusPosition(song), null);
+      assert.deepEqual(await chorusResult(song), { positionMS: null, source: null, databaseConfigured: false });
     }
-    start = 1000;
-    assert.equal(await chorusPosition({ durationMS: 180000,
-      songleURL: 'https://www.youtube.com/watch?v=chorus-at-start' }), 0);
+    assert.deepEqual(requests, []);
   } finally { globalThis.fetch = original; }
+});
+
+test('duration estimates preserve audible time on short recordings', () => {
+  for (const [duration, position] of [[180000, 56100], [181234, 56495], [30000, 25000],
+    [3000, 0], [0, 56100], [600000, 88500]]) {
+    assert.equal(fallbackChorus(duration), position);
+  }
 });

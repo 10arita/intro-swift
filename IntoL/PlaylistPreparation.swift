@@ -19,7 +19,7 @@ import Foundation
     }
 
     func songs(from source: [Song], count: Int, playedIDs: Set<String> = [],
-               namespace: String, requiresPreview: Bool = false, cacheMisses: Bool = true,
+               namespace: String, cacheMisses: Bool = true,
                progress: (Int, Int) -> Void,
                resolve: @escaping @MainActor (Song) async throws -> Song?) async throws -> [Song] {
         guard count > 0 else { return [] }
@@ -31,7 +31,7 @@ import Foundation
         // Known played songs remain a fallback.
         func priority(_ song: Song) -> Int {
             guard let cached = matches[CacheKey(namespace: namespace, source: song)] else { return 1 }
-            guard let match = cached.song, (!requiresPreview || match.playablePreview),
+            guard let match = cached.song,
                   !TitleRules.characters(match.title).isEmpty else { return 3 }
             return playedIDs.contains(match.id) ? 2 : 1
         }
@@ -67,7 +67,7 @@ import Foundation
             for _ in 0..<min(concurrency, candidates.count) { enqueue() }
             while let match = try await group.next() {
                 try Task.checkCancellation()
-                if let match, (!requiresPreview || match.playablePreview),
+                if let match,
                    !TitleRules.characters(match.title).isEmpty, seen.insert(match.id).inserted {
                     if playedIDs.contains(match.id) { used.append(match) }
                     else { fresh.append(match) }
