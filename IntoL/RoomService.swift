@@ -43,6 +43,7 @@ struct FriendEntry: Decodable, Identifiable {
     let id: String
     let name: String
     let avatar: String?
+    let highestRankLevel: Int?
 }
 
 struct FriendRequest: Decodable, Identifiable {

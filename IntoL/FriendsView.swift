@@ -132,6 +132,7 @@ struct PlayerProfileSheet: View {
 struct FriendsView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     var inRoom = false
     var onClose: (() -> Void)? = nil
     var onCreateRoom: (() -> Void)? = nil
@@ -268,47 +269,70 @@ struct FriendsView: View {
     }
 
     private func friendList(_ state: FriendsState) -> some View {
-        LazyVStack(alignment: .leading, spacing: 0) {
+        LazyVStack(alignment: .leading, spacing: 12) {
             Text("フレンド \(state.friends.count)人")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(Studio.secondary)
-                .padding(.bottom, 12)
+                .accessibilityAddTraits(.isHeader)
             ForEach(state.friends) { friend in
-                HStack(spacing: 12) {
-                    Button {
-                        selectedProfile = PlayerProfileTarget(id: friend.id, name: friend.name, roomID: nil)
-                    } label: {
-                        HStack(spacing: 12) {
-                            PlayerAvatarView(data: nil, size: 40, encoded: friend.avatar)
-                            Text(friend.name).font(.headline).foregroundStyle(Studio.primary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .frame(minHeight: 72)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(StudioButtonStyle(.tertiary))
-                    .accessibilityLabel("\(friend.name)のプロフィールを見る")
-                    if model.room?.acceptsNewPlayers == true {
-                        if model.room?.players.contains(where: { $0.friendProfileId == friend.id }) == true {
-                            Text("参加中").font(.caption).foregroundStyle(Studio.secondary)
-                        } else {
-                            let invited = model.hasInvitedFriend(friend.id)
-                            Button(invited ? "招待済み" : "招待") { Task { await model.inviteFriend(friend.id) } }
-                                .buttonStyle(StudioButtonStyle(.secondary))
-                                .disabled(model.friendsLoading || invited || (model.room?.players.count ?? 4) >= 4)
-                        }
-                    } else {
-                        Image(systemName: "chevron.right").font(.caption).foregroundStyle(Studio.secondary)
-                            .accessibilityHidden(true)
-                    }
-                }
-                if friend.id != state.friends.last?.id { Divider().overlay(Studio.line) }
+                friendCard(friend)
             }
             if model.room == nil {
                 Text("ルームを作成するとフレンドを招待できます")
-                    .font(.caption).foregroundStyle(Studio.secondary).padding(.top, 16)
+                    .font(.caption).foregroundStyle(Studio.secondary).padding(.top, 4)
             }
         }
+    }
+
+    private func friendCard(_ friend: FriendEntry) -> some View {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
+            : AnyLayout(HStackLayout(spacing: 12))
+        return StudioCard {
+            layout {
+                Button {
+                    selectedProfile = PlayerProfileTarget(id: friend.id, name: friend.name, roomID: nil)
+                } label: {
+                    HStack(spacing: 12) {
+                        PlayerAvatarView(data: nil, size: 48, encoded: friend.avatar)
+                        RankedProfileLabel(level: friend.highestRankLevel) {
+                            Text(friend.name)
+                                .font(.headline)
+                                .foregroundStyle(Studio.primary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        if model.room?.acceptsNewPlayers != true {
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundStyle(Studio.secondary)
+                                .accessibilityHidden(true)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(StudioButtonStyle(.tertiary))
+                .accessibilityLabel(friendProfileAccessibilityLabel(friend))
+                if model.room?.acceptsNewPlayers == true {
+                    if model.room?.players.contains(where: { $0.friendProfileId == friend.id }) == true {
+                        Text("参加中").font(.caption).foregroundStyle(Studio.secondary)
+                    } else {
+                        let invited = model.hasInvitedFriend(friend.id)
+                        Button(invited ? "招待済み" : "招待") { Task { await model.inviteFriend(friend.id) } }
+                            .buttonStyle(StudioButtonStyle(.secondary))
+                            .disabled(model.friendsLoading || invited || (model.room?.players.count ?? 4) >= 4)
+                    }
+                }
+            }
+        }
+    }
+
+    private func friendProfileAccessibilityLabel(_ friend: FriendEntry) -> String {
+        guard let level = friend.highestRankLevel, IntroRank.names.indices.contains(level) else {
+            return "\(friend.name)のプロフィールを見る"
+        }
+        return "\(friend.name)のプロフィールを見る、ランク測定の最高記録、\(IntroRank.name(level))相当"
     }
 }
 

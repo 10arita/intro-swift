@@ -121,6 +121,16 @@
         model.friendsState = try! JSONDecoder().decode(FriendsState.self,
           from: JSONSerialization.data(withJSONObject: ["friends": [], "requests": request, "invites": invites]))
       }
+      if scenario.hasPrefix("friends-list") {
+        let friends: [[String: Any]] = [
+          ["id": "fixture-haru", "name": "はる", "highestRankLevel": 10],
+          ["id": "fixture-aoi", "name": "あおい", "highestRankLevel": 7],
+          ["id": "fixture-long-name", "name": "イントロクイズが大好きなプレイヤー", "highestRankLevel": 0],
+          ["id": "fixture-yu", "name": "ゆう"],
+        ]
+        model.friendsState = try! JSONDecoder().decode(FriendsState.self,
+          from: JSONSerialization.data(withJSONObject: ["friends": friends, "requests": [], "invites": []]))
+      }
       let artworkURL = ProcessInfo.processInfo.arguments.first { $0.hasPrefix("--ui-artwork-url=") }
         .flatMap { URL(string: String($0.dropFirst("--ui-artwork-url=".count))) }
       let songs = ["青い空", "春風", "夜明け"].enumerated().map { index, title in
@@ -282,4 +292,7 @@
   #Preview("プレイリスト・空") { UIExamples(scenario: "playlist-empty") }
   #Preview("モード選択・大きな文字") { UIExamples(scenario: "mode-large-text") }
   #Preview("ルーム選択・ダーク") { UIExamples(scenario: "room-selection-dark") }
+  #Preview("フレンド・カード一覧") { UIExamples(scenario: "friends-list") }
+  #Preview("フレンド・ダーク") { UIExamples(scenario: "friends-list-dark") }
+  #Preview("フレンド・大きな文字") { UIExamples(scenario: "friends-list-large-text") }
 #endif

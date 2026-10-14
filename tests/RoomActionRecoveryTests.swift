@@ -296,6 +296,17 @@ private final class TestRoomProtocol: URLProtocol {
         TestRoomProtocol.replies = [.init(state: ["name": "Rank player", "highestRankLevel": 0])]
         let measuredF = try await service.playerProfile(friendID: "friend-rank")
         precondition(measuredF.highestRankLevel == 0, "Measured F must remain different from unmeasured")
+        var friends: [[String: Any]] = (0...10).map {
+            ["id": "friend-rank-\($0)", "name": "Rank player", "highestRankLevel": $0]
+        }
+        friends.append(["id": "friend-legacy", "name": "Legacy player"])
+        friends.append(["id": "friend-unmeasured", "name": "Unmeasured player", "highestRankLevel": NSNull()])
+        let friendState = try JSONDecoder().decode(FriendsState.self,
+            from: JSONSerialization.data(withJSONObject: ["friends": friends, "requests": [], "invites": []]))
+        precondition(Array(friendState.friends.prefix(11)).map(\.highestRankLevel) == Array(0...10).map(Optional.some),
+                     "The friends list must preserve every measured rank, including F")
+        precondition(friendState.friends.suffix(2).allSatisfy { $0.highestRankLevel == nil },
+                     "Friends from older servers and unmeasured friends must remain readable without a badge")
         TestRoomProtocol.replies = [.init(error: URLError(.networkConnectionLost)), .init(state: [:])]
         do {
             try await service.publishProfile(name: "Rank player", avatar: nil, stats: PlayerStats(), highestRankLevel: 8)

@@ -172,7 +172,7 @@ test('room friends require approval and invitations join without entering a code
   query, `Bearer ${bob.token}`).status, 200);
   const aliceFriends = () => handle('GET', '/friends', {},
     new URLSearchParams({ profileId: alice.id }), `Bearer ${alice.token}`).body.friends;
-  assert.deepEqual(aliceFriends(), [{ id: bob.id, name: 'Bob', avatar }]);
+  assert.deepEqual(aliceFriends(), [{ id: bob.id, name: 'Bob', avatar, highestRankLevel: 7 }]);
   handle('PUT', '/profile', { id: bob.id, avatar: '' }, query, `Bearer ${bob.token}`);
   assert.equal(aliceFriends()[0].avatar, null);
   handle('PUT', '/profile', { id: bob.id, avatar }, query, `Bearer ${bob.token}`);
@@ -228,6 +228,35 @@ test('room friends require approval and invitations join without entering a code
   assert.equal(handle('GET', '/friends', {}, new URLSearchParams({ profileId: bob.id }), `Bearer ${bob.token}`).body.invites.length, 0);
   assert.deepEqual(handle('GET', '/friends', {},
     new URLSearchParams({ profileId: alice.id }), `Bearer ${alice.token}`).body.sentInvites, []);
+});
+
+test('friends lists share current highest ranks after approval and distinguish unmeasured from F', () => {
+  const query = new URLSearchParams();
+  const sender = handle('POST', '/profile', { id: 'friend-rank-sender' }, query).body;
+  const viewer = handle('POST', '/profile', { id: 'friend-rank-viewer' }, query).body;
+  const room = handle('POST', '/rooms', { playerId: sender.id, profileId: sender.id,
+    profileToken: sender.token, name: 'Rank friend', settings: { questionCount: 1 } }, query).body;
+  handle('POST', `/rooms/${room.id}/join`, { playerId: viewer.id, profileId: viewer.id,
+    profileToken: viewer.token, name: 'Viewer' }, query);
+  const list = profile => handle('GET', '/friends', {},
+    new URLSearchParams({ profileId: profile.id }), `Bearer ${profile.token}`).body;
+  assert.deepEqual(list(viewer).friends, []);
+  assert.equal(handle('POST', `/rooms/${room.id}/friend-request`, { playerId: sender.id, targetId: viewer.id },
+    query, `Bearer ${room.sessionToken}`).status, 200);
+  handle('PUT', '/profile', { id: sender.id, highestRankLevel: 0 }, query, `Bearer ${sender.token}`);
+  const accepted = handle('POST', '/friends/accept', { profileId: viewer.id,
+    requestId: list(viewer).requests[0].id }, query, `Bearer ${viewer.token}`);
+  assert.equal(accepted.status, 200);
+  assert.deepEqual(accepted.body.friends, [{ id: sender.id, name: 'Rank friend', avatar: null, highestRankLevel: 0 }]);
+  assert.equal(list(sender).friends[0].highestRankLevel, null);
+  for (let level = 0; level <= 10; level++) {
+    handle('PUT', '/profile', { id: sender.id, highestRankLevel: level }, query, `Bearer ${sender.token}`);
+    assert.equal(list(viewer).friends[0].highestRankLevel, level);
+  }
+  handle('PUT', '/profile', { id: sender.id, highestRankLevel: 2 }, query, `Bearer ${sender.token}`);
+  handle('PUT', '/profile', { id: sender.id, name: 'Renamed friend' }, query, `Bearer ${sender.token}`);
+  assert.deepEqual(list(viewer).friends, [{ id: sender.id, name: 'Renamed friend', avatar: null, highestRankLevel: 10 }]);
+  assert.equal(handle('GET', '/friends', {}, new URLSearchParams({ profileId: viewer.id })).status, 403);
 });
 
 test('room player profile is available before a profile is linked', () => {

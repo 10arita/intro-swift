@@ -214,7 +214,8 @@ function acceptsNewPlayers(room) {
 function publicFriends(profile) {
   return {
     friends: (profile.friends || []).map(id => profiles.get(id)).filter(Boolean)
-      .map(friend => ({ id: friend.id, name: friend.name || friend.id, avatar: friend.avatar || null })),
+      .map(friend => ({ id: friend.id, name: friend.name || friend.id, avatar: friend.avatar || null,
+        highestRankLevel: publicHighestRankLevel(friend) })),
     requests: (profile.friendRequests || []).filter(item => profiles.has(item.fromId)),
     invites: (profile.invites || []).filter(item => {
       const room = rooms.get(item.roomId);
@@ -235,14 +236,17 @@ function publicAveragePush(stats) {
     Number.isFinite(stats.totalPushSeconds) ? stats.totalPushSeconds / stats.attempts : NaN;
   return Number.isFinite(average) && average >= 0 && average <= 30 ? average : null;
 }
+function publicHighestRankLevel(profile) {
+  return Number.isSafeInteger(profile?.highestRankLevel) &&
+    profile.highestRankLevel >= 0 && profile.highestRankLevel <= 10 ? profile.highestRankLevel : null;
+}
 function publicProfile(profile, player = null) {
   const stats = profile?.publicStats ?? profile?.stats;
   return {
     name: player?.name || profile?.name || 'プレイヤー',
     avatar: player?.avatar || profile?.avatar || null,
     badge: player?.badge || stats?.selectedBadge || profile?.badge || null,
-    highestRankLevel: Number.isSafeInteger(profile?.highestRankLevel) &&
-      profile.highestRankLevel >= 0 && profile.highestRankLevel <= 10 ? profile.highestRankLevel : null,
+    highestRankLevel: publicHighestRankLevel(profile),
     stats: stats && typeof stats === 'object' ? {
       games: Number.isFinite(stats.games) ? stats.games : 0,
       attempts: Number.isFinite(stats.attempts) ? stats.attempts : 0,
