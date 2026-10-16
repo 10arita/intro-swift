@@ -350,6 +350,13 @@ private struct PlayFlowCard: View {
 
 private struct SoloPlaylistSelection: View {
     @EnvironmentObject private var model: AppModel
+    @State private var preferredQuestionCount = 10
+
+    private var availableSongCount: Int { Set(model.appleMusicSongs.map(\.id)).count }
+    private var questionCount: Int { min(max(1, preferredQuestionCount), availableSongCount) }
+    private var questionCountSelection: Binding<Int> {
+        Binding(get: { questionCount }, set: { preferredQuestionCount = $0 })
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -405,9 +412,27 @@ private struct SoloPlaylistSelection: View {
                             Text("\(model.appleMusicSongs.count)曲を読み込みました")
                                 .font(.subheadline.weight(.semibold)).foregroundStyle(Studio.secondary)
                             ForEach(model.appleMusicSongs.prefix(3)) { SongRow(song: $0) }
-                            PrimaryButton(title: "プレイ開始", symbol: "play.fill",
+                            Divider().overlay(Studio.line)
+                            Stepper(value: questionCountSelection, in: 1...availableSongCount) {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text("問題数").font(.headline).foregroundStyle(Studio.primary)
+                                    Text("\(questionCount)問")
+                                        .font(.title3.weight(.bold).monospacedDigit())
+                                        .foregroundStyle(Studio.accent)
+                                }
+                            }
+                            .frame(minHeight: 44)
+                            .disabled(model.busy)
+                            .accessibilityLabel("問題数")
+                            .accessibilityValue("\(questionCount)問")
+                            .accessibilityHint("1問から\(availableSongCount)問まで変更できます")
+                            .accessibilityIdentifier("solo-question-count")
+                            Text("1〜\(availableSongCount)問から選べます。同じ曲は重複して出題されません。")
+                                .font(.caption).foregroundStyle(Studio.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            PrimaryButton(title: "\(questionCount)問でプレイ開始", symbol: "play.fill",
                                           disabled: model.busy || !model.appleMusicPlayable) {
-                                Task { await model.startAppleMusicSolo() }
+                                Task { await model.startAppleMusicSolo(questionCount: questionCount) }
                             }
                         }
                     }

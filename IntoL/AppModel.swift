@@ -357,7 +357,7 @@ struct SoloGame {
         }
     }
 
-    func startAppleMusicSolo() async {
+    func startAppleMusicSolo(questionCount: Int = 10) async {
         guard appleMusicConnected, appleMusicPlayable else {
             alert = "Apple Music の再生にはアクセス許可と有効なサブスクリプションが必要です"
             return
@@ -369,7 +369,7 @@ struct SoloGame {
         beginGameStart()
         defer { finishGameStart() }
         busy = true; defer { busy = false; preparationStatus = nil }
-        do { try await launchSolo(songs: appleMusicSongs, playlist: "Apple Music · \(name)") }
+        do { try await launchSolo(songs: appleMusicSongs, playlist: "Apple Music · \(name)", questionCount: questionCount) }
         catch { alert = error.localizedDescription }
     }
 
@@ -492,10 +492,10 @@ struct SoloGame {
         persist()
     }
 
-    private func launchSolo(songs source: [Song], playlist: String) async throws {
+    private func launchSolo(songs source: [Song], playlist: String, questionCount: Int = 10) async throws {
         guard canStartSolo else { throw AppError.message("先に現在のゲームまたはルームを終了してください") }
         let candidates = uniqueSongs(source)
-        let limit = min(10, candidates.count)
+        let limit = min(max(1, questionCount), candidates.count)
         preparationStatus = "選択肢を準備中"
         let songs = await withArtistTopTitles(Array(candidates.shuffled().prefix(limit)))
         preparationStatus = "画像と音源を準備中 0 / \(songs.count)"
