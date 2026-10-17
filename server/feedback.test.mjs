@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
@@ -12,25 +12,49 @@ import { server } from './index.mjs';
 
 const webhook = 'https://discord.com/api/webhooks/123456/fake-token';
 const makeFeedback = () => ({ id: '12345678-1234-1234-1234-123456789abc',
+  category: 'suggestion',
   message: 'プレイリストの検索ができると嬉しいです。\n@everyone', appVersion: '1.0', appBuild: '7' });
 const confirmation = () => new Response(JSON.stringify({ id: 'discord-message-1' }), { status: 200 });
 
-test('feedback forwards only message and app version to its Discord webhook', async () => {
-  const input = { ...makeFeedback(), nickname: 'PRIVATE-NAME', profileId: 'PRIVATE-ID', roomId: 'PRIVATE-ROOM',
-    deviceID: 'PRIVATE-DEVICE', token: 'PRIVATE-TOKEN' };
-  const feedback = createFeedbackHandler({ webhookURL: () => webhook, fetchImpl: async (url, options) => {
-    assert.equal(url.searchParams.get('wait'), 'true');
-    assert.equal(options.redirect, 'error');
+for (const [category, label] of [['bug', '不具合・バグ'], ['suggestion', 'ご意見・ご要望']]) {
+  test(`feedback forwards ${category} with its Japanese category, message, and app version`, async () => {
+    const input = { ...makeFeedback(), category, nickname: 'PRIVATE-NAME', profileId: 'PRIVATE-ID', roomId: 'PRIVATE-ROOM',
+      deviceID: 'PRIVATE-DEVICE', token: 'PRIVATE-TOKEN' };
+    const feedback = createFeedbackHandler({ webhookURL: () => webhook, fetchImpl: async (url, options) => {
+      assert.equal(url.searchParams.get('wait'), 'true');
+      assert.equal(options.redirect, 'error');
+      const payload = JSON.parse(options.body);
+      assert.deepEqual(payload.allowed_mentions, { parse: [] });
+      assert.equal(payload.embeds[0].title, 'ご意見送信フォーム · 匿名送信');
+      assert.deepEqual(payload.embeds[0].fields[0], { name: '種別', value: label, inline: true });
+      assert.equal(payload.embeds[0].description, input.message);
+      assert.ok(options.body.includes('1.0 (7)'));
+      assert.ok(!options.body.includes('PRIVATE-'));
+      return confirmation();
+    } });
+    assert.deepEqual(Object.keys(normalizeFeedback(input)), ['id', 'category', 'message', 'appVersion', 'appBuild']);
+    assert.equal((await feedback(input)).body.delivered, true);
+  });
+}
+
+test('feedback rejects unsupported categories before forwarding to Discord', async () => {
+  let calls = 0;
+  const feedback = createFeedbackHandler({ webhookURL: () => webhook, fetchImpl: async () => { calls++; return confirmation(); } });
+  for (const category of [null, '', 'BUG', 'other', '__proto__', 'constructor', 0, true, [], {}]) {
+    assert.equal((await feedback({ ...makeFeedback(), category })).status, 400);
+  }
+  assert.equal(calls, 0);
+});
+
+test('older apps can still send uncategorized feedback without being assigned a category', async () => {
+  const { category, ...legacy } = makeFeedback();
+  const feedback = createFeedbackHandler({ webhookURL: () => webhook, fetchImpl: async (_, options) => {
     const payload = JSON.parse(options.body);
-    assert.deepEqual(payload.allowed_mentions, { parse: [] });
-    assert.equal(payload.embeds[0].title, '意見・お問い合わせ · 匿名送信');
-    assert.equal(payload.embeds[0].description, input.message);
-    assert.ok(options.body.includes('1.0 (7)'));
-    assert.ok(!options.body.includes('PRIVATE-'));
+    assert.equal(payload.embeds[0].fields[0].value, '未選択（旧バージョン）');
     return confirmation();
   } });
-  assert.deepEqual(Object.keys(normalizeFeedback(input)), ['id', 'message', 'appVersion', 'appBuild']);
-  assert.equal((await feedback(input)).body.delivered, true);
+  assert.ok(!Object.hasOwn(normalizeFeedback(legacy), 'category'));
+  assert.equal((await feedback(legacy)).body.delivered, true);
 });
 
 test('feedback rejects empty, malformed, and oversized messages before sending', async () => {
@@ -63,8 +87,27 @@ test('feedback retains one receipt for simultaneous sends, retries, and server r
     assert.equal((await createFeedbackHandler(options)(makeFeedback())).status, 200);
     assert.equal(calls, 1);
     assert.equal((await feedback({ ...makeFeedback(), message: '変更した内容' })).status, 409);
+    assert.equal((await feedback({ ...makeFeedback(), category: 'bug' })).status, 409);
     const saved = readFileSync(join(directory, 'feedback-reports.json'), 'utf8');
     assert.ok(saved.includes('プレイリスト')); assert.ok(!saved.includes('fake-token'));
+    assert.equal(JSON.parse(saved)[0].report.category, 'suggestion');
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('feedback restores both legacy and categorized delivery receipts after an upgrade', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'intol-feedback-upgrade-'));
+  try {
+    const { category, ...legacy } = makeFeedback();
+    const categorized = { ...makeFeedback(), id: '12345678-1234-1234-1234-000000000001', category: 'bug' };
+    writeFileSync(join(directory, 'feedback-reports.json'), JSON.stringify(
+      [legacy, categorized].map(report => ({ report, receivedAt: Date.now() }))));
+    let calls = 0;
+    const feedback = createFeedbackHandler({ dataDir: directory, webhookURL: () => webhook,
+      fetchImpl: async () => { calls++; return confirmation(); } });
+    assert.equal((await feedback(legacy)).body.delivered, true);
+    assert.equal((await feedback(categorized)).body.delivered, true);
+    assert.equal(calls, 0, 'Previously delivered reports must not be sent again');
+    assert.equal((await feedback({ ...categorized, category: 'suggestion' })).status, 409);
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 

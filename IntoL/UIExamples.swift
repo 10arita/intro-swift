@@ -281,9 +281,9 @@
   #Preview("報告・送信と完了") { UIExamples(scenario: "reveal-report-success") }
   #Preview("結果") { UIExamples(scenario: "result-dark") }
   #Preview("モード選択") { UIExamples(scenario: "mode") }
-  #Preview("ホーム・お問い合わせ") { UIExamples(scenario: "home-feedback-success") }
-  #Preview("お問い合わせ・失敗") { UIExamples(scenario: "home-feedback-error") }
-  #Preview("お問い合わせ・大きな文字") { UIExamples(scenario: "home-feedback-success-large-text") }
+  #Preview("ホーム・ご意見送信フォーム") { UIExamples(scenario: "home-feedback-success") }
+  #Preview("ご意見送信フォーム・失敗") { UIExamples(scenario: "home-feedback-error") }
+  #Preview("ご意見送信フォーム・大きな文字") { UIExamples(scenario: "home-feedback-success-large-text") }
   #Preview("ルーム選択") { UIExamples(scenario: "room-selection") }
   #Preview("コード入力") { UIExamples(scenario: "code") }
   #Preview("Apple Music 接続") { UIExamples(scenario: "playlist-connect") }

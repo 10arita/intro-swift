@@ -77,9 +77,10 @@ private final class ChorusReportProtocol: URLProtocol {
         ChorusReportProtocol.status = 200
         ChorusReportProtocol.reply = Data(#"{"delivered":true}"#.utf8)
         let service = FeedbackReportService(session: session)
-        let report = FeedbackReport(message: "  ご意見です。\n改善をお願いします。  ")
+        let report = FeedbackReport(category: .suggestion, message: "  ご意見です。\n改善をお願いします。  ")
         let body = try JSONSerialization.jsonObject(with: JSONEncoder().encode(report)) as! [String: Any]
-        precondition(Set(body.keys) == ["id", "message", "appVersion", "appBuild"])
+        precondition(Set(body.keys) == ["id", "category", "message", "appVersion", "appBuild"])
+        precondition(body["category"] as? String == "suggestion")
         precondition(report.message == "ご意見です。\n改善をお願いします。")
         for text in ["", " \n\t", String(repeating: "あ", count: 2_001), String(repeating: "🎵", count: 1_001)] {
             precondition(!FeedbackReport.isValid(text))
@@ -93,6 +94,10 @@ private final class ChorusReportProtocol: URLProtocol {
         precondition(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
         try await service.send(report, serverURL: "https://quiz.test")
         precondition(request.httpBody == ChorusReportProtocol.requests.last!.httpBody)
+        let bugReport = FeedbackReport(category: .bug, message: "画面が動かなくなりました")
+        try await service.send(bugReport, serverURL: "https://quiz.test")
+        let bugBody = try JSONSerialization.jsonObject(with: JSONEncoder().encode(bugReport)) as! [String: Any]
+        precondition(bugBody["category"] as? String == "bug")
         for (status, reply) in [(200, #"{"delivered":false}"#), (200, #"{}"#), (503, #"{"error":"受付は停止中です"}"#)] {
             ChorusReportProtocol.status = status
             ChorusReportProtocol.reply = Data(reply.utf8)
@@ -104,7 +109,7 @@ private final class ChorusReportProtocol: URLProtocol {
             do { try await service.send(report, serverURL: url); preconditionFailure("Unsafe or missing configuration") }
             catch { precondition(ChorusReportProtocol.requests.count == requestCount) }
         }
-        do { try await service.send(FeedbackReport(message: " "), serverURL: "https://quiz.test"); preconditionFailure("Empty message") }
+        do { try await service.send(FeedbackReport(category: .bug, message: " "), serverURL: "https://quiz.test"); preconditionFailure("Empty message") }
         catch { precondition(ChorusReportProtocol.requests.count == requestCount) }
         ChorusReportProtocol.failure = URLError(.notConnectedToInternet)
         do { try await service.send(report, serverURL: "https://quiz.test"); preconditionFailure("Offline") }
@@ -120,24 +125,45 @@ private final class ChorusReportProtocol: URLProtocol {
             if shouldFail { throw URLError(.notConnectedToInternet) }
         }
         model.present()
+        precondition(model.category == nil && !model.canSubmit)
+        model.message = "問い合わせ"
+        await model.submit(serverURL: "https://quiz.test")
+        precondition(attempts.isEmpty && !model.canSubmit, "A category must be explicitly selected")
+        model.category = .bug
         model.message = " \n "
         await model.submit(serverURL: "https://quiz.test")
         precondition(attempts.isEmpty && !model.canSubmit)
         model.message = "問い合わせ"
         await model.submit(serverURL: "https://quiz.test")
-        precondition(model.error != nil && model.message == "問い合わせ" && model.canSubmit)
+        precondition(model.error != nil && model.category == .bug && model.message == "問い合わせ" && model.canSubmit)
+        precondition(attempts[0].category == .bug)
         await model.submit(serverURL: "https://quiz.test")
         precondition(attempts[0].id == attempts[1].id, "Retries keep the same receipt ID")
+        model.category = nil
+        precondition(model.message == "問い合わせ" && model.error == nil && !model.canSubmit)
+        model.category = .bug
+        await model.submit(serverURL: "https://quiz.test")
+        precondition(attempts[2].id == attempts[1].id, "Reselecting the same category keeps the retry receipt")
+        model.category = .suggestion
+        await model.submit(serverURL: "https://quiz.test")
+        precondition(attempts[3].category == .suggestion && attempts[3].id != attempts[2].id,
+                     "Changed categories need a fresh receipt and retain the message")
+        model.category = .suggestion
+        await model.submit(serverURL: "https://quiz.test")
+        precondition(attempts[3].id == attempts[4].id, "Unchanged categories keep the retry receipt")
         model.message = "内容を修正した問い合わせ"
         precondition(model.error == nil)
         shouldFail = false
         await model.submit(serverURL: "https://quiz.test")
-        precondition(attempts[2].id != attempts[1].id, "Edited content needs a fresh receipt")
+        precondition(attempts[5].id != attempts[4].id, "Edited content needs a fresh receipt")
         precondition(model.isSent && !model.canSubmit)
         await model.submit(serverURL: "https://quiz.test")
-        precondition(attempts.count == 3)
+        precondition(attempts.count == 6)
         model.dismiss()
-        precondition(model.presentationID == nil && model.message.isEmpty && !model.isSent)
+        precondition(model.presentationID == nil && model.category == nil && model.message.isEmpty && !model.isSent)
+        model.present()
+        precondition(model.category == nil && !model.canSubmit, "Reopening starts at category selection")
+        model.dismiss()
 
         var release: CheckedContinuation<Void, Never>?
         var sends = 0
@@ -146,6 +172,7 @@ private final class ChorusReportProtocol: URLProtocol {
             await withCheckedContinuation { release = $0 }
         }
         pending.present()
+        pending.category = .bug
         pending.message = "送信中の問い合わせ"
         let sending = Task { await pending.submit(serverURL: "https://quiz.test") }
         while release == nil { await Task.yield() }

@@ -104,7 +104,7 @@ struct PlayView: View {
                                 .frame(minWidth: 44, minHeight: 44)
                         }
                         .buttonStyle(StudioButtonStyle(.tertiary))
-                        .accessibilityLabel("意見・お問い合わせ")
+                        .accessibilityLabel("ご意見送信フォーム")
                         .accessibilityHint("匿名で開発者に送るフォームを開きます")
                         .accessibilityIdentifier("feedback-button")
                         Spacer()
