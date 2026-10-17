@@ -119,6 +119,27 @@ import Foundation
                    artworkRestored.merging(artworkProfile).reviews.first?.song.artworkURL == artworkSong.artworkURL,
                    "Review artwork URLs must survive saving, relaunching, and iCloud merging in either learned group")
         }
-        print("CloudProfile tests passed (offline merge, retry, deletion, settings, migration, identity, history)")
+        var erased = base
+        erased.reviewEntries = deleted.reviewEntries
+        erased.serverCredentials = ["https://server.example": "old-secret"]
+        erased.nickname = .init(value: "Deleted name", modifiedAt: Date(timeIntervalSince1970: 500))
+        let marker = CloudProfile.deletionMarker(now: Date(timeIntervalSince1970: 100))
+        for merged in [marker.merging(erased), erased.merging(marker)] {
+            expect(merged.stats.attempts == 0 && merged.history.isEmpty && merged.reviews.isEmpty &&
+                   merged.serverCredentials.isEmpty && merged.nickname.value == "プレイヤー" && merged.isDeleted == true,
+                   "An account deletion must discard old devices, even when their edits have newer timestamps")
+            expect(merged.serverProfileID == marker.serverProfileID, "Deleted accounts must use a fresh identity")
+        }
+        let decodedMarker = try JSONDecoder().decode(CloudProfile.self, from: marker.encoded())
+        expect(decodedMarker.resetAt == marker.resetAt && decodedMarker.isDeleted == true,
+               "Deletion protection must survive relaunches")
+        var reactivated = decodedMarker
+        capture(&reactivated, stats: PlayerStats(), device: "new-device", reviews: [review])
+        expect(!reactivated.merging(erased).reviews.isEmpty && reactivated.merging(erased).isDeleted == false,
+               "New activity after deletion must be retained without restoring old account data")
+        let nextMarker = CloudProfile.deletionMarker(after: marker.resetAt, now: Date(timeIntervalSince1970: 50))
+        expect(nextMarker.merging(reactivated).isDeleted == true && nextMarker.merging(reactivated).reviews.isEmpty,
+               "A later deletion must win even when the device clock moves backwards")
+        print("CloudProfile tests passed (offline merge, retry, account deletion, settings, migration, identity, history)")
     }
 }

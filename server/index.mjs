@@ -12,6 +12,7 @@ import { createReportRateLimit } from './anonymous-reports.mjs';
 
 const rooms = new Map();
 const profiles = new Map();
+const deletedProfiles = new Map();
 const DATA_DIR = process.env.DATA_DIR ? resolve(process.env.DATA_DIR) : null;
 const DATA_FILE = DATA_DIR ? join(DATA_DIR, 'state.json') : null;
 const reportRateLimit = createReportRateLimit();
@@ -40,6 +41,7 @@ if (DATA_FILE && existsSync(DATA_FILE)) {
       rooms.set(room.id, room);
     }
     for (const profile of saved.profiles || []) profiles.set(profile.id, profile);
+    for (const [identity, credential] of saved.deletedProfiles || []) deletedProfiles.set(identity, credential);
   } catch (error) { console.error('Saved state could not be loaded:', error); }
 }
 let saveTimer;
@@ -47,7 +49,7 @@ export function saveStateNow() {
   if (!DATA_FILE) return;
   mkdirSync(DATA_DIR, { recursive: true });
   const temporary = `${DATA_FILE}.tmp`;
-  writeFileSync(temporary, JSON.stringify({ rooms: [...rooms.values()].map(room => ({ ...room, pushed: [...room.pushed], skipped: [...room.skipped], readyIds: [...room.readyIds], assetsReadyIds: [...room.assetsReadyIds] })), profiles: [...profiles.values()] }));
+  writeFileSync(temporary, JSON.stringify({ rooms: [...rooms.values()].map(room => ({ ...room, pushed: [...room.pushed], skipped: [...room.skipped], readyIds: [...room.readyIds], assetsReadyIds: [...room.assetsReadyIds] })), profiles: [...profiles.values()], deletedProfiles: [...deletedProfiles] }));
   renameSync(temporary, DATA_FILE);
 }
 function persist() {
@@ -482,11 +484,68 @@ function snapshot(room, playerId) {
   };
 }
 function fail(status, message) { return { status, body: { error: message } }; }
+function deletionHash(value) {
+  return createHash('sha256').update(value).digest('hex');
+}
+function deleteProfileData(profileID) {
+  profiles.delete(profileID);
+  for (const profile of profiles.values()) {
+    profile.friends = (profile.friends || []).filter(id => id !== profileID);
+    profile.friendRequests = (profile.friendRequests || []).filter(item => item.fromId !== profileID);
+    profile.invites = (profile.invites || []).filter(item => item.fromId !== profileID);
+  }
+  for (const room of rooms.values()) {
+    const removed = room.players.filter(player => player.profileId === profileID);
+    if (!removed.length) continue;
+    const removedIDs = new Set(removed.map(player => player.id));
+    const removedActiveAnswer = room.answers.some(answer => removedIDs.has(answer.playerId) && answer.status === 'active');
+    room.players = room.players.filter(player => !removedIDs.has(player.id));
+    for (const player of removed) {
+      clearMembership(room, player.id);
+      room.pushed.delete(player.id);
+      streams.get(room.id)?.get(player.id)?.end();
+      sockets.get(room.id)?.get(player.id)?.close(1000);
+    }
+    room.answers = room.answers.filter(answer => !removedIDs.has(answer.playerId));
+    room.pushAttempts = room.pushAttempts.filter(attempt => !removedIDs.has(attempt.playerId));
+    room.processedChoices = (room.processedChoices || []).filter(choice => !removedIDs.has(choice.playerId));
+    room.correctPlayerIDs = room.correctPlayerIDs.filter(id => !removedIDs.has(id));
+    room.correctPlayerID = room.correctPlayerIDs[0] ?? null;
+    if (!room.players.length) { rooms.delete(room.id); closeRoomStreams(room.id); }
+    else {
+      if (removedIDs.has(room.hostId)) transferHost(room, [...room.players].sort((left, right) => left.joinedAt - right.joinedAt)[0].id);
+      if (room.settings.endless && room.phase === 'answering' && removedActiveAnswer) continueEndlessAfterWrong(room);
+      refresh(room);
+      publishRoom(room);
+      scheduleRoom(room);
+    }
+  }
+}
 export function handle(method, path, body, query, authorization, origin = 'https://example.com') {
   if (method === 'GET' && path === '/health') return { status: 200, body: { ok: true } };
+  if (method === 'DELETE' && path === '/profile') {
+    const id = String(body.id || '');
+    const credential = authorization?.replace(/^Bearer /, '') || '';
+    if (!/^[A-Za-z0-9-]{1,64}$/.test(id) ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(credential)) {
+      return fail(403, 'プロフィールを確認できません');
+    }
+    const identityHash = deletionHash(id);
+    const credentialHash = deletionHash(credential);
+    const existing = profiles.get(id);
+    const deletedCredential = deletedProfiles.get(identityHash);
+    if ((existing && existing.secret !== credential) || (deletedCredential && deletedCredential !== credentialHash)) {
+      return fail(403, 'プロフィールを確認できません');
+    }
+    deleteProfileData(id);
+    deletedProfiles.set(identityHash, credentialHash);
+    saveStateNow();
+    return { status: 200, body: { deleted: true } };
+  }
   if (method === 'POST' && path === '/profile') {
     const id = String(body.id || '');
     if (!/^[A-Za-z0-9-]{1,64}$/.test(id)) return fail(400, 'プロフィールIDが無効です');
+    if (deletedProfiles.has(deletionHash(id))) return fail(410, '削除済みのプロフィールです');
     const registrationToken = body.registrationToken;
     if (registrationToken !== undefined &&
         (typeof registrationToken !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(registrationToken))) {

@@ -100,10 +100,34 @@ struct AccountView: View {
                     }
                     } else {
                     connectionsSection
+                    if AppConfiguration.monetizationEnabled {
+                        AdRemovalPurchaseView()
+                    }
                     StudioCard {
                         VStack(alignment: .leading, spacing: 14) {
                             SectionCaption(title: "音量")
                             VolumeSettingsControls()
+                        }
+                    }
+                    StudioCard {
+                        VStack(alignment: .leading, spacing: 12) {
+                            SectionCaption(title: "アプリ・データ")
+                            NavigationLink {
+                                AppInformationView()
+                            } label: {
+                                Label("このアプリについて・サポート", systemImage: "info.circle")
+                                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            }
+                            .accessibilityIdentifier("open-app-information")
+                            Divider()
+                            NavigationLink {
+                                AccountDeletionView()
+                            } label: {
+                                Label("アカウントとデータの削除", systemImage: "trash")
+                                    .foregroundStyle(.red)
+                                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            }
+                            .accessibilityIdentifier("open-account-deletion")
                         }
                     }
                     #if DEBUG

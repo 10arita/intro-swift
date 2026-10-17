@@ -31,8 +31,8 @@ struct RootView: View {
             mainTabs
             .offset(x: showingSession && !reduceMotion ? -80 : 0)
             .opacity(showingSession ? 0 : 1)
-            .allowsHitTesting(!showingSession)
-            .accessibilityHidden(showingSession)
+            .allowsHitTesting(!showingSession && !model.accountDeletionPending && !model.isDeletingAccount)
+            .accessibilityHidden(showingSession || model.accountDeletionPending || model.isDeletingAccount)
             if model.room != nil {
                 RoomGameView()
                     .transition(reduceMotion ? .opacity : .offset(x: 80).combined(with: .opacity))
@@ -41,6 +41,10 @@ struct RootView: View {
                 SoloGameView()
                     .transition(reduceMotion ? .opacity : .offset(x: 80).combined(with: .opacity))
                     .zIndex(1)
+            }
+            if model.accountDeletionPending || model.isDeletingAccount {
+                NavigationStack { AccountDeletionView() }
+                    .zIndex(2)
             }
         }
         .background(Studio.background)
@@ -54,7 +58,7 @@ struct RootView: View {
             Text(model.alert ?? "")
         }
         .task {
-            guard previewStep == nil else { return }
+            guard previewStep == nil, !model.accountDeletionPending else { return }
             model.setAppActive(scenePhase == .active)
             Task { await model.restoreRoom() }
             if model.searchSongs.isEmpty { await model.search() }

@@ -1,5 +1,7 @@
 # IntoL — iPhone 向けイントロクイズ
 
+App Store公開準備の実装状況・広告と課金の候補仕様・残作業は[正式公開の実施計画](docs/app-store-release-plan.md)、Appleへの確認事項は[MusicKit問い合わせ案](docs/apple-musickit-inquiry-draft.md)を参照してください。広告事業者は未定で、課金機能は既定で無効です。
+
 SwiftUI 製 iOS 17+ アプリと、Coolify 用 Node.js サーバーです。`rule.md` をゲーム仕様の参考にし、個人学習と少人数のプライベート対戦向けに作成しました。画面はライト／ダーク両方に対応し、プレイでは人数を選び、ソロはモードとプレイリスト、対戦はルーム作成またはコード参加へ進みます。選択画面は説明付きのカードを使い、横方向の共有軸で遷移します。下部の「プレイ」を押すと最初のロゴ画面に戻ります。
 
 ## できること
@@ -78,7 +80,7 @@ Apple Developer側の設定は別途必要です。[CloudKitの設定と動作�
 4. **永続ボリュームをコンテナ内 `/app/data` にマウント**します。マウント先を変えた場合は `DATA_DIR` も合わせます。永続ボリュームがないと再デプロイ時に履歴と進行中ルームを失います。
 5. デプロイ後、`https://あなたのドメイン/health` が `{"ok":true}` を返すことを確認します。アプリをビルドする Mac のルート `.env` に同じ HTTPS URL を `APP_SERVER_URL` として指定します。
 
-サーバーの設定例は `server/.env.example`、アプリの設定例はルートの `.env.example` を参照してください。アプリのビルドでは `.env` から `APP_SERVER_URL` を取り込みます。
+サーバーの設定例は `server/.env.example`、アプリの設定例はルートの `.env.example` を参照してください。アプリのビルドでは `.env` から許可した公開用設定のみを `AppConfig.plist` に取り込みます。サポートはGoogle SitesとGoogleフォームを利用する方針です。[公開原稿・フォーム設問・設定手順](docs/google-sites-forms-setup.md)に従って準備し、公開済みのページを `APP_SUPPORT_URL` と `APP_PRIVACY_POLICY_URL` に設定してください。`APP_SUPPORT_FORM_URL` を指定するとアプリ内にも問い合わせフォームへの直接リンクを表示します。フォーム方式では `APP_SUPPORT_EMAIL` は空欄にできます。設定を変えた後は再ビルドが必要です。編集URL、フォームの回答データ、認証トークンなどの秘密情報をアプリ用設定へ含めないでください。
 
 ## Apple Music の設定
 

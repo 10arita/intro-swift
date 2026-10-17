@@ -7,7 +7,11 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 
-ALLOWED_KEYS = {"APP_SERVER_URL", "APP_CLOUDKIT_ENABLED"}
+ALLOWED_KEYS = {
+    "APP_SERVER_URL", "APP_CLOUDKIT_ENABLED", "APP_OPERATOR_NAME", "APP_SUPPORT_EMAIL",
+    "APP_PRIVACY_POLICY_URL", "APP_TERMS_URL", "APP_SUPPORT_URL", "APP_SUPPORT_FORM_URL",
+    "APP_MONETIZATION_ENABLED", "APP_AD_REMOVAL_PRODUCT_ID",
+}
 
 
 def read_env(path: Path) -> dict[str, str]:
@@ -51,9 +55,24 @@ def main() -> None:
     config = {
         "APP_SERVER_URL": server_url,
         "APP_CLOUDKIT_ENABLED": values.get("APP_CLOUDKIT_ENABLED", "false").lower(),
+        "APP_MONETIZATION_ENABLED": values.get("APP_MONETIZATION_ENABLED", "false").lower(),
     }
-    if config["APP_CLOUDKIT_ENABLED"] not in {"true", "false"}:
-        raise ValueError("APP_CLOUDKIT_ENABLED must be true or false")
+    for key in ("APP_CLOUDKIT_ENABLED", "APP_MONETIZATION_ENABLED"):
+        if config[key] not in {"true", "false"}:
+            raise ValueError(f"{key} must be true or false")
+    for key in sorted(ALLOWED_KEYS - config.keys()):
+        config[key] = values.get(key, "")
+    for key in ("APP_PRIVACY_POLICY_URL", "APP_TERMS_URL", "APP_SUPPORT_URL", "APP_SUPPORT_FORM_URL"):
+        if config[key]:
+            url = urlsplit(config[key])
+            if url.scheme != "https" or not url.hostname or url.username or url.password or url.fragment:
+                raise ValueError(f"{key} must be an HTTPS URL without credentials or fragment")
+    email = config["APP_SUPPORT_EMAIL"]
+    if email and (email.count("@") != 1 or any(character.isspace() for character in email)
+                  or any(character in email for character in "?&#%/\\:")):
+        raise ValueError("APP_SUPPORT_EMAIL must be an email address without URL parameters")
+    if config["APP_MONETIZATION_ENABLED"] == "true" and not config["APP_AD_REMOVAL_PRODUCT_ID"]:
+        raise ValueError("APP_AD_REMOVAL_PRODUCT_ID is required when monetization is enabled")
     destination.parent.mkdir(parents=True, exist_ok=True)
     with destination.open("wb") as output:
         plistlib.dump(config, output)

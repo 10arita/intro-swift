@@ -302,7 +302,7 @@ struct SavedProfile: Decodable {
     func localDate(for serverTimeMS: Double) -> Date {
         Date(timeIntervalSince1970: (serverTimeMS - serverClockOffsetMS) / 1000)
     }
-    let playerId: String
+    private(set) var playerId: String
     var profileID: String
     var onProfileCredentialsChange: (() -> Void)?
     private(set) var token: String?
@@ -679,6 +679,55 @@ struct SavedProfile: Decodable {
     var profileCredentialSnapshot: [String: String] {
         guard !baseURL.isEmpty, let credential = Secrets.get(profileKey) else { return [:] }
         return [baseURL.trimmingCharacters(in: .whitespacesAndNewlines): credential]
+    }
+
+    var profileDeletionCredentials: [String: String] {
+        guard !baseURL.isEmpty, let credential = Secrets.get(profileKey) ?? Secrets.get(profileRegistrationKey) else { return [:] }
+        return [baseURL.trimmingCharacters(in: .whitespacesAndNewlines): credential]
+    }
+
+    func knownProfileDeletionCredentials(_ id: String, origins: Set<String>) -> [String: String] {
+        var credentials: [String: String] = [:]
+        for origin in origins where !origin.isEmpty {
+            if let value = Secrets.get("profileToken:\(origin):\(id)") ?? Secrets.get("profileRegistration:\(origin):\(id)") {
+                credentials[origin] = value
+            }
+        }
+        return credentials
+    }
+
+    func deleteProfile(_ id: String, origin: String, credential: String) async throws {
+        guard let base = URL(string: origin), base.user == nil, base.password == nil,
+              base.query == nil, base.fragment == nil, base.path.isEmpty || base.path == "/",
+              base.scheme == "https" || (base.scheme == "http" && ["localhost", "127.0.0.1"].contains(base.host ?? "")) else {
+            throw AppError.message("削除先のサーバーを確認できません")
+        }
+        var request = URLRequest(url: base.appending(path: "profile"))
+        request.httpMethod = "DELETE"
+        request.timeoutInterval = 15
+        request.setValue("Bearer \(credential)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["id": id])
+        let (data, response) = try await session.data(for: request)
+        struct DeletionResponse: Decodable { let deleted: Bool }
+        guard (response as? HTTPURLResponse)?.statusCode == 200,
+              (try? JSONDecoder().decode(DeletionResponse.self, from: data))?.deleted == true else {
+            throw AppError.message("サーバーのデータを削除できませんでした。接続を確認して再試行してください。改善しない場合はサポートへお問い合わせください")
+        }
+    }
+
+    func forgetDeletedProfile(_ id: String, origins: [String]) {
+        for origin in origins {
+            Secrets.set(nil, for: "profileToken:\(origin):\(id)")
+            Secrets.set(nil, for: "profileRegistration:\(origin):\(id)")
+        }
+        clear()
+    }
+
+    func resetPlayerIdentity() {
+        clear()
+        playerId = UUID().uuidString
+        UserDefaults.standard.set(playerId, forKey: "roomPlayerId")
     }
 
     func restoreProfileIdentity(_ id: String, credentials: [String: String]) {

@@ -176,7 +176,7 @@ struct ReviewView: View {
         stopPlayback()
         activeSongID = song.id
         reviewPlayer.volume = Float(model.songVolume)
-        if let url = DemoCatalog.previewURL(for: song) {
+        if song.id.hasPrefix("demo:"), let url = DemoCatalog.previewURL(for: song) {
             reviewPlayer.play(url)
             monitorPlayback(song.id, appleMusic: false)
             return
@@ -189,26 +189,11 @@ struct ReviewView: View {
         loadingSongID = song.id
         playbackTask = Task {
             do {
-                let canPlay = (try? await model.appleMusic.authorize()) ?? false
+                let canPlay = try await model.appleMusic.authorize()
                 try Task.checkCancellation()
-                if canPlay {
-                    monitorPlayback(song.id, appleMusic: true)
-                    do { try await model.appleMusic.play(song) }
-                    catch {
-                        try Task.checkCancellation()
-                        guard let preview = await model.appleMusic.previewURL(for: song.id) else { throw error }
-                        try Task.checkCancellation()
-                        model.setReviewAudioPlaying(false)
-                        reviewPlayer.play(preview)
-                        monitorPlayback(song.id, appleMusic: false)
-                    }
-                } else if let preview = await model.appleMusic.previewURL(for: song.id) {
-                    try Task.checkCancellation()
-                    reviewPlayer.play(preview)
-                    monitorPlayback(song.id, appleMusic: false)
-                } else {
-                    throw AppError.message("Apple Music のサブスクリプション、またはこの曲の試聴音源が必要です")
-                }
+                guard canPlay else { throw AppError.message("復習の再生にはApple Musicの有効なサブスクリプションが必要です") }
+                monitorPlayback(song.id, appleMusic: true)
+                try await model.appleMusic.play(song)
                 if !Task.isCancelled, activeSongID == song.id { loadingSongID = nil }
             } catch {
                 guard !Task.isCancelled, activeSongID == song.id else { return }

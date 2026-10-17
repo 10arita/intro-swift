@@ -127,7 +127,8 @@ private struct FeedbackReportConfirmation: View {
                 ForEach([
                     "匿名で開発者に送信します",
                     "種別・入力内容・アプリのバージョンを送ります",
-                    "アカウント情報は含みません。個別の返信はできません"
+                    "アカウント情報は含みません。個別の返信はできません",
+                    "入力内容は運営者のDiscordに保存されます。個人情報は書き込まないでください"
                 ], id: \.self) { explanation in
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text("•").accessibilityHidden(true)

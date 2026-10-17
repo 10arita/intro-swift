@@ -7,6 +7,11 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+        A894D9129C454AE89CE70001 /* AppInformationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B894D9129C454AE89CE70001; };
+        A894D9129C454AE89CE70002 /* AccountDeletionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B894D9129C454AE89CE70002; };
+        A894D9129C454AE89CE70003 /* AdRemovalStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B894D9129C454AE89CE70003; };
+        A894D9129C454AE89CE70004 /* AdRemovalPurchaseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B894D9129C454AE89CE70004; };
+        A894D9129C454AE89CE70005 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B894D9129C454AE89CE70005; };
 		0D6CE5963A135289D1E07B58 /* RoomLobbyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CFFF645A506C1DDDEC7DF1F /* RoomLobbyView.swift */; };
 		2A917093D77C6F91BA1E2204 /* RoomPlayerStandings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1728359B56266971280996B /* RoomPlayerStandings.swift */; };
 		6F8D319968C95497085860C1 /* AnswerViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72075401BB99C8596E75DD0F /* AnswerViews.swift */; };
@@ -64,6 +69,11 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+        B894D9129C454AE89CE70001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppInformationView.swift; sourceTree = "<group>"; };
+        B894D9129C454AE89CE70002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountDeletionView.swift; sourceTree = "<group>"; };
+        B894D9129C454AE89CE70003 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdRemovalStore.swift; sourceTree = "<group>"; };
+        B894D9129C454AE89CE70004 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdRemovalPurchaseView.swift; sourceTree = "<group>"; };
+        B894D9129C454AE89CE70005 = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		2CFFF645A506C1DDDEC7DF1F /* RoomLobbyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomLobbyView.swift; sourceTree = "<group>"; };
 		40D296A3BF561B575315D4DA /* RevealEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RevealEffects.swift; sourceTree = "<group>"; };
 		72075401BB99C8596E75DD0F /* AnswerViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnswerViews.swift; sourceTree = "<group>"; };
@@ -145,6 +155,11 @@
 		C00000000000000000000002 /* IntoL */ = {
 			isa = PBXGroup;
 			children = (
+                B894D9129C454AE89CE70001,
+                B894D9129C454AE89CE70002,
+                B894D9129C454AE89CE70003,
+                B894D9129C454AE89CE70004,
+                B894D9129C454AE89CE70005,
 				B00000000000000000000001 /* IntoLApp.swift */,
 				B00000000000000000000002 /* Design.swift */,
 				B1728359B56266971280996B /* RoomPlayerStandings.swift */,
@@ -281,6 +296,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+                A894D9129C454AE89CE70005 /* PrivacyInfo.xcprivacy in Resources */,
 				A0000000000000000000000A /* Audio in Resources */,
 				A00000000000000000000066 /* server/manual-chorus.json in Resources */,
 				A0000000000000000000000F /* Assets.xcassets in Resources */,
@@ -320,6 +336,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+                A894D9129C454AE89CE70001 /* AppInformationView.swift in Sources */,
+                A894D9129C454AE89CE70002 /* AccountDeletionView.swift in Sources */,
+                A894D9129C454AE89CE70003 /* AdRemovalStore.swift in Sources */,
+                A894D9129C454AE89CE70004 /* AdRemovalPurchaseView.swift in Sources */,
 				A00000000000000000000001 /* IntoLApp.swift in Sources */,
 				A00000000000000000000002 /* Design.swift in Sources */,
 				2A917093D77C6F91BA1E2204 /* RoomPlayerStandings.swift in Sources */,

@@ -67,7 +67,7 @@ enum CloudProfileError: LocalizedError {
             try data.write(to: temporary, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
             defer { try? FileManager.default.removeItem(at: temporary) }
             record["payload"] = CKAsset(fileURL: temporary)
-            record["schemaVersion"] = 1 as CKRecordValue
+            record["schemaVersion"] = (merged.resetAt == nil ? 1 : 2) as CKRecordValue
             guard try await accountID() == expected else { throw CloudProfileError.accountChanged }
             do {
                 let result = try await database.modifyRecords(saving: [record], deleting: [],
@@ -90,12 +90,56 @@ enum CloudProfileError: LocalizedError {
             return nil
         }
         guard let asset = record["payload"] as? CKAsset, let url = asset.fileURL,
-              let version = record["schemaVersion"] as? Int, version == 1 else {
+              let version = record["schemaVersion"] as? Int, [1, 2].contains(version) else {
             throw CloudProfileError.invalidProfile
         }
         let profile = try JSONDecoder().decode(CloudProfile.self, from: Data(contentsOf: url))
         guard profile.version == 1 else { throw CloudProfileError.invalidProfile }
         return profile
+    }
+
+    func profile(accountID expected: String) async throws -> CloudProfile? {
+        let database = try configuredContainer().privateCloudDatabase
+        guard try await accountID() == expected else { throw CloudProfileError.accountChanged }
+        let record: CKRecord
+        do { record = try await database.record(for: recordID) }
+        catch let error as CKError where error.code == .unknownItem { return nil }
+        guard try await accountID() == expected else { throw CloudProfileError.accountChanged }
+        return try decode(record)
+    }
+
+    func replaceWithDeletionMarker(_ marker: CloudProfile, accountID expected: String) async throws -> CloudProfile {
+        let database = try configuredContainer().privateCloudDatabase
+        for _ in 0..<3 {
+            guard try await accountID() == expected else { throw CloudProfileError.accountChanged }
+            let record: CKRecord
+            do { record = try await database.record(for: recordID) }
+            catch let error as CKError where error.code == .unknownItem {
+                record = CKRecord(recordType: "IntoLUserProfile", recordID: recordID)
+            }
+            if let remote = try decode(record), let resetAt = remote.resetAt,
+               resetAt >= (marker.resetAt ?? .distantPast) {
+                guard remote.serverProfileID == marker.serverProfileID else { throw CloudProfileError.accountChanged }
+                return remote
+            }
+            let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".json")
+            try marker.encoded().write(to: temporary, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            defer { try? FileManager.default.removeItem(at: temporary) }
+            record["payload"] = CKAsset(fileURL: temporary)
+            record["schemaVersion"] = 2 as CKRecordValue
+            guard try await accountID() == expected else { throw CloudProfileError.accountChanged }
+            do {
+                let result = try await database.modifyRecords(saving: [record], deleting: [],
+                    savePolicy: .ifServerRecordUnchanged, atomically: false)
+                guard let saved = result.saveResults[recordID] else { throw CloudProfileError.invalidProfile }
+                _ = try saved.get()
+                guard try await accountID() == expected else { throw CloudProfileError.accountChanged }
+                return marker
+            } catch let error as CKError where error.code == .serverRecordChanged {
+                continue
+            }
+        }
+        throw AppError.message("別の端末で更新されています。もう一度削除を実行してください")
     }
 
     static func status(for error: Error) -> String {
@@ -143,5 +187,10 @@ enum CloudProfileCache {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try cached.encoded().write(to: fileURL(owner: owner),
                                   options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+    }
+
+    static func remove(owner: String?) throws {
+        let url = fileURL(owner: owner)
+        if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
     }
 }

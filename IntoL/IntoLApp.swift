@@ -36,6 +36,7 @@ struct IntoLShortcuts: AppShortcutsProvider {
 @main
 struct IntoLApp: App {
     @StateObject private var model = AppModel()
+    @StateObject private var purchases = AdRemovalStore()
 
     init() {
         IntoLShortcuts.updateAppShortcutParameters()
@@ -56,6 +57,8 @@ struct IntoLApp: App {
                 RootView().environmentObject(model)
                 #endif
             }
+            .environmentObject(purchases)
+            .task { await purchases.start() }
         }
     }
 }

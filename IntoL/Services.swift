@@ -13,6 +13,20 @@ enum AppConfiguration {
 
     static var serverURL: String { values["APP_SERVER_URL"] ?? "" }
     static var cloudKitEnabled: Bool { values["APP_CLOUDKIT_ENABLED"] == "true" }
+    static var operatorName: String { values["APP_OPERATOR_NAME"] ?? "" }
+    static var supportEmail: String { values["APP_SUPPORT_EMAIL"] ?? "" }
+    static var privacyPolicyURL: URL? { publicURL("APP_PRIVACY_POLICY_URL") }
+    static var termsURL: URL? { publicURL("APP_TERMS_URL") }
+    static var supportURL: URL? { publicURL("APP_SUPPORT_URL") }
+    static var supportFormURL: URL? { publicURL("APP_SUPPORT_FORM_URL") }
+    static var monetizationEnabled: Bool { values["APP_MONETIZATION_ENABLED"] == "true" }
+    static var adRemovalProductID: String { values["APP_AD_REMOVAL_PRODUCT_ID"] ?? "" }
+
+    private static func publicURL(_ key: String) -> URL? {
+        guard let value = values[key], !value.isEmpty, let url = URL(string: value),
+              url.scheme == "https", url.host != nil, url.user == nil, url.password == nil else { return nil }
+        return url
+    }
 }
 
 enum AppError: LocalizedError {

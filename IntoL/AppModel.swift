@@ -97,6 +97,14 @@ struct SoloGame {
     private var playlistSelectionRevision = 0
     @Published var profileSyncStatus: String?
     @Published private(set) var profileSyncing = false
+    @Published private(set) var accountDeletionPending = Secrets.get(ProfileDeletionRequest.storageKey) != nil
+    @Published private(set) var isDeletingAccount = false
+    @Published private(set) var accountDeletionCompleted = false
+    @Published private(set) var accountDeletionError: String?
+    var canDeleteAccount: Bool {
+        !busy && !profileSyncing && !friendsLoading && !isDeletingAccount &&
+        game == nil && room == nil && roomID == nil && gameStartHolds == 0
+    }
     @Published var bgmVolume = UserDefaults.standard.object(forKey: "bgmVolume") as? Double ?? 0.35 {
         didSet {
             UserDefaults.standard.set(bgmVolume, forKey: "bgmVolume")
@@ -164,6 +172,7 @@ struct SoloGame {
     private var appleMusicPauseTask: Task<Void, Never>?
     private var profileSaveTask: Task<Void, Never>?
     private let cloudProfiles = CloudProfileService()
+    private let profileSyncEnabled: Bool
     private var cloudProfile: CloudProfile?
     private var applyingProfile = false
     private var profileSyncAgain = false
@@ -218,10 +227,12 @@ struct SoloGame {
     }
 
     init(serverURL: String = AppConfiguration.serverURL,
+         profileSyncEnabled: Bool = true,
          chorusReportSender: @escaping (ChorusReport, String) async throws -> Void = { report, url in
              try await ChorusReportService().send(report, serverURL: url)
          }) {
         self.serverURL = serverURL
+        self.profileSyncEnabled = profileSyncEnabled
         self.chorusReportSender = chorusReportSender
         if let data = UserDefaults.standard.data(forKey: "reviews"), let decoded = try? JSONDecoder().decode([ReviewSong].self, from: data) { reviews = decoded }
         if let data = UserDefaults.standard.data(forKey: "history"), let decoded = try? JSONDecoder().decode([SoloResult].self, from: data) { history = decoded }
@@ -272,6 +283,7 @@ struct SoloGame {
     }
 
     func beginGameStart() {
+        activateProfile()
         gameStartHolds += 1
         updateBGM()
     }
@@ -818,7 +830,7 @@ struct SoloGame {
     }
 
     private func persist() {
-        guard !applyingProfile else { return }
+        guard !applyingProfile, !accountDeletionPending, !isDeletingAccount else { return }
         saveLegacyProfileCache()
         guard profileCacheReadable, var profile = cloudProfile else { return }
         profile.capture(nickname: nickname, avatar: avatarData, audio: profileAudio,
@@ -856,11 +868,13 @@ struct SoloGame {
     }
 
     private var canSyncProfile: Bool {
-        game == nil && room == nil && roomID == nil && !busy && gameStartHolds == 0
+        game == nil && room == nil && roomID == nil && !busy && gameStartHolds == 0 &&
+        !accountDeletionPending && !isDeletingAccount
     }
 
     private func scheduleProfileSync() {
-        guard !applyingProfile, profileCacheReadable, cloudProfile != nil else { return }
+        guard profileSyncEnabled, !applyingProfile, !accountDeletionPending, !isDeletingAccount,
+              profileCacheReadable, cloudProfile != nil else { return }
         if profileSyncing { profileSyncAgain = true; return }
         profileSaveTask?.cancel()
         profileSaveTask = Task { [weak self] in
@@ -872,7 +886,7 @@ struct SoloGame {
     }
 
     func syncProfile() async {
-        guard profileCacheReadable else { return }
+        guard profileSyncEnabled, profileCacheReadable else { return }
         guard !profileSyncing else { profileSyncAgain = true; return }
         guard canSyncProfile else {
             profileSyncStatus = "端末に保存済み・操作終了後にiCloudへ同期します"
@@ -939,7 +953,7 @@ struct SoloGame {
     }
 
     private func publishPublicProfile() async {
-        guard !serverURL.isEmpty else { return }
+        guard !serverURL.isEmpty, !accountDeletionPending, !isDeletingAccount, cloudProfile?.isDeleted != true else { return }
         do {
             try await rooms.publishProfile(name: nickname, avatar: roomAvatar, stats: stats,
                                            highestRankLevel: rankRecords.highestRankLevel)
@@ -954,12 +968,109 @@ struct SoloGame {
         scheduleProfileSync()
     }
 
+    private func activateProfile() {
+        guard !accountDeletionPending, cloudProfile?.isDeleted == true else { return }
+        cloudProfile?.isDeleted = false
+        accountDeletionCompleted = false
+        saveLocalProfile()
+    }
+
+    func deleteAccount() async {
+        guard profileSyncEnabled else {
+            accountDeletionError = "プレビューではデータを削除できません"
+            return
+        }
+        guard canDeleteAccount else { return }
+        isDeletingAccount = true
+        accountDeletionError = nil
+        profileAccountRevision += 1
+        profileSaveTask?.cancel()
+        profileSaveTask = nil
+        profileSyncAgain = false
+        defer { isDeletingAccount = false }
+        do {
+            let request: ProfileDeletionRequest
+            if let pending = try ProfileDeletionRequest.load() { request = pending }
+            else {
+                let owner = AppConfiguration.cloudKitEnabled ? try await cloudProfiles.accountID() : nil
+                if let previousOwner = CloudProfileCache.owner, owner != previousOwner {
+                    throw AppError.message("記録を保存したiCloudアカウントに接続してから削除してください")
+                }
+                let remote: CloudProfile?
+                if let owner { remote = try await cloudProfiles.profile(accountID: owner) }
+                else { remote = nil }
+                let profiles = [cloudProfile, remote].compactMap { $0 }
+                let origins = Set(profiles.flatMap { $0.serverCredentials.keys }).union([serverURL])
+                let identities = Set(profiles.flatMap { [$0.serverProfileID] + Array($0.importedLegacyProfiles) })
+                    .union([rooms.profileID])
+                var targets: [ProfileDeletionTarget] = []
+                for id in identities.sorted() {
+                    var credentials = rooms.knownProfileDeletionCredentials(id, origins: origins)
+                    for profile in profiles where profile.serverProfileID == id {
+                        credentials.merge(profile.serverCredentials) { current, _ in current }
+                    }
+                    if id == rooms.profileID { credentials.merge(rooms.profileDeletionCredentials) { _, current in current } }
+                    targets += credentials.sorted(by: { $0.key < $1.key }).map {
+                        ProfileDeletionTarget(profileID: id, origin: $0.key, credential: $0.value)
+                    }
+                }
+                let previousReset = profiles.compactMap(\.resetAt).max()
+                request = ProfileDeletionRequest(targets: targets, cloudAccountID: owner,
+                    replacement: .deletionMarker(after: previousReset))
+                try request.store()
+                accountDeletionPending = true
+            }
+            for target in request.targets {
+                try await rooms.deleteProfile(target.profileID, origin: target.origin, credential: target.credential)
+            }
+            let replacement: CloudProfile
+            if let owner = request.cloudAccountID {
+                replacement = try await cloudProfiles.replaceWithDeletionMarker(request.replacement, accountID: owner)
+            } else { replacement = request.replacement }
+            try CloudProfileCache.remove(owner: nil)
+            if let owner = request.cloudAccountID { try CloudProfileCache.remove(owner: owner) }
+            try PlayerAvatar.remove()
+            for target in request.targets {
+                rooms.forgetDeletedProfile(target.profileID, origins: [target.origin])
+            }
+            rooms.resetPlayerIdentity()
+            profileDeviceID = UUID().uuidString
+            Secrets.set(profileDeviceID, for: "cloudProfileDeviceID")
+            try applyProfile(replacement)
+            cloudProfile = replacement
+            profileCacheReadable = true
+            CloudProfileCache.owner = request.cloudAccountID
+            guard saveLocalProfile() else { throw AppError.message("端末のデータ削除を完了できませんでした。再試行してください") }
+            friendsState = nil
+            locallyInvitedFriendIDs = []
+            lastResult = nil
+            lastRankResult = nil
+            roomStatistics = .init()
+            UserDefaults.standard.removeObject(forKey: "finishedRoomIDs")
+            UserDefaults.standard.removeObject(forKey: "roomID")
+            UserDefaults.standard.removeObject(forKey: "profileDirty")
+            Secrets.set(nil, for: ProfileDeletionRequest.storageKey)
+            guard Secrets.get(ProfileDeletionRequest.storageKey) == nil else {
+                throw AppError.message("削除の完了状態を端末に保存できませんでした。再試行してください")
+            }
+            accountDeletionPending = false
+            accountDeletionCompleted = true
+            profileSyncStatus = "アカウントと関連データを削除しました"
+        } catch {
+            accountDeletionError = "削除は完了していません。\n\(error.localizedDescription)"
+        }
+    }
+
     private func applyProfile(_ profile: CloudProfile) throws {
         guard profile.avatar.value == nil || (profile.avatar.value!.count <= PlayerAvatar.maximumBytes &&
             UIImage(data: profile.avatar.value!) != nil) else { throw CloudProfileError.invalidProfile }
         if avatarData != profile.avatar.value { try PlayerAvatar.store(profile.avatar.value) }
         applyingProfile = true
         defer { applyingProfile = false }
+        if rooms.profileID != profile.serverProfileID {
+            friendsState = nil
+            locallyInvitedFriendIDs = []
+        }
         nickname = profile.nickname.value
         avatarData = profile.avatar.value
         reviews = profile.reviews
@@ -1108,7 +1219,8 @@ struct SoloGame {
     }
 
     func createRoom(mode: String) async {
-        guard !busy else { return }
+        guard !busy, !accountDeletionPending, !isDeletingAccount else { return }
+        activateProfile()
         busy = true; defer { busy = false }
         rooms.baseURL = serverURL
         do {
@@ -1297,12 +1409,13 @@ struct SoloGame {
 
     @discardableResult
     func joinRoom(_ code: String, reportErrors: Bool = true) async -> String? {
-        guard !busy else { return "処理中です。少し待ってから再試行してください" }
+        guard !busy, !accountDeletionPending, !isDeletingAccount else { return "処理中です。少し待ってから再試行してください" }
         guard let normalized = RoomCode.pastedCode(in: code) else {
             let message = "ルームコードは英字6文字で入力してください"
             if reportErrors { alert = message }
             return message
         }
+        activateProfile()
         busy = true; defer { busy = false }
         rooms.baseURL = serverURL
         do {
@@ -1324,9 +1437,14 @@ struct SoloGame {
     }
 
     func refreshFriends(reportErrors: Bool = true) async {
-        guard serverConfigured else { return }
+        guard serverConfigured, !accountDeletionPending, !isDeletingAccount, cloudProfile?.isDeleted != true else { return }
         rooms.baseURL = serverURL
-        do { friendsState = try await rooms.friends() }
+        let revision = profileAccountRevision
+        do {
+            let state = try await rooms.friends()
+            guard revision == profileAccountRevision, !accountDeletionPending, !isDeletingAccount else { return }
+            friendsState = state
+        }
         catch { if reportErrors { alert = error.localizedDescription } }
     }
 
@@ -1902,6 +2020,7 @@ struct SoloGame {
     }
 
     var canStartSolo: Bool {
+        !accountDeletionPending && !isDeletingAccount &&
         GameSessionAvailability.canStartSolo(gameActive: game != nil, roomActive: room != nil, roomID: roomID)
     }
 

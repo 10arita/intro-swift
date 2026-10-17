@@ -96,7 +96,40 @@ private final class TestRoomProtocol: URLProtocol {
         try await obsoleteProfileResponse()
         try await publicRankPublication()
         try await expiredSessionErrors()
+        try await profileDeletion()
         print("Room action recovery tests passed")
+    }
+
+    @MainActor static func profileDeletion() async throws {
+        let service = makeService()
+        let id = service.profileID
+        let credential = UUID().uuidString
+        Secrets.set(credential, for: "profileRegistration:https://room.test:\(id)")
+        precondition(service.profileDeletionCredentials["https://room.test"] == credential,
+                     "Deletion must retain registration credentials after a lost acknowledgement")
+        TestRoomProtocol.replies = [.init(state: ["deleted": true])]
+        try await service.deleteProfile(id, origin: "https://room.test", credential: credential)
+        precondition(TestRoomProtocol.requests.count == 1 && TestRoomProtocol.requests[0].httpMethod == "DELETE",
+                     "Deleting a profile must never register a new account")
+        precondition(TestRoomProtocol.requests[0].value(forHTTPHeaderField: "Authorization") == "Bearer \(credential)")
+        precondition(TestRoomProtocol.bodies[0]["id"] as? String == id)
+        for reply in [TestRoomProtocol.Reply(state: ["error": "old server"], status: 404),
+                      .init(state: ["deleted": false]), .init(state: ["ok": true])] {
+            TestRoomProtocol.replies = [reply]
+            var failed = false
+            do { try await service.deleteProfile(id, origin: "https://room.test", credential: credential) }
+            catch { failed = true }
+            precondition(failed, "Only an explicit successful deletion response may finish account deletion")
+        }
+        let requestCount = TestRoomProtocol.requests.count
+        do { try await service.deleteProfile(id, origin: "https://user:password@room.test", credential: credential) }
+        catch { }
+        precondition(TestRoomProtocol.requests.count == requestCount, "Credentials must not be sent to malformed deletion origins")
+        service.forgetDeletedProfile(id, origins: ["https://room.test"])
+        precondition(service.profileDeletionCredentials.isEmpty, "Deletion must clear registration and bearer credentials")
+        let oldPlayerID = service.playerId
+        service.resetPlayerIdentity()
+        precondition(service.playerId != oldPlayerID, "Deleted installations must get a fresh multiplayer identity")
     }
 
     @MainActor static func lostAcknowledgement() async throws {

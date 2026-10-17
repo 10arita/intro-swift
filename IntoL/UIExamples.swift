@@ -13,7 +13,11 @@
 
     var body: some View {
       Group {
-        if Self.isPlayFlow(scenario)
+        if scenario.hasPrefix("app-information") {
+          NavigationStack { AppInformationView() }
+        } else if scenario.hasPrefix("account-deletion") {
+          NavigationStack { AccountDeletionView() }
+        } else if Self.isPlayFlow(scenario)
           || scenario.hasPrefix("friends") || scenario.hasPrefix("account") {
           RootView(previewStep: scenario, feedbackReportSender: { _, _ in
             try await Task.sleep(for: .seconds(2))
@@ -69,13 +73,14 @@
     }
 
     @MainActor private static func makeModel(scenario: String) -> AppModel {
-      let model = AppModel(serverURL: "http://127.0.0.1:1", chorusReportSender: { report, url in
+      let model = AppModel(serverURL: "http://127.0.0.1:1", profileSyncEnabled: false, chorusReportSender: { report, url in
         if scenario.contains("report-success") {
           try await Task.sleep(for: .seconds(2))
         } else {
           try await ChorusReportService().send(report, serverURL: url)
         }
       })
+      if scenario.hasPrefix("app-information") || scenario.hasPrefix("account-deletion") { return model }
       if scenario.hasPrefix("account") {
         model.profileSyncStatus = CloudProfileError.notConfigured.localizedDescription
         model.nickname = scenario.contains("long-name") ? "イントロクイズが大好きなプレイヤー" : "プレイヤー"

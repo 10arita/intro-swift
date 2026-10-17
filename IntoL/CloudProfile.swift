@@ -23,6 +23,8 @@ struct ProfileReview: Codable {
 
 struct CloudProfile: Codable {
     var version = 1
+    var resetAt: Date? = nil
+    var isDeleted: Bool? = nil
     var nickname: ProfileValue<String>
     var avatar: ProfileValue<Data?>
     var audio: ProfileValue<ProfileAudioSettings>
@@ -82,6 +84,7 @@ struct CloudProfile: Codable {
     mutating func capture(nickname: String, avatar: Data?, audio: ProfileAudioSettings,
                           reviews: [ReviewSong], history: [SoloResult], stats: PlayerStats,
                           deviceID: String, now: Date = .now) {
+        isDeleted = false
         let reviews = reviews.map(\.portable)
         if self.nickname.value != nickname { self.nickname = .init(value: nickname, modifiedAt: now) }
         if self.avatar.value != avatar { self.avatar = .init(value: avatar, modifiedAt: now) }
@@ -116,7 +119,11 @@ struct CloudProfile: Codable {
 
     // The receiving profile is the server's current version, including its canonical identity.
     func merging(_ local: Self) -> Self {
+        if resetAt != local.resetAt {
+            return (resetAt ?? .distantPast) > (local.resetAt ?? .distantPast) ? self : local
+        }
         var result = self
+        result.isDeleted = isDeleted == true && local.isDeleted == true
         result.nickname = nickname.merging(local.nickname)
         result.avatar = avatar.merging(local.avatar)
         result.audio = audio.merging(local.audio)
@@ -184,8 +191,16 @@ struct CloudProfile: Codable {
         return try encoder.encode(self)
     }
 
+    static func deletionMarker(after previousReset: Date? = nil, now: Date = .now) -> Self {
+        var marker = CloudProfile()
+        marker.resetAt = max(now, previousReset?.addingTimeInterval(0.001) ?? .distantPast)
+        marker.isDeleted = true
+        marker.counters = [:]
+        return marker
+    }
+
     private enum CodingKeys: String, CodingKey {
-        case version, nickname, avatar, audio, selectedBadge, reviewEntries, history, counters
+        case version, resetAt, isDeleted, nickname, avatar, audio, selectedBadge, reviewEntries, history, counters
         case serverProfileID, serverCredentials, importedLegacyProfiles, roomStatisticsByDevice
         case rankRecords
     }
@@ -193,6 +208,8 @@ struct CloudProfile: Codable {
     func encode(to encoder: Encoder) throws {
         var values = encoder.container(keyedBy: CodingKeys.self)
         try values.encode(version, forKey: .version)
+        try values.encodeIfPresent(resetAt, forKey: .resetAt)
+        try values.encodeIfPresent(isDeleted, forKey: .isDeleted)
         try values.encode(nickname, forKey: .nickname)
         try values.encode(avatar, forKey: .avatar)
         try values.encode(audio, forKey: .audio)
